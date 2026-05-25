@@ -1,305 +1,649 @@
-import { useNavigation, useRoute } from "@react-navigation/native";
-import { RouteProp } from "@react-navigation/native";
+import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { FilterChip } from "../components/FilterChip";
+import { Ionicons } from "@expo/vector-icons";
+import { BookCover } from "../components/BookCover";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
+import { ReadingFormat } from "../types/models";
 import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
-import { DifficultyLevel, ReadingFormat } from "../types/models";
 
-const moods = ["absorbed", "curious", "cozy", "restless", "reflective", "delighted"];
-const locations = ["Bedroom chair", "Cafe window", "Sofa", "Train", "Park bench", "Library"];
-const formats: ReadingFormat[] = ["physical", "kindle", "audiobook"];
-const difficulties: DifficultyLevel[] = ["easy", "moderate", "challenging", "demanding"];
+const FORMAT_OPTIONS: { value: ReadingFormat; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { value: "physical",  label: "Physical",  icon: "book-outline" },
+  { value: "kindle",    label: "Kindle",    icon: "tablet-portrait-outline" },
+  { value: "audiobook", label: "Audiobook", icon: "headset-outline" }
+];
+
+const QUICK_MINUTES = [15, 30, 45, 60, 90, 120];
 
 export function AddReadingSessionScreen() {
   const route = useRoute<RouteProp<RootStackParamList, "AddReadingSession">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { addReadingSession, books, getBook } = useBooklio();
-  const preferredBook = route.params?.bookId ?? books.find((book) => book.userStatus.status === "reading")?.id ?? books[0]?.id;
-  const [bookId, setBookId] = useState(preferredBook);
+  const { addReadingSession, books, getBook, getAuthor } = useBooklio();
+
+  const preferredBookId =
+    route.params?.bookId ??
+    books.find((b) => b.userStatus.status === "reading")?.id ??
+    books[0]?.id;
+
+  const [bookId, setBookId] = useState(preferredBookId);
   const selectedBook = getBook(bookId);
-  const [date, setDate] = useState("2026-05-24");
-  const [startPage, setStartPage] = useState(selectedBook ? String(Math.max(1, Math.round((selectedBook.userStatus.progressPercent / 100) * selectedBook.pages) + 1)) : "1");
-  const [endPage, setEndPage] = useState(selectedBook ? String(Math.min(selectedBook.pages, Number(startPage) + 32)) : "32");
-  const [minutesRead, setMinutesRead] = useState("45");
-  const [location, setLocation] = useState(locations[0]);
-  const [mood, setMood] = useState(moods[0]);
-  const [format, setFormat] = useState<ReadingFormat>(selectedBook?.format ?? "physical");
-  const [difficulty, setDifficulty] = useState<DifficultyLevel>("moderate");
-  const [enjoymentRating, setEnjoymentRating] = useState("8");
-  const [notes, setNotes] = useState("");
-  const [favoriteQuote, setFavoriteQuote] = useState("");
-  const pagesRead = Math.max(0, Number(endPage) - Number(startPage) + 1);
-  const speed = Number(minutesRead) > 0 ? Math.round((pagesRead / Number(minutesRead)) * 60) : 0;
-  const progress = selectedBook ? Math.min(100, Math.round((Number(endPage) / selectedBook.pages) * 100)) : 0;
-  const selectBookForSession = (nextBookId: string) => {
-    const nextBook = getBook(nextBookId);
-    setBookId(nextBookId);
-    if (!nextBook) return;
-    const nextStartPage = Math.max(1, Math.round((nextBook.userStatus.progressPercent / 100) * nextBook.pages) + 1);
-    setStartPage(String(nextStartPage));
-    setEndPage(String(Math.min(nextBook.pages, nextStartPage + 32)));
-    setFormat(nextBook.format);
+
+  const totalPages = selectedBook?.pages ?? 1;
+
+  // ── Page mode (Physical / Kindle) ────────────────────────────────────
+  const lastPage = selectedBook
+    ? Math.max(1, Math.round((selectedBook.userStatus.progressPercent / 100) * selectedBook.pages))
+    : 1;
+  const [currentPage, setCurrentPage] = useState(
+    lastPage + 30 > totalPages ? totalPages : lastPage + 30
+  );
+  const pagesRead = Math.max(0, currentPage - lastPage);
+  const progressPct = Math.min(100, Math.round((currentPage / totalPages) * 100));
+
+  const nudgePage = (delta: number) => {
+    setCurrentPage((p) => Math.min(totalPages, Math.max(lastPage, p + delta)));
   };
+
+  // ── Audiobook mode ────────────────────────────────────────────────────
+  const lastPct = selectedBook?.userStatus.progressPercent ?? 0;
+  const [currentPct, setCurrentPct] = useState(lastPct);
+  const gainedPct = Math.max(0, currentPct - lastPct);
+
+  const nudgePct = (delta: number) => {
+    setCurrentPct((p) => Math.min(100, Math.max(lastPct, p + delta)));
+  };
+
+  // ── Shared ────────────────────────────────────────────────────────────
+  const [minutes, setMinutes] = useState(45);
+  const [customMinutes, setCustomMinutes] = useState("");
+  const [useCustom, setUseCustom] = useState(false);
+  const [format, setFormat] = useState<ReadingFormat>(selectedBook?.format ?? "physical");
+
+  const isAudiobook = format === "audiobook";
+  const effectiveMinutes = useCustom ? Number(customMinutes) || 0 : minutes;
+  const speed = !isAudiobook && effectiveMinutes > 0
+    ? Math.round((pagesRead / effectiveMinutes) * 60)
+    : 0;
+
+  const switchBook = (book: typeof selectedBook) => {
+    if (!book) return;
+    setBookId(book.id);
+    const lp = Math.max(1, Math.round((book.userStatus.progressPercent / 100) * book.pages));
+    setCurrentPage(Math.min(book.pages, lp + 30));
+    setCurrentPct(book.userStatus.progressPercent);
+  };
+
+  const handleSave = () => {
+    if (!selectedBook) return;
+
+    if (isAudiobook) {
+      if (gainedPct === 0) {
+        Alert.alert("No progress logged", "Move the progress forward to log your session.");
+        return;
+      }
+      const startPage = Math.round((lastPct / 100) * totalPages);
+      const endPage = Math.round((currentPct / 100) * totalPages);
+      addReadingSession({
+        bookId,
+        date: new Date().toISOString().split("T")[0],
+        startPage,
+        endPage,
+        minutesRead: effectiveMinutes,
+        location: "—", mood: "—", format, notes: "",
+        difficulty: "moderate", enjoymentRating: 7
+      });
+      Alert.alert(
+        "Session logged!",
+        `+${gainedPct}% progress · ${effectiveMinutes} min listened`,
+        [{ text: "Done", onPress: () => navigation.goBack() }]
+      );
+      return;
+    }
+
+    // Physical / Kindle
+    if (pagesRead === 0) {
+      Alert.alert("No pages logged", "Move the page forward to log a session.");
+      return;
+    }
+    addReadingSession({
+      bookId,
+      date: new Date().toISOString().split("T")[0],
+      startPage: lastPage,
+      endPage: currentPage,
+      minutesRead: effectiveMinutes,
+      location: "—", mood: "—", format, notes: "",
+      difficulty: "moderate", enjoymentRating: 7
+    });
+    Alert.alert(
+      "Session logged!",
+      `${pagesRead} pages · ${speed} pp/h · ${progressPct}% through the book`,
+      [{ text: "Done", onPress: () => navigation.goBack() }]
+    );
+  };
+
+  const readingBooks = books.filter((b) => b.userStatus.status === "reading");
+  const otherBooks   = books.filter((b) => b.userStatus.status !== "reading");
+
+  const hasProgress = isAudiobook ? gainedPct > 0 : pagesRead > 0;
 
   return (
     <Screen>
-      <View style={styles.hero}>
-        <Text style={styles.eyebrow}>Add session</Text>
-        <Text style={styles.title}>Log the reading, not just the book.</Text>
-        <Text style={styles.subtitle}>Pages, minutes, place, mood, quote, speed, and progress update together.</Text>
-      </View>
+      {/* Book selector */}
+      {readingBooks.length + otherBooks.length > 1 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.bookRail}>
+          {[...readingBooks, ...otherBooks].map((book) => (
+            <Pressable
+              key={book.id}
+              style={[styles.bookChip, bookId === book.id && styles.bookChipActive]}
+              onPress={() => switchBook(book)}
+            >
+              <Text
+                style={[styles.bookChipText, bookId === book.id && styles.bookChipTextActive]}
+                numberOfLines={1}
+              >
+                {book.title}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
 
-      <Text style={styles.label}>Book</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.rail}>
-        {books.map((book) => (
-          <FilterChip key={book.id} label={book.title} selected={bookId === book.id} onPress={() => selectBookForSession(book.id)} />
-        ))}
-      </ScrollView>
+      {/* Book hero */}
+      {selectedBook ? (
+        <View style={styles.bookHero}>
+          <BookCover book={selectedBook} size="md" />
+          <View style={styles.bookInfo}>
+            <Text style={styles.bookTitle} numberOfLines={2}>{selectedBook.title}</Text>
+            <Text style={styles.bookAuthor}>{getAuthor(selectedBook.authorId)?.name}</Text>
+            {!isAudiobook && (
+              <Text style={styles.bookMeta}>{selectedBook.pages} pages total</Text>
+            )}
+            <View style={styles.progressBar}>
+              {isAudiobook ? (
+                <>
+                  <View style={[styles.progressFill, { width: `${lastPct}%` }]} />
+                  {gainedPct > 0 && (
+                    <View style={[styles.progressNew, { left: `${lastPct}%`, width: `${gainedPct}%` }]} />
+                  )}
+                </>
+              ) : (
+                <>
+                  <View style={[styles.progressFill, { width: `${Math.round((lastPage / totalPages) * 100)}%` }]} />
+                  {pagesRead > 0 && (
+                    <View style={[styles.progressNew, {
+                      left: `${Math.round((lastPage / totalPages) * 100)}%`,
+                      width: `${Math.round((pagesRead / totalPages) * 100)}%`
+                    }]} />
+                  )}
+                </>
+              )}
+            </View>
+            <Text style={styles.progressLabel}>
+              {isAudiobook ? `${currentPct}% complete` : `${progressPct}% complete`}
+            </Text>
+          </View>
+        </View>
+      ) : null}
 
-      <View style={styles.formGrid}>
-        <Field label="Date" value={date} onChangeText={setDate} />
-        <Field label="Start page" keyboardType="number-pad" value={startPage} onChangeText={setStartPage} />
-        <Field label="End page" keyboardType="number-pad" value={endPage} onChangeText={setEndPage} />
-        <Field label="Minutes read" keyboardType="number-pad" value={minutesRead} onChangeText={setMinutesRead} />
-      </View>
-
-      <ChoiceRail label="Location" options={locations} selected={location} onSelect={setLocation} />
-      <ChoiceRail label="Mood" options={moods} selected={mood} onSelect={setMood} />
-      <ChoiceRail label="Format" options={formats} selected={format} onSelect={setFormat} />
-      <ChoiceRail label="Difficulty" options={difficulties} selected={difficulty} onSelect={setDifficulty} />
-
-      <Text style={styles.label}>Enjoyment rating</Text>
-      <View style={styles.ratingRow}>
-        {Array.from({ length: 10 }, (_, index) => index + 1).map((rating) => (
-          <Pressable key={rating} style={[styles.ratingPill, Number(enjoymentRating) === rating && styles.ratingPillActive]} onPress={() => setEnjoymentRating(String(rating))}>
-            <Text style={[styles.ratingText, Number(enjoymentRating) === rating && styles.ratingTextActive]}>{rating}</Text>
+      {/* Format chips — placed before the stepper so the stepper adapts */}
+      <View style={styles.formatRow}>
+        {FORMAT_OPTIONS.map((opt) => (
+          <Pressable
+            key={opt.value}
+            style={[styles.formatChip, format === opt.value && styles.formatChipActive]}
+            onPress={() => setFormat(opt.value)}
+          >
+            <Ionicons
+              name={opt.icon}
+              size={15}
+              color={format === opt.value ? colors.card : colors.muted}
+            />
+            <Text style={[styles.formatChipText, format === opt.value && styles.formatChipTextActive]}>
+              {opt.label}
+            </Text>
           </Pressable>
         ))}
       </View>
 
-      <Text style={styles.label}>Notes</Text>
-      <TextInput multiline placeholder="What happened in this session?" placeholderTextColor={colors.gray} style={styles.textArea} value={notes} onChangeText={setNotes} />
-      <Text style={styles.label}>Favorite quote</Text>
-      <TextInput multiline placeholder="Capture a line worth keeping." placeholderTextColor={colors.gray} style={styles.textArea} value={favoriteQuote} onChangeText={setFavoriteQuote} />
+      {/* ── Audiobook: progress % stepper ── */}
+      {isAudiobook ? (
+        <View style={styles.stepperCard}>
+          <Text style={styles.stepperLabel}>I listened up to</Text>
+          <View style={styles.stepper}>
+            <Pressable style={styles.stepBtn} onPress={() => nudgePct(-5)}>
+              <Text style={styles.stepBtnText}>−5%</Text>
+            </Pressable>
+            <Pressable style={styles.stepBtnSm} onPress={() => nudgePct(-1)}>
+              <Ionicons name="remove" size={18} color={colors.navy} />
+            </Pressable>
+            <View style={styles.pageDisplay}>
+              <Text style={styles.pageNumber}>{currentPct}%</Text>
+              <Text style={styles.pageOf}>of the book</Text>
+            </View>
+            <Pressable style={styles.stepBtnSm} onPress={() => nudgePct(1)}>
+              <Ionicons name="add" size={18} color={colors.navy} />
+            </Pressable>
+            <Pressable style={styles.stepBtn} onPress={() => nudgePct(5)}>
+              <Text style={styles.stepBtnText}>+5%</Text>
+            </Pressable>
+          </View>
+          {gainedPct > 0 && (
+            <Text style={styles.pagesReadPill}>+{gainedPct}% from last session</Text>
+          )}
+        </View>
+      ) : (
+        /* ── Physical / Kindle: page stepper ── */
+        <View style={styles.stepperCard}>
+          <Text style={styles.stepperLabel}>I read up to page</Text>
+          <View style={styles.stepper}>
+            <Pressable style={styles.stepBtn} onPress={() => nudgePage(-10)}>
+              <Text style={styles.stepBtnText}>−10</Text>
+            </Pressable>
+            <Pressable style={styles.stepBtnSm} onPress={() => nudgePage(-1)}>
+              <Ionicons name="remove" size={18} color={colors.navy} />
+            </Pressable>
+            <View style={styles.pageDisplay}>
+              <Text style={styles.pageNumber}>{currentPage}</Text>
+              <Text style={styles.pageOf}>/ {totalPages}</Text>
+            </View>
+            <Pressable style={styles.stepBtnSm} onPress={() => nudgePage(1)}>
+              <Ionicons name="add" size={18} color={colors.navy} />
+            </Pressable>
+            <Pressable style={styles.stepBtn} onPress={() => nudgePage(10)}>
+              <Text style={styles.stepBtnText}>+10</Text>
+            </Pressable>
+          </View>
+          {pagesRead > 0 && (
+            <Text style={styles.pagesReadPill}>+{pagesRead} pages from last session</Text>
+          )}
+        </View>
+      )}
 
-      <View style={styles.calcCard}>
-        <Text style={styles.calcTitle}>Auto-calculated</Text>
-        <Text style={styles.calcLine}>{pagesRead} pages read</Text>
-        <Text style={styles.calcLine}>{speed} pages per hour</Text>
-        <Text style={styles.calcLine}>{progress}% book progress after save</Text>
+      {/* Time chips */}
+      <View style={styles.minutesCard}>
+        <Text style={styles.minutesLabel}>
+          {isAudiobook ? "Time listened" : "Time spent"}
+        </Text>
+        <View style={styles.minutesRow}>
+          {QUICK_MINUTES.map((m) => (
+            <Pressable
+              key={m}
+              style={[styles.minuteChip, !useCustom && minutes === m && styles.minuteChipActive]}
+              onPress={() => { setMinutes(m); setUseCustom(false); }}
+            >
+              <Text style={[styles.minuteChipText, !useCustom && minutes === m && styles.minuteChipTextActive]}>
+                {m < 60 ? `${m}m` : `${m / 60}h`}
+              </Text>
+            </Pressable>
+          ))}
+          <Pressable
+            style={[styles.minuteChip, useCustom && styles.minuteChipActive]}
+            onPress={() => setUseCustom(true)}
+          >
+            <Text style={[styles.minuteChipText, useCustom && styles.minuteChipTextActive]}>
+              {useCustom && customMinutes ? `${customMinutes}m` : "Other"}
+            </Text>
+          </Pressable>
+        </View>
+        {useCustom && (
+          <TextInput
+            autoFocus
+            keyboardType="number-pad"
+            placeholder="Minutes..."
+            placeholderTextColor={colors.gray}
+            style={styles.customInput}
+            value={customMinutes}
+            onChangeText={setCustomMinutes}
+          />
+        )}
       </View>
 
-      <Pressable
-        style={styles.saveButton}
-        onPress={() => {
-          if (!selectedBook) return;
-          const session = addReadingSession({
-            bookId,
-            date,
-            startPage: Number(startPage),
-            endPage: Number(endPage),
-            minutesRead: Number(minutesRead),
-            location,
-            mood,
-            format,
-            notes: notes || "Logged from Booklio mobile.",
-            favoriteQuote: favoriteQuote || undefined,
-            difficulty,
-            enjoymentRating: Number(enjoymentRating)
-          });
-          Alert.alert("Session logged", `${session.pagesRead} pages at ${session.pagesPerHour} pages/hour. Progress updated to ${progress}%.`);
-          navigation.navigate("ReadingLog", { bookId });
-        }}
-      >
-        <Text style={styles.saveButtonText}>Save Reading Session</Text>
+      {/* Stats strip */}
+      {hasProgress && effectiveMinutes > 0 && (
+        <View style={styles.statsRow}>
+          {isAudiobook ? (
+            <>
+              <View style={styles.statItem}>
+                <Text style={styles.statVal}>{effectiveMinutes}m</Text>
+                <Text style={styles.statLbl}>listened</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={[styles.statVal, { color: colors.green }]}>{currentPct}%</Text>
+                <Text style={styles.statLbl}>progress</Text>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.statItem}>
+                <Text style={styles.statVal}>{pagesRead}</Text>
+                <Text style={styles.statLbl}>pages</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statVal}>{speed}</Text>
+                <Text style={styles.statLbl}>pp/h</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={[styles.statVal, { color: colors.green }]}>{progressPct}%</Text>
+                <Text style={styles.statLbl}>progress</Text>
+              </View>
+            </>
+          )}
+        </View>
+      )}
+
+      {/* Save */}
+      <Pressable style={[styles.saveButton, !hasProgress && styles.saveButtonDisabled]} onPress={handleSave}>
+        <Text style={styles.saveButtonText}>
+          {hasProgress
+            ? "Save Session"
+            : isAudiobook
+              ? "Adjust progress to log"
+              : "Adjust the page to log"}
+        </Text>
       </Pressable>
     </Screen>
   );
 }
 
-type FieldProps = {
-  label: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  keyboardType?: "default" | "number-pad";
-};
-
-function Field({ label, value, onChangeText, keyboardType = "default" }: FieldProps) {
-  return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput keyboardType={keyboardType} style={styles.input} value={value} onChangeText={onChangeText} />
-    </View>
-  );
-}
-
-type ChoiceRailProps<T extends string> = {
-  label: string;
-  options: T[];
-  selected: T;
-  onSelect: (value: T) => void;
-};
-
-function ChoiceRail<T extends string>({ label, options, selected, onSelect }: ChoiceRailProps<T>) {
-  return (
-    <>
-      <Text style={styles.label}>{label}</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.rail}>
-        {options.map((option) => (
-          <FilterChip key={option} label={option} selected={selected === option} onPress={() => onSelect(option)} />
-        ))}
-      </ScrollView>
-    </>
-  );
-}
-
 const styles = StyleSheet.create({
-  hero: {
-    ...shadows.card,
-    backgroundColor: colors.navy,
-    borderRadius: radii.lg,
-    marginBottom: spacing.md,
-    padding: spacing.lg
+  bookRail: {
+    marginBottom: spacing.md
   },
-  eyebrow: {
-    color: colors.gold,
+  bookChip: {
+    borderColor: colors.border,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    marginRight: spacing.sm,
+    maxWidth: 160,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8
+  },
+  bookChipActive: {
+    backgroundColor: colors.navy,
+    borderColor: colors.navy
+  },
+  bookChipText: {
+    color: colors.ink,
     fontFamily: fonts.body,
-    fontSize: 12,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  bookChipTextActive: {
+    color: colors.card
+  },
+  bookHero: {
+    ...shadows.card,
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    marginBottom: spacing.md,
+    padding: spacing.md
+  },
+  bookInfo: {
+    flex: 1
+  },
+  bookTitle: {
+    color: colors.navy,
+    fontFamily: fonts.display,
+    fontSize: 17,
     fontWeight: "900",
-    letterSpacing: 1.4,
+    lineHeight: 21
+  },
+  bookAuthor: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    marginTop: 3
+  },
+  bookMeta: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 11,
+    marginTop: 2
+  },
+  progressBar: {
+    backgroundColor: "#EEE7DB",
+    borderRadius: radii.pill,
+    height: 8,
+    marginTop: spacing.sm,
+    overflow: "hidden",
+    position: "relative"
+  },
+  progressFill: {
+    backgroundColor: "#D5CCBE",
+    borderRadius: radii.pill,
+    height: "100%",
+    position: "absolute"
+  },
+  progressNew: {
+    backgroundColor: colors.teal,
+    height: "100%",
+    position: "absolute"
+  },
+  progressLabel: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 4
+  },
+  stepperCard: {
+    ...shadows.card,
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.lg
+  },
+  stepperLabel: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    marginBottom: spacing.md,
     textTransform: "uppercase"
   },
-  title: {
-    color: colors.card,
-    fontFamily: fonts.display,
-    fontSize: 33,
-    fontWeight: "900",
-    lineHeight: 37,
-    marginTop: spacing.sm
+  stepper: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm
   },
-  subtitle: {
-    color: "#D8D2C8",
-    fontFamily: fonts.body,
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: spacing.sm
+  stepBtn: {
+    alignItems: "center",
+    backgroundColor: colors.cream,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
   },
-  label: {
+  stepBtnText: {
     color: colors.navy,
     fontFamily: fonts.body,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  stepBtnSm: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  pageDisplay: {
+    alignItems: "center",
+    minWidth: 90
+  },
+  pageNumber: {
+    color: colors.navy,
+    fontFamily: fonts.display,
+    fontSize: 52,
+    fontWeight: "900",
+    lineHeight: 56
+  },
+  pageOf: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  pagesReadPill: {
+    backgroundColor: colors.teal + "22",
+    borderRadius: radii.pill,
+    color: colors.tealDark,
+    fontFamily: fonts.body,
     fontSize: 12,
+    fontWeight: "900",
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6
+  },
+  minutesCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+    padding: spacing.md
+  },
+  minutesLabel: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 11,
     fontWeight: "900",
     letterSpacing: 1,
     marginBottom: spacing.sm,
-    marginTop: spacing.md,
     textTransform: "uppercase"
   },
-  rail: {
-    marginBottom: spacing.sm
-  },
-  formGrid: {
+  minutesRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.md
+    gap: spacing.xs
   },
-  field: {
-    width: "47%"
+  minuteChip: {
+    borderColor: colors.border,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 9
   },
-  fieldLabel: {
-    color: colors.muted,
+  minuteChipActive: {
+    backgroundColor: colors.navy,
+    borderColor: colors.navy
+  },
+  minuteChipText: {
+    color: colors.ink,
     fontFamily: fonts.body,
-    fontSize: 12,
-    fontWeight: "800",
-    marginBottom: 6
+    fontSize: 13,
+    fontWeight: "900"
   },
-  input: {
-    backgroundColor: colors.card,
+  minuteChipTextActive: {
+    color: colors.card
+  },
+  customInput: {
+    backgroundColor: "#F7F4EF",
     borderColor: colors.border,
     borderRadius: radii.md,
     borderWidth: 1,
     color: colors.ink,
     fontFamily: fonts.body,
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "800",
+    marginTop: spacing.sm,
     padding: spacing.md
   },
-  ratingRow: {
+  formatRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 7
+    gap: spacing.sm,
+    marginBottom: spacing.md
   },
-  ratingPill: {
+  formatChip: {
     alignItems: "center",
-    backgroundColor: colors.card,
     borderColor: colors.border,
     borderRadius: radii.pill,
     borderWidth: 1,
-    height: 34,
+    flex: 1,
+    flexDirection: "row",
+    gap: 6,
     justifyContent: "center",
-    width: 34
+    paddingVertical: 10
   },
-  ratingPillActive: {
-    backgroundColor: colors.gold,
-    borderColor: colors.gold
+  formatChipActive: {
+    backgroundColor: colors.navy,
+    borderColor: colors.navy
   },
-  ratingText: {
+  formatChipText: {
     color: colors.muted,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "900"
   },
-  ratingTextActive: {
-    color: colors.navy
+  formatChipTextActive: {
+    color: colors.card
   },
-  textArea: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+  statsRow: {
+    ...shadows.card,
+    alignItems: "center",
+    backgroundColor: colors.navy,
     borderRadius: radii.lg,
-    borderWidth: 1,
-    color: colors.ink,
-    fontFamily: fonts.body,
-    fontSize: 15,
-    minHeight: 96,
-    padding: spacing.md,
-    textAlignVertical: "top"
+    flexDirection: "row",
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
   },
-  calcCard: {
-    backgroundColor: "#EFE6D7",
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    marginTop: spacing.lg,
-    padding: spacing.md
+  statItem: {
+    alignItems: "center",
+    flex: 1
   },
-  calcTitle: {
-    color: colors.navy,
+  statVal: {
+    color: colors.card,
     fontFamily: fonts.display,
-    fontSize: 22,
-    fontWeight: "900",
-    marginBottom: 8
+    fontSize: 26,
+    fontWeight: "900"
   },
-  calcLine: {
-    color: colors.ink,
+  statLbl: {
+    color: "rgba(255,255,255,0.55)",
     fontFamily: fonts.body,
-    fontSize: 14,
+    fontSize: 11,
     fontWeight: "800",
-    lineHeight: 24
+    marginTop: 2
+  },
+  statDivider: {
+    backgroundColor: "rgba(255,255,255,0.15)",
+    height: 36,
+    width: 1
   },
   saveButton: {
     backgroundColor: colors.navy,
     borderRadius: radii.pill,
-    marginTop: spacing.lg,
     paddingVertical: 16
+  },
+  saveButtonDisabled: {
+    backgroundColor: colors.gray,
+    opacity: 0.5
   },
   saveButtonText: {
     color: colors.card,
     fontFamily: fonts.body,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "900",
     textAlign: "center"
   }

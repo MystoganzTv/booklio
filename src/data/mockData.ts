@@ -99,6 +99,7 @@ export const books: Book[] = [
     isbn: "9780547773742",
     format: "physical",
     coverGradient: ["#314E52", "#D4A95E"],
+    coverImageUri: "https://covers.openlibrary.org/b/isbn/9780547773742-L.jpg",
     userStatus: {
       status: "read",
       ownership: "owned",
@@ -131,6 +132,7 @@ export const books: Book[] = [
     isbn: "9780689845369",
     format: "physical",
     coverGradient: ["#2F2933", "#8E7DBE"],
+    coverImageUri: "https://covers.openlibrary.org/b/isbn/9780689845369-L.jpg",
     userStatus: {
       status: "reading",
       ownership: "owned",
@@ -162,6 +164,7 @@ export const books: Book[] = [
     isbn: "9780689845345",
     format: "physical",
     coverGradient: ["#1E3A5F", "#A8A29E"],
+    coverImageUri: "https://covers.openlibrary.org/b/isbn/9780689845345-L.jpg",
     userStatus: {
       status: "want-to-read",
       ownership: "not-owned",
@@ -190,6 +193,7 @@ export const books: Book[] = [
     isbn: "9780765326355",
     format: "kindle",
     coverGradient: ["#243B55", "#8CA6DB"],
+    coverImageUri: "https://covers.openlibrary.org/b/isbn/9780765326355-L.jpg",
     userStatus: {
       status: "read",
       ownership: "owned",
@@ -222,6 +226,7 @@ export const books: Book[] = [
     isbn: "9780765326362",
     format: "kindle",
     coverGradient: ["#5C6B73", "#D4A95E"],
+    coverImageUri: "https://covers.openlibrary.org/b/isbn/9780765326362-L.jpg",
     userStatus: {
       status: "want-to-buy",
       ownership: "not-owned",
@@ -245,6 +250,7 @@ export const books: Book[] = [
     isbn: "9780063021426",
     format: "physical",
     coverGradient: ["#1F2937", "#C9A227"],
+    coverImageUri: "https://covers.openlibrary.org/b/isbn/9780063021426-L.jpg",
     userStatus: {
       status: "read",
       ownership: "owned",
@@ -272,6 +278,7 @@ export const books: Book[] = [
     isbn: "9780385534635",
     format: "physical",
     coverGradient: ["#111827", "#F8F3EA"],
+    coverImageUri: "https://covers.openlibrary.org/b/isbn/9780385534635-L.jpg",
     userStatus: {
       status: "dnf",
       ownership: "owned",
@@ -296,6 +303,7 @@ export const books: Book[] = [
     isbn: "9780156027328",
     format: "physical",
     coverGradient: ["#0E7490", "#F97316"],
+    coverImageUri: "https://covers.openlibrary.org/b/isbn/9780156027328-L.jpg",
     userStatus: {
       status: "read",
       ownership: "owned",
@@ -328,6 +336,7 @@ export const books: Book[] = [
     isbn: "9780316229296",
     format: "kindle",
     coverGradient: ["#3B2F2F", "#C08457"],
+    coverImageUri: "https://covers.openlibrary.org/b/isbn/9780316229296-L.jpg",
     userStatus: {
       status: "reading",
       ownership: "owned",
@@ -359,6 +368,7 @@ export const books: Book[] = [
     isbn: "9780316229265",
     format: "kindle",
     coverGradient: ["#4B5563", "#93C5FD"],
+    coverImageUri: "https://covers.openlibrary.org/b/isbn/9780316229265-L.jpg",
     userStatus: {
       status: "wishlist",
       ownership: "not-owned",
@@ -382,6 +392,7 @@ export const books: Book[] = [
     isbn: "9781400078776",
     format: "physical",
     coverGradient: ["#E7DCCB", "#64748B"],
+    coverImageUri: "https://covers.openlibrary.org/b/isbn/9781400078776-L.jpg",
     userStatus: {
       status: "want-to-read",
       ownership: "not-owned",
@@ -405,6 +416,7 @@ export const books: Book[] = [
     isbn: "9780593135204",
     format: "audiobook",
     coverGradient: ["#0B1120", "#22D3EE"],
+    coverImageUri: "https://covers.openlibrary.org/b/isbn/9780593135204-L.jpg",
     userStatus: {
       status: "read",
       ownership: "owned",
@@ -437,6 +449,7 @@ export const books: Book[] = [
     isbn: "9781250319180",
     format: "physical",
     coverGradient: ["#312E81", "#F59E0B"],
+    coverImageUri: "https://covers.openlibrary.org/b/isbn/9781250319180-L.jpg",
     upcomingReleaseDate: "2024-12-06",
     userStatus: {
       status: "upcoming-release",

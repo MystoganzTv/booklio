@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from "react";
 import { authors as authorSeed, books as bookSeed, readingSessions as sessionSeed, recommendations, series, userProfile } from "./mockData";
-import { Author, Book, NewBookInput, NewReadingSessionInput, ReadingSession } from "../types/models";
+import { Author, Book, CoreTrackingStatus, NewBookInput, NewReadingSessionInput, ReadingSession, UpdateUserProfileInput, UserProfile } from "../types/models";
 
 type MonthBucket = {
   label: string;
@@ -49,9 +49,11 @@ type BooklioContextValue = {
   readingSessions: ReadingSession[];
   recommendations: typeof recommendations;
   series: typeof series;
-  userProfile: typeof userProfile;
+  userProfile: UserProfile;
   addBook: (input: NewBookInput) => Book;
   addReadingSession: (input: NewReadingSessionInput) => ReadingSession;
+  updateBookStatus: (bookId: string, status: CoreTrackingStatus, rating?: number) => void;
+  updateUserProfile: (input: UpdateUserProfileInput) => void;
   getAuthor: (authorId: string) => Author | undefined;
   getBook: (bookId: string) => Book | undefined;
   getBookStats: (bookId: string) => BookStats;
@@ -66,7 +68,29 @@ type PersistedBooklioState = {
   authors: Author[];
   books: Book[];
   readingSessions: ReadingSession[];
+  userProfile: UserProfile;
 };
+
+const mergeSeedBookMetadata = (books: Book[]) =>
+  books.map((book) => {
+    const seedMatch = bookSeed.find((seed) => seed.id === book.id || (seed.isbn && seed.isbn === book.isbn));
+    if (!seedMatch) {
+      return book;
+    }
+
+    return {
+      ...seedMatch,
+      ...book,
+      coverImageUri: book.coverImageUri ?? seedMatch.coverImageUri,
+      coverGradient: book.coverGradient?.length ? book.coverGradient : seedMatch.coverGradient,
+      synopsis: book.synopsis || seedMatch.synopsis,
+      publisher: book.publisher || seedMatch.publisher,
+      userStatus: {
+        ...seedMatch.userStatus,
+        ...book.userStatus
+      }
+    };
+  });
 
 const sameYear = (date: string, year: number) => new Date(date).getFullYear() === year;
 
@@ -102,7 +126,8 @@ const calculateStreaks = (sessions: ReadingSession[]) => {
   }
 
   const newest = new Date(`${uniqueDates[0]}T00:00:00`);
-  const today = new Date("2026-05-24T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   let currentStreak = daysBetween(today, newest) <= 1 ? 1 : 0;
   for (let index = 1; currentStreak > 0 && index < uniqueDates.length; index += 1) {
     const previous = new Date(`${uniqueDates[index - 1]}T00:00:00`);
@@ -153,7 +178,7 @@ const colorsFromSource = (source: NewBookInput["source"]) => {
 
 const buildOverallStats = (books: Book[], sessions: ReadingSession[], authors: Author[]): OverallStats => {
   const totalBooksRead = books.filter((book) => book.userStatus.status === "read").length;
-  const booksReadThisYear = books.filter((book) => book.userStatus.finishDate && sameYear(book.userStatus.finishDate, 2026)).length;
+  const booksReadThisYear = books.filter((book) => book.userStatus.finishDate && sameYear(book.userStatus.finishDate, new Date().getFullYear())).length;
   const pagesRead = sessions.reduce((sum, session) => sum + session.pagesRead, 0);
   const minutesRead = sessions.reduce((sum, session) => sum + session.minutesRead, 0);
   const totalSessions = sessions.length;
@@ -247,6 +272,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
   const [authors, setAuthors] = useState<Author[]>(authorSeed);
   const [books, setBooks] = useState<Book[]>(bookSeed);
   const [readingSessions, setReadingSessions] = useState<ReadingSession[]>(sessionSeed);
+  const [profile, setProfile] = useState<UserProfile>(userProfile);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
@@ -261,8 +287,9 @@ export function BooklioProvider({ children }: PropsWithChildren) {
 
         const parsed = JSON.parse(saved) as PersistedBooklioState;
         setAuthors(parsed.authors?.length ? parsed.authors : authorSeed);
-        setBooks(parsed.books?.length ? parsed.books : bookSeed);
+        setBooks(parsed.books?.length ? mergeSeedBookMetadata(parsed.books) : bookSeed);
         setReadingSessions(parsed.readingSessions?.length ? parsed.readingSessions : sessionSeed);
+        setProfile(parsed.userProfile?.id ? { ...userProfile, ...parsed.userProfile } : userProfile);
       } catch (error) {
         console.warn("Booklio could not hydrate local library", error);
       } finally {
@@ -284,7 +311,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
     }
 
     const persist = async () => {
-      const state: PersistedBooklioState = { authors, books, readingSessions };
+      const state: PersistedBooklioState = { authors, books, readingSessions, userProfile: profile };
       try {
         await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       } catch (error) {
@@ -293,7 +320,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
     };
 
     persist();
-  }, [authors, books, hydrated, readingSessions]);
+  }, [authors, books, hydrated, profile, readingSessions]);
 
   const value = useMemo<BooklioContextValue>(() => {
     const getBook = (bookId: string) => books.find((book) => book.id === bookId);
@@ -336,7 +363,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
     };
 
     const addBook = (input: NewBookInput) => {
-      const authorName = input.authorName.trim() || "Autor por identificar";
+      const authorName = input.authorName.trim() || "Author to identify";
       const existingAuthor = authors.find((author) => author.name.toLowerCase() === authorName.toLowerCase());
       const authorId = existingAuthor?.id ?? `a-${slugify(authorName)}-${Date.now()}`;
 
@@ -346,25 +373,25 @@ export function BooklioProvider({ children }: PropsWithChildren) {
           {
             id: authorId,
             name: authorName,
-            bio: "Autor agregado desde Booklio. Listo para enriquecer metadata cuando conectemos una API de libros.",
-            favoriteGenres: input.genre ?? ["Por clasificar"]
+            bio: "Author added from Booklio. Ready to be enriched when we connect a live books API.",
+            favoriteGenres: input.genre ?? ["Uncategorized"]
           }
         ]);
       }
 
       const book: Book = {
         id: `b-${slugify(input.title || "captured-book")}-${Date.now()}`,
-        title: input.title.trim() || "Libro sin titulo",
+        title: input.title.trim() || "Untitled Book",
         authorId,
         synopsis:
           input.synopsis ??
-          `Libro agregado por ${input.source === "isbn" ? "escaneo ISBN" : input.source === "photo" ? "foto de portada" : "entrada manual"}. Metadata pendiente de confirmar.`,
-        genre: input.genre?.length ? input.genre : ["Por clasificar"],
+          `Book added from ${input.source === "isbn" ? "ISBN scan" : input.source === "photo" ? "cover photo" : input.source === "search" ? "book search" : "manual entry"}. Metadata is ready for review.`,
+        genre: input.genre?.length ? input.genre : ["Uncategorized"],
         pages: input.pages ?? 320,
         publishedDate: input.publishedDate ?? "2026-01-01",
-        publisher: input.publisher ?? "Editorial por confirmar",
+        publisher: input.publisher ?? "Publisher pending confirmation",
         language: input.language ?? "English",
-        isbn: input.isbn ?? "ISBN pendiente",
+        isbn: input.isbn ?? "ISBN pending",
         format: "physical",
         coverGradient: [colorsFromSource(input.source).start, colorsFromSource(input.source).end],
         coverImageUri: input.coverImageUri,
@@ -374,7 +401,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
           wishlist: input.wishlist ?? false,
           wantToBuy: input.wantToBuy ?? false,
           progressPercent: 0,
-          notes: `Agregado desde flujo de ${input.source}.`,
+          notes: `Added through the ${input.source} flow.`,
           favoriteQuotes: []
         }
       };
@@ -383,22 +410,57 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       return book;
     };
 
+    const updateBookStatus = (bookId: string, newStatus: CoreTrackingStatus, rating?: number) => {
+      const today = new Date().toISOString().slice(0, 10);
+      setBooks((current) =>
+        current.map((book) => {
+          if (book.id !== bookId) return book;
+          return {
+            ...book,
+            userStatus: {
+              ...book.userStatus,
+              status: newStatus,
+              ...(rating !== undefined ? { rating } : {}),
+              ...(newStatus === "reading" && !book.userStatus.startDate ? { startDate: today } : {}),
+              ...(newStatus === "read" ? { progressPercent: 100, finishDate: book.userStatus.finishDate ?? today } : {})
+            }
+          };
+        })
+      );
+    };
+
+    const updateUserProfile = (input: UpdateUserProfileInput) => {
+      setProfile((current) => ({
+        ...current,
+        name: input.name.trim() || current.name,
+        avatarInitials: input.avatarInitials.trim().slice(0, 3).toUpperCase() || current.avatarInitials,
+        readingLevel: input.readingLevel.trim() || current.readingLevel,
+        yearlyGoal: input.yearlyGoal > 0 ? input.yearlyGoal : current.yearlyGoal,
+        favoriteAuthors: input.favoriteAuthors.length ? input.favoriteAuthors : current.favoriteAuthors,
+        favoriteGenres: input.favoriteGenres.length ? input.favoriteGenres : current.favoriteGenres
+      }));
+    };
+
     return {
       authors,
       books,
       readingSessions: [...readingSessions].sort((a, b) => b.date.localeCompare(a.date)),
       recommendations,
       series,
-      userProfile,
+      userProfile: profile,
       addBook,
       addReadingSession,
+      updateBookStatus,
+      updateUserProfile,
       getAuthor,
       getBook,
       getBookStats,
       getSessionsForBook,
       overallStats: buildOverallStats(books, readingSessions, authors)
     };
-  }, [authors, books, readingSessions]);
+  }, [authors, books, profile, readingSessions]);
+
+  if (!hydrated) return null;
 
   return <BooklioContext.Provider value={value}>{children}</BooklioContext.Provider>;
 }

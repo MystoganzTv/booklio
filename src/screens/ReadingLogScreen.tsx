@@ -1,12 +1,9 @@
-import { useNavigation, useRoute } from "@react-navigation/native";
-import { RouteProp } from "@react-navigation/native";
+import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { BarChart } from "../components/BarChart";
 import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
 import { SessionRow } from "../components/SessionRow";
-import { StatCard } from "../components/StatCard";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
 import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
@@ -15,170 +12,250 @@ export function ReadingLogScreen() {
   const route = useRoute<RouteProp<RootStackParamList, "ReadingLog">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { getBook, getBookStats, overallStats, readingSessions } = useBooklio();
+
   const bookId = route.params?.bookId;
   const book = bookId ? getBook(bookId) : undefined;
-  const sessions = bookId ? readingSessions.filter((session) => session.bookId === bookId) : readingSessions;
+  const sessions = bookId
+    ? readingSessions.filter((s) => s.bookId === bookId)
+    : readingSessions;
+
   const stats = bookId ? getBookStats(bookId) : undefined;
   const totalSessions = stats?.totalSessions ?? overallStats.totalSessions;
+  const totalPages   = stats?.totalPages   ?? overallStats.pagesRead;
   const totalMinutes = stats?.totalMinutes ?? overallStats.minutesRead;
-  const totalPages = stats?.totalPages ?? overallStats.pagesRead;
-  const averagePages = stats?.averagePagesPerSession ?? overallStats.averagePagesPerSession;
-  const averageMinutes = stats?.averageMinutesPerSession ?? overallStats.averageMinutesPerSession;
-  const longestSession = stats?.longestSession ?? overallStats.longestSession;
-  const calendarDays = Array.from({ length: 31 }, (_, index) => index + 1);
-  const activeDays = new Set(sessions.map((session) => new Date(`${session.date}T00:00:00`).getDate()));
+  const avgSpeed     = stats?.averageSpeed ?? Math.round(overallStats.pagesRead / Math.max(1, overallStats.minutesRead / 60));
+
+  // Calendar: highlight days that have a session this month
+  const now = new Date();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const activeDays = new Set(
+    sessions
+      .filter((s) => {
+        const d = new Date(`${s.date}T00:00:00`);
+        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      })
+      .map((s) => new Date(`${s.date}T00:00:00`).getDate())
+  );
 
   return (
     <Screen>
-      <View style={styles.hero}>
-        <Text style={styles.eyebrow}>{book ? "Book history" : "BoardGameGeek-style play log, but for reading"}</Text>
-        <Text style={styles.title}>{book ? `${book.title} Log` : "Reading Log"}</Text>
-        <Text style={styles.subtitle}>
-          Every session keeps pages, minutes, mood, location, format, difficulty, quotes, enjoyment, and speed together.
-        </Text>
-        <Pressable style={styles.heroButton} onPress={() => navigation.navigate("AddReadingSession", { bookId })}>
-          <Text style={styles.heroButtonText}>Add Reading Session</Text>
+      {/* Header */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.eyebrow}>Reading Log</Text>
+          <Text style={styles.title}>{book ? book.title : "All sessions"}</Text>
+        </View>
+        <Pressable
+          style={styles.logButton}
+          onPress={() => navigation.navigate("AddReadingSession", { bookId })}
+        >
+          <Text style={styles.logButtonText}>+ Log</Text>
         </Pressable>
       </View>
 
-      <View style={styles.statsGrid}>
-        <StatCard label="Sessions" value={totalSessions} detail="Total logs" />
-        <StatCard label="Minutes" value={totalMinutes} detail="Focused reading" accent="green" />
-        <StatCard label="Pages" value={totalPages} detail="Logged pages" accent="navy" />
-        <StatCard label="Avg Pages" value={averagePages} detail="Per session" />
-        <StatCard label="Avg Minutes" value={averageMinutes} detail="Per session" accent="green" />
-        <StatCard label="Streak" value={`${overallStats.currentStreak}d`} detail={`${overallStats.longestStreak}d longest`} />
+      {/* Stats strip */}
+      <View style={styles.statsStrip}>
+        <View style={styles.statItem}>
+          <Text style={styles.statVal}>{totalSessions}</Text>
+          <Text style={styles.statLbl}>sessions</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={styles.statVal}>{totalPages.toLocaleString()}</Text>
+          <Text style={styles.statLbl}>pages</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={styles.statVal}>{Math.round(totalMinutes / 60)}h</Text>
+          <Text style={styles.statLbl}>hours read</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={styles.statVal}>{avgSpeed}</Text>
+          <Text style={styles.statLbl}>pp/h avg</Text>
+        </View>
       </View>
 
-      <SectionHeader title="Session Stats" />
-      <View style={styles.summaryCard}>
-        <Text style={styles.summaryLine}>Best reading day: {overallStats.bestReadingDay}</Text>
-        <Text style={styles.summaryLine}>
-          Longest session: {longestSession ? `${longestSession.minutesRead} minutes, ${longestSession.pagesRead} pages` : "No sessions yet"}
+      {/* Calendar — current month */}
+      <View style={styles.calendarCard}>
+        <Text style={styles.calendarTitle}>
+          {now.toLocaleString("en-US", { month: "long" })} · {activeDays.size} days active
         </Text>
-        <Text style={styles.summaryLine}>Current streak: {overallStats.currentStreak} days</Text>
+        <View style={styles.calendarGrid}>
+          {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => (
+            <View
+              key={day}
+              style={[styles.dayDot, activeDays.has(day) && styles.dayDotActive]}
+            >
+              <Text style={[styles.dayText, activeDays.has(day) && styles.dayTextActive]}>
+                {day}
+              </Text>
+            </View>
+          ))}
+        </View>
       </View>
 
-      <SectionHeader title="Calendar View" />
-      <View style={styles.calendar}>
-        {calendarDays.map((day) => (
-          <View key={day} style={[styles.dayDot, activeDays.has(day) && styles.dayDotActive]}>
-            <Text style={[styles.dayText, activeDays.has(day) && styles.dayTextActive]}>{day}</Text>
-          </View>
-        ))}
-      </View>
-
-      <SectionHeader title="Monthly Activity" />
-      <View style={styles.chartCard}>
-        <BarChart data={overallStats.monthly.map((month) => ({ label: month.label, value: month.sessions }))} />
-      </View>
-
+      {/* Sessions list */}
       <SectionHeader title="Sessions" />
-      {sessions.map((session) => (
-        <SessionRow key={session.id} bookTitle={getBook(session.bookId)?.title ?? "Unknown book"} session={session} />
-      ))}
+      {sessions.length === 0 ? (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyText}>No sessions logged yet.</Text>
+          <Pressable
+            style={styles.emptyButton}
+            onPress={() => navigation.navigate("AddReadingSession", { bookId })}
+          >
+            <Text style={styles.emptyButtonText}>Log your first session</Text>
+          </Pressable>
+        </View>
+      ) : (
+        sessions.map((session) => (
+          <SessionRow
+            key={session.id}
+            bookTitle={getBook(session.bookId)?.title ?? "Unknown book"}
+            session={session}
+          />
+        ))
+      )}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  hero: {
-    ...shadows.card,
-    backgroundColor: colors.navy,
-    borderRadius: radii.lg,
-    padding: spacing.lg
+  header: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: spacing.md
   },
   eyebrow: {
-    color: colors.gold,
+    color: colors.tealDark,
     fontFamily: fonts.body,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "900",
-    letterSpacing: 1,
+    letterSpacing: 1.3,
     textTransform: "uppercase"
   },
   title: {
-    color: colors.card,
+    color: colors.navy,
     fontFamily: fonts.display,
-    fontSize: 34,
+    fontSize: 24,
     fontWeight: "900",
-    lineHeight: 38,
-    marginTop: spacing.sm
+    lineHeight: 28,
+    marginTop: 2,
+    maxWidth: 240
   },
-  subtitle: {
-    color: "#D8D2C8",
-    fontFamily: fonts.body,
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: spacing.sm
-  },
-  heroButton: {
-    backgroundColor: colors.gold,
+  logButton: {
+    backgroundColor: colors.navy,
     borderRadius: radii.pill,
-    marginTop: spacing.md,
-    paddingVertical: 12
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10
   },
-  heroButtonText: {
+  logButtonText: {
+    color: colors.card,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  statsStrip: {
+    ...shadows.card,
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm
+  },
+  statItem: {
+    alignItems: "center",
+    flex: 1
+  },
+  statVal: {
+    color: colors.navy,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "900"
+  },
+  statLbl: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 10,
+    fontWeight: "800",
+    marginTop: 2,
+    textAlign: "center"
+  },
+  statDivider: {
+    backgroundColor: colors.border,
+    height: 28,
+    width: 1
+  },
+  calendarCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+    padding: spacing.md
+  },
+  calendarTitle: {
     color: colors.navy,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900",
-    textAlign: "center"
+    marginBottom: spacing.sm
   },
-  statsGrid: {
+  calendarGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.md,
-    marginTop: spacing.md
-  },
-  summaryCard: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    padding: spacing.md
-  },
-  summaryLine: {
-    color: colors.ink,
-    fontFamily: fonts.body,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 24
-  },
-  calendar: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 9,
-    padding: spacing.md
+    gap: 7
   },
   dayDot: {
     alignItems: "center",
     backgroundColor: "#EEE7DB",
     borderRadius: 999,
-    height: 34,
+    height: 32,
     justifyContent: "center",
-    width: 34
+    width: 32
   },
   dayDotActive: {
-    backgroundColor: colors.green
+    backgroundColor: colors.teal
   },
   dayText: {
     color: colors.muted,
     fontFamily: fonts.body,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "800"
   },
   dayTextActive: {
     color: colors.card
   },
-  chartCard: {
+  emptyCard: {
+    alignItems: "center",
     backgroundColor: colors.card,
     borderColor: colors.border,
     borderRadius: radii.lg,
+    borderStyle: "dashed",
     borderWidth: 1,
-    padding: spacing.md
+    gap: spacing.sm,
+    padding: spacing.xl
+  },
+  emptyText: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 14
+  },
+  emptyButton: {
+    backgroundColor: colors.navy,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10
+  },
+  emptyButtonText: {
+    color: colors.card,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900"
   }
 });

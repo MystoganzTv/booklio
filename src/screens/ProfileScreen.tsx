@@ -1,28 +1,67 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { BookCard } from "../components/BookCard";
-import { BrandHeader } from "../components/BrandHeader";
 import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
 import { useBooklio } from "../data/BooklioContext";
+import { Achievement } from "../types/models";
 import { RootStackParamList } from "../navigation/types";
 import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
+
+type BadgeConfig = {
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  bg: string;
+};
+
+const BADGE_CONFIG: Record<Achievement["category"], BadgeConfig> = {
+  reading:    { icon: "book",              color: "#0F172A", bg: "#FFC857" },
+  habit:      { icon: "flame",             color: "#FFFFFF", bg: "#FF7A59" },
+  genre:      { icon: "trophy-outline",    color: "#FFFFFF", bg: "#14B8A6" },
+  collection: { icon: "library",           color: "#FFFFFF", bg: "#7FB069" },
+  speed:      { icon: "speedometer",       color: "#FFFFFF", bg: "#6366F1" }
+};
+
+function AchievementBadge({ achievement }: { achievement: Achievement }) {
+  const cfg = BADGE_CONFIG[achievement.category] ?? BADGE_CONFIG["reading"];
+  const pct = Math.min(100, Math.round((achievement.progress / achievement.goal) * 100));
+  const locked = !achievement.unlocked;
+
+  return (
+    <View style={[styles.badge, locked && styles.badgeLocked]}>
+      <View style={[styles.badgeIcon, { backgroundColor: locked ? "#D5CFC5" : cfg.bg }]}>
+        <Ionicons name={cfg.icon} size={22} color={locked ? "#A09890" : cfg.color} />
+      </View>
+      <Text style={[styles.badgeTitle, locked && styles.badgeTitleLocked]} numberOfLines={2}>
+        {achievement.title}
+      </Text>
+      <Text style={styles.badgeDesc} numberOfLines={2}>
+        {achievement.description}
+      </Text>
+      <View style={styles.badgeTrack}>
+        <View style={[styles.badgeFill, { width: `${pct}%`, backgroundColor: locked ? "#C5BEB4" : cfg.bg }]} />
+      </View>
+      <Text style={[styles.badgePct, { color: locked ? colors.muted : cfg.bg }]}>
+        {achievement.unlocked
+          ? "Unlocked ✓"
+          : `${Math.min(achievement.progress, achievement.goal)} / ${achievement.goal}`}
+      </Text>
+    </View>
+  );
+}
 
 export function ProfileScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { books, getAuthor, overallStats, userProfile } = useBooklio();
-  const topBooks = userProfile.topBookIds.map((bookId) => books.find((book) => book.id === bookId)).filter(Boolean);
-  const unlocked = userProfile.achievements.filter((achievement) => achievement.unlocked).length;
+  const topBooks = userProfile.topBookIds.map((id) => books.find((b) => b.id === id)).filter(Boolean);
+  const unlocked = userProfile.achievements.filter((a) => a.unlocked).length;
+  const goalPct = Math.min(100, Math.round((overallStats.booksReadThisYear / userProfile.yearlyGoal) * 100));
 
   return (
     <Screen>
-      <BrandHeader
-        eyebrow="Perfil lector"
-        title="Tu historia lectora"
-        subtitle="Nivel, logros, top libros, autores favoritos y metas personales en un espacio mas humano."
-      />
-
+      {/* Profile hero */}
       <View style={styles.hero}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{userProfile.avatarInitials}</Text>
@@ -30,62 +69,81 @@ export function ProfileScreen() {
         <View style={styles.heroCopy}>
           <Text style={styles.name}>{userProfile.name}</Text>
           <Text style={styles.level}>{userProfile.readingLevel}</Text>
-          <Text style={styles.meta}>{overallStats.totalBooksRead} books read - {overallStats.totalSessions} sessions - {unlocked} badges unlocked</Text>
+          <Text style={styles.meta}>
+            {overallStats.totalBooksRead} books · {overallStats.totalSessions} sessions · {unlocked} badges
+          </Text>
         </View>
+        <Pressable style={styles.editButton} onPress={() => navigation.navigate("EditProfile")}>
+          <Ionicons name="pencil" size={14} color={colors.card} />
+        </Pressable>
       </View>
 
+      {/* Goal */}
       <View style={styles.goalCard}>
-        <Text style={styles.goalLabel}>Reading goal</Text>
-        <Text style={styles.goalText}>{overallStats.booksReadThisYear}/{userProfile.yearlyGoal} books this year</Text>
+        <View style={styles.goalRow}>
+          <Text style={styles.goalLabel}>Annual goal</Text>
+          <Text style={styles.goalPct}>{goalPct}%</Text>
+        </View>
+        <Text style={styles.goalText}>{overallStats.booksReadThisYear} / {userProfile.yearlyGoal} books</Text>
         <View style={styles.goalTrack}>
-          <View style={[styles.goalFill, { width: `${Math.min(100, (overallStats.booksReadThisYear / userProfile.yearlyGoal) * 100)}%` }]} />
+          <View style={[styles.goalFill, { width: `${goalPct}%` }]} />
         </View>
       </View>
 
+      {/* Achievements */}
       <SectionHeader title="Achievements" />
       <View style={styles.achievementGrid}>
-        {userProfile.achievements.map((achievement) => (
-          <View key={achievement.id} style={[styles.achievement, achievement.unlocked && styles.achievementUnlocked]}>
-            <Text style={styles.achievementTitle}>{achievement.title}</Text>
-            <Text style={styles.achievementDescription}>{achievement.description}</Text>
-            <Text style={styles.achievementProgress}>
-              {Math.min(achievement.progress, achievement.goal)}/{achievement.goal}
-            </Text>
+        {userProfile.achievements.map((a) => (
+          <AchievementBadge key={a.id} achievement={a} />
+        ))}
+      </View>
+
+      {/* Top books */}
+      {topBooks.length > 0 ? (
+        <>
+          <SectionHeader title="Personal Favorites" />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {topBooks.map((book) =>
+              book ? (
+                <BookCard
+                  key={book.id}
+                  authorName={getAuthor(book.authorId)?.name ?? ""}
+                  book={book}
+                  onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
+                />
+              ) : null
+            )}
+          </ScrollView>
+        </>
+      ) : null}
+
+      {/* Genres */}
+      {userProfile.favoriteGenres.length > 0 ? (
+        <>
+          <SectionHeader title="Favorite Genres" />
+          <View style={styles.tagWrap}>
+            {userProfile.favoriteGenres.map((genre) => (
+              <View key={genre} style={styles.tagPill}>
+                <Text style={styles.tagText}>{genre}</Text>
+              </View>
+            ))}
           </View>
-        ))}
-      </View>
+        </>
+      ) : null}
 
-      <SectionHeader title="Personal Top 10" />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        {topBooks.map((book) =>
-          book ? (
-            <BookCard
-              key={book.id}
-              authorName={getAuthor(book.authorId)?.name ?? "Unknown author"}
-              book={book}
-              onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
-            />
-          ) : null
-        )}
-      </ScrollView>
-
-      <SectionHeader title="Favorite Authors" />
-      <View style={styles.listCard}>
-        {userProfile.favoriteAuthors.map((author) => (
-          <Text key={author} style={styles.listItem}>
-            {author}
-          </Text>
-        ))}
-      </View>
-
-      <SectionHeader title="Favorite Genres" />
-      <View style={styles.genreWrap}>
-        {userProfile.favoriteGenres.map((genre) => (
-          <Pressable key={genre} style={styles.genrePill}>
-            <Text style={styles.genreText}>{genre}</Text>
-          </Pressable>
-        ))}
-      </View>
+      {/* Authors */}
+      {userProfile.favoriteAuthors.length > 0 ? (
+        <>
+          <SectionHeader title="Favorite Authors" />
+          <View style={styles.tagWrap}>
+            {userProfile.favoriteAuthors.map((author) => (
+              <View key={author} style={[styles.tagPill, styles.tagPillAuthor]}>
+                <Text style={[styles.tagText, styles.tagTextAuthor]}>{author}</Text>
+              </View>
+            ))}
+          </View>
+        </>
+      ) : null}
     </Screen>
   );
 }
@@ -98,20 +156,21 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
     flexDirection: "row",
     gap: spacing.md,
+    marginBottom: spacing.md,
     padding: spacing.lg
   },
   avatar: {
     alignItems: "center",
     backgroundColor: colors.gold,
-    borderRadius: 28,
-    height: 72,
+    borderRadius: 30,
+    height: 60,
     justifyContent: "center",
-    width: 72
+    width: 60
   },
   avatarText: {
     color: colors.navy,
     fontFamily: fonts.display,
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: "900"
   },
   heroCopy: {
@@ -120,51 +179,71 @@ const styles = StyleSheet.create({
   name: {
     color: colors.card,
     fontFamily: fonts.display,
-    fontSize: 32,
+    fontSize: 24,
     fontWeight: "900"
   },
   level: {
     color: colors.gold,
     fontFamily: fonts.body,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "900",
-    marginTop: 3
+    marginTop: 2
   },
   meta: {
-    color: "#D8D2C8",
+    color: "#BDB8B0",
     fontFamily: fonts.body,
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 6
+    fontSize: 12,
+    marginTop: 5
+  },
+  editButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderColor: "rgba(255,255,255,0.2)",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    justifyContent: "center",
+    padding: 10
   },
   goalCard: {
     backgroundColor: colors.card,
     borderColor: colors.border,
     borderRadius: radii.lg,
     borderWidth: 1,
-    marginTop: spacing.md,
+    marginBottom: spacing.md,
     padding: spacing.md
   },
+  goalRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
   goalLabel: {
-    color: colors.gold,
+    color: colors.muted,
     fontFamily: fonts.body,
-    fontSize: 12,
-    fontWeight: "900",
+    fontSize: 11,
+    fontWeight: "800",
     letterSpacing: 1,
     textTransform: "uppercase"
+  },
+  goalPct: {
+    color: colors.green,
+    fontFamily: fonts.display,
+    fontSize: 18,
+    fontWeight: "900"
   },
   goalText: {
     color: colors.navy,
     fontFamily: fonts.display,
-    fontSize: 25,
+    fontSize: 22,
     fontWeight: "900",
-    marginTop: 5
+    marginTop: 3
   },
   goalTrack: {
     backgroundColor: "#EEE7DB",
     borderRadius: radii.pill,
-    height: 12,
-    marginTop: spacing.md,
+    height: 10,
+    marginTop: spacing.sm,
     overflow: "hidden"
   },
   goalFill: {
@@ -175,69 +254,87 @@ const styles = StyleSheet.create({
   achievementGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.sm
+    gap: spacing.sm,
+    marginBottom: spacing.md
   },
-  achievement: {
+  badge: {
     backgroundColor: colors.card,
     borderColor: colors.border,
-    borderRadius: radii.lg,
+    borderRadius: radii.md,
     borderWidth: 1,
     padding: spacing.md,
     width: "48%"
   },
-  achievementUnlocked: {
-    backgroundColor: "#F5E7C8",
-    borderColor: colors.gold
+  badgeLocked: {
+    backgroundColor: "#F7F4EF",
+    borderColor: "#E5DDD3"
   },
-  achievementTitle: {
+  badgeIcon: {
+    alignItems: "center",
+    borderRadius: 14,
+    height: 44,
+    justifyContent: "center",
+    marginBottom: spacing.sm,
+    width: 44
+  },
+  badgeTitle: {
     color: colors.navy,
     fontFamily: fonts.body,
-    fontSize: 14,
-    fontWeight: "900"
+    fontSize: 13,
+    fontWeight: "900",
+    lineHeight: 17
   },
-  achievementDescription: {
+  badgeTitleLocked: {
+    color: "#9E978E"
+  },
+  badgeDesc: {
     color: colors.muted,
     fontFamily: fonts.body,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 3
+  },
+  badgeTrack: {
+    backgroundColor: "#EEE7DB",
+    borderRadius: radii.pill,
+    height: 5,
+    marginTop: spacing.sm,
+    overflow: "hidden"
+  },
+  badgeFill: {
+    borderRadius: radii.pill,
+    height: "100%"
+  },
+  badgePct: {
+    fontFamily: fonts.body,
+    fontSize: 11,
+    fontWeight: "800",
     marginTop: 5
   },
-  achievementProgress: {
-    color: colors.green,
-    fontFamily: fonts.display,
-    fontSize: 18,
-    fontWeight: "900",
-    marginTop: spacing.sm
-  },
-  listCard: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    padding: spacing.md
-  },
-  listItem: {
-    color: colors.ink,
-    fontFamily: fonts.body,
-    fontSize: 15,
-    fontWeight: "800",
-    lineHeight: 26
-  },
-  genreWrap: {
+  tagWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.sm
+    gap: spacing.sm,
+    marginBottom: spacing.md
   },
-  genrePill: {
+  tagPill: {
     backgroundColor: colors.navy,
     borderRadius: radii.pill,
     paddingHorizontal: spacing.md,
-    paddingVertical: 11
+    paddingVertical: 9
   },
-  genreText: {
+  tagPillAuthor: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderWidth: 1
+  },
+  tagText: {
     color: colors.card,
     fontFamily: fonts.body,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "900"
+  },
+  tagTextAuthor: {
+    color: colors.navy
   }
 });

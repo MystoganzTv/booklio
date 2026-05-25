@@ -9,7 +9,8 @@
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/brand/booklio-icon.png",
-      "backgroundColor": "#FFFBF4"
+      "resizeMode": "contain",
+      "backgroundColor": "#0F172A"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -17,8 +18,8 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Booklio usa la camara para fotografiar portadas y escanear codigos ISBN.",
-        "NSPhotoLibraryUsageDescription": "Booklio usa tu biblioteca de fotos para importar portadas de libros fisicos."
+        "NSCameraUsageDescription": "Booklio uses the camera to photograph book covers and scan ISBN barcodes.",
+        "NSPhotoLibraryUsageDescription": "Booklio uses your photo library to import pictures of physical books."
       }
     },
     "android": {

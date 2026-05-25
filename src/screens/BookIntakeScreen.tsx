@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, BarcodeScanningResult, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
-import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useState } from "react";
@@ -157,15 +156,15 @@ async function lookupByIsbn(isbn: string): Promise<NewBookInput | undefined> {
   const authorName = await fetchAuthorName(data.authors?.[0]?.key);
 
   return {
-    title: data.title ?? `Libro ISBN ${isbn}`,
-    authorName: authorName ?? "Autor por identificar",
+    title: data.title ?? `ISBN Book ${isbn}`,
+    authorName: authorName ?? "Author to identify",
     isbn: data.isbn_13?.[0] ?? data.isbn_10?.[0] ?? isbn,
     pages: data.number_of_pages,
-    genre: data.subjects?.slice(0, 3) ?? ["Por clasificar"],
+    genre: data.subjects?.slice(0, 3) ?? ["Uncategorized"],
     publisher: data.publishers?.[0],
     publishedDate: data.publish_date,
     language: "English",
-    synopsis: readDescription(data.description) ?? "Metadata importada desde Open Library.",
+    synopsis: readDescription(data.description) ?? "Metadata imported from Open Library.",
     coverImageUri: coverUrl(data.covers?.[0]),
     source: "isbn",
     ownership: "owned"
@@ -179,15 +178,15 @@ async function searchOpenLibrary(query: string): Promise<NewBookInput[]> {
   return (data.docs ?? [])
     .filter((doc) => doc.title && doc.author_name?.[0])
     .map((doc) => ({
-      title: doc.title ?? "Libro sin titulo",
-      authorName: doc.author_name?.[0] ?? "Autor por identificar",
+      title: doc.title ?? "Untitled Book",
+      authorName: doc.author_name?.[0] ?? "Author to identify",
       isbn: doc.isbn?.[0],
       pages: doc.number_of_pages_median,
-      genre: doc.subject?.slice(0, 3) ?? ["Por clasificar"],
+      genre: doc.subject?.slice(0, 3) ?? ["Uncategorized"],
       publisher: doc.publisher?.[0],
       publishedDate: doc.first_publish_year ? `${doc.first_publish_year}-01-01` : undefined,
       language: "English",
-      synopsis: "Resultado importado desde Open Library. Puedes editarlo luego en Booklio.",
+      synopsis: "Imported from Open Library. You can refine it later in Booklio.",
       coverImageUri: coverUrl(doc.cover_i),
       source: "search",
       ownership: "owned"
@@ -215,7 +214,7 @@ export function BookIntakeScreen() {
 
   const addAndOpen = (input: NewBookInput) => {
     const book = addBook(input);
-    Alert.alert("Libro agregado", `${book.title} ya esta en tu biblioteca.`);
+    Alert.alert("Book added", `${book.title} is now in your library.`);
     navigation.navigate("BookDetail", { bookId: book.id });
   };
 
@@ -234,13 +233,13 @@ export function BookIntakeScreen() {
     const fallback = mockIsbnCatalog[clean];
     addAndOpen({
       ...(found ?? fallback ?? {
-        title: `Libro ISBN ${clean}`,
-        authorName: "Autor por identificar",
+        title: `ISBN Book ${clean}`,
+        authorName: "Author to identify",
         isbn: clean,
         pages: 320,
-        genre: ["Por clasificar"],
-        publisher: "Editorial por confirmar",
-        synopsis: "ISBN capturado. Listo para completar metadata desde un proveedor externo."
+        genre: ["Uncategorized"],
+        publisher: "Publisher pending confirmation",
+        synopsis: "ISBN captured. Ready to be completed from a live metadata provider."
       }),
       source: "isbn",
       ownership: "owned"
@@ -253,11 +252,11 @@ export function BookIntakeScreen() {
       const results = await searchOpenLibrary(searchQuery);
       setSearchResults(results);
       if (!results.length) {
-        Alert.alert("Sin resultados", "No encontre libros en Open Library. Prueba titulo, autor o ISBN.");
+        Alert.alert("No results", "I couldn't find books in Open Library. Try a title, author, or ISBN.");
       }
     } catch {
       setSearchResults([]);
-      Alert.alert("Sin conexion", "No pude consultar Open Library ahora. Puedes usar los ejemplos reales o entrada manual.");
+      Alert.alert("Connection issue", "I couldn't reach Open Library right now. You can still use the real examples or manual entry.");
     } finally {
       setIsBusy(false);
     }
@@ -276,7 +275,7 @@ export function BookIntakeScreen() {
       ...mockIsbnCatalog["9780441172719"],
       coverImageUri: uri,
       source: "photo",
-      synopsis: "Ejemplo real detectado desde foto de portada. En produccion, este flujo usaria vision/OCR para confirmar titulo, autor e ISBN.",
+      synopsis: "Real example detected from a cover photo. In production, this flow would use OCR or vision to confirm title, author, and ISBN.",
       ownership: "owned"
     });
   };
@@ -294,7 +293,7 @@ export function BookIntakeScreen() {
       ...mockIsbnCatalog["9780451524935"],
       coverImageUri: uri,
       source: "photo",
-      synopsis: "Ejemplo real importado desde una imagen. Luego podemos reemplazar esto por reconocimiento visual real.",
+      synopsis: "Real example imported from an image. Later we can replace this with actual visual recognition.",
       ownership: "owned"
     });
   };
@@ -307,11 +306,11 @@ export function BookIntakeScreen() {
 
   const saveManual = () => {
     addAndOpen({
-      title: manual.title || "Libro nuevo",
-      authorName: manual.authorName || "Autor por identificar",
+      title: manual.title || "New book",
+      authorName: manual.authorName || "Author to identify",
       isbn: manual.isbn || undefined,
       pages: manual.pages ? Number(manual.pages) : undefined,
-      genre: manual.genre ? manual.genre.split(",").map((item) => item.trim()).filter(Boolean) : ["Por clasificar"],
+      genre: manual.genre ? manual.genre.split(",").map((item) => item.trim()).filter(Boolean) : ["Uncategorized"],
       publisher: manual.publisher || undefined,
       source: "manual",
       ownership: "owned"
@@ -321,18 +320,17 @@ export function BookIntakeScreen() {
   if (mode === "isbn") {
     return (
       <Screen>
-        <View style={styles.hero}>
-          <Text style={styles.eyebrow}>Escanear ISBN</Text>
-          <Text style={styles.title}>Apunta al codigo del libro.</Text>
-          <Text style={styles.subtitle}>Booklio detecta EAN/ISBN y crea una ficha editable en tu biblioteca.</Text>
+        <View style={styles.pageHeader}>
+          <Text style={styles.pageEyebrow}>Scan ISBN</Text>
+          <Text style={styles.pageTitle}>Point at the barcode.</Text>
         </View>
 
         {!permission?.granted ? (
           <View style={styles.permissionCard}>
-            <Text style={styles.cardTitle}>Necesitamos camara</Text>
-            <Text style={styles.cardCopy}>Permite acceso para escanear codigos ISBN o fotografiar portadas fisicas.</Text>
+            <Text style={styles.cardTitle}>Camera access needed</Text>
+            <Text style={styles.cardCopy}>Allow camera access to scan ISBN codes or photograph physical book covers.</Text>
             <Pressable style={styles.primaryButton} onPress={requestPermission}>
-              <Text style={styles.primaryButtonText}>Permitir camara</Text>
+              <Text style={styles.primaryButtonText}>Allow camera</Text>
             </Pressable>
           </View>
         ) : (
@@ -348,7 +346,7 @@ export function BookIntakeScreen() {
         )}
 
         <View style={styles.manualIsbnCard}>
-          <Text style={styles.cardTitle}>Tambien puedes pegarlo</Text>
+          <Text style={styles.cardTitle}>You can also paste it</Text>
           <TextInput
             keyboardType="number-pad"
             placeholder="9780756404741"
@@ -358,11 +356,11 @@ export function BookIntakeScreen() {
             onChangeText={(isbn) => setManual((current) => ({ ...current, isbn }))}
           />
           <Pressable style={styles.secondaryButton} onPress={() => addFromIsbn(manual.isbn || "9780756404741")}>
-            <Text style={styles.secondaryButtonText}>{isBusy ? "Buscando..." : "Buscar por ISBN"}</Text>
+            <Text style={styles.secondaryButtonText}>{isBusy ? "Searching..." : "Search by ISBN"}</Text>
           </Pressable>
           {scanned ? (
             <Pressable style={styles.ghostButton} onPress={() => setScanned(false)}>
-              <Text style={styles.ghostButtonText}>Escanear otro codigo</Text>
+              <Text style={styles.ghostButtonText}>Scan another code</Text>
             </Pressable>
           ) : null}
         </View>
@@ -373,21 +371,19 @@ export function BookIntakeScreen() {
   if (mode === "manual") {
     return (
       <Screen>
-        <View style={styles.hero}>
-          <Text style={styles.eyebrow}>Entrada manual</Text>
-          <Text style={styles.title}>Crea una ficha rapida.</Text>
-          <Text style={styles.subtitle}>Ideal para libros raros, ediciones especiales, preventas o libros sin codigo visible.</Text>
+        <View style={styles.pageHeader}>
+          <Text style={styles.pageEyebrow}>Manual entry</Text>
+          <Text style={styles.pageTitle}>Add a book by hand.</Text>
         </View>
 
-        <Field label="Titulo" value={manual.title} onChangeText={(title) => setManual((current) => ({ ...current, title }))} />
-        <Field label="Autor" value={manual.authorName} onChangeText={(authorName) => setManual((current) => ({ ...current, authorName }))} />
-        <Field label="ISBN" value={manual.isbn} onChangeText={(isbn) => setManual((current) => ({ ...current, isbn }))} />
-        <Field label="Paginas" keyboardType="number-pad" value={manual.pages} onChangeText={(pages) => setManual((current) => ({ ...current, pages }))} />
-        <Field label="Generos separados por coma" value={manual.genre} onChangeText={(genre) => setManual((current) => ({ ...current, genre }))} />
-        <Field label="Editorial" value={manual.publisher} onChangeText={(publisher) => setManual((current) => ({ ...current, publisher }))} />
+        <Field label="Title" value={manual.title} onChangeText={(v) => setManual((c) => ({ ...c, title: v }))} />
+        <Field label="Author" value={manual.authorName} onChangeText={(v) => setManual((c) => ({ ...c, authorName: v }))} />
+        <Field label="Pages" keyboardType="number-pad" value={manual.pages} onChangeText={(v) => setManual((c) => ({ ...c, pages: v }))} />
+        <Field label="Genre(s), comma separated" value={manual.genre} onChangeText={(v) => setManual((c) => ({ ...c, genre: v }))} />
+        <Field label="ISBN (optional)" value={manual.isbn} onChangeText={(v) => setManual((c) => ({ ...c, isbn: v }))} />
 
         <Pressable style={styles.saveButton} onPress={saveManual}>
-          <Text style={styles.saveButtonText}>Agregar a mi biblioteca</Text>
+          <Text style={styles.saveButtonText}>Add to library</Text>
         </Pressable>
       </Screen>
     );
@@ -396,33 +392,44 @@ export function BookIntakeScreen() {
   if (mode === "search") {
     return (
       <Screen>
-        <View style={styles.hero}>
-          <Text style={styles.eyebrow}>Buscar libro</Text>
-          <Text style={styles.title}>Titulo, autor, saga o ISBN.</Text>
-          <Text style={styles.subtitle}>Booklio consulta Open Library y crea fichas con portada, metadata y estado inicial.</Text>
+        <View style={styles.pageHeader}>
+          <Text style={styles.pageEyebrow}>Search</Text>
+          <Text style={styles.pageTitle}>Title, author, or ISBN.</Text>
         </View>
 
-        <Text style={styles.fieldLabel}>Busqueda</Text>
-        <TextInput
-          placeholder="Dune, George Orwell, Atomic Habits..."
-          placeholderTextColor={colors.gray}
-          style={styles.input}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-        <Pressable style={styles.secondaryButton} onPress={runSearch}>
-          <Text style={styles.secondaryButtonText}>{isBusy ? "Buscando..." : "Buscar en Open Library"}</Text>
-        </Pressable>
+        <View style={styles.searchRow}>
+          <TextInput
+            autoFocus
+            placeholder="Dune, Patrick Rothfuss..."
+            placeholderTextColor={colors.gray}
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            onSubmitEditing={runSearch}
+            returnKeyType="search"
+          />
+          <Pressable style={styles.searchBtn} onPress={runSearch}>
+            <Ionicons name={isBusy ? "hourglass-outline" : "search"} size={18} color={colors.card} />
+          </Pressable>
+        </View>
 
         <View style={styles.resultsWrap}>
-          {(searchResults.length ? searchResults : featuredExamples.map((isbn) => ({ ...mockIsbnCatalog[isbn], source: "search" as const }))).map((book) => (
+          {(searchResults.length
+            ? searchResults
+            : featuredExamples.map((isbn) => ({ ...mockIsbnCatalog[isbn], source: "search" as const }))
+          ).map((book) => (
             <Pressable key={`${book.title}-${book.isbn}`} style={styles.resultCard} onPress={() => addAndOpen(book)}>
-              {book.coverImageUri ? <Image source={{ uri: book.coverImageUri }} style={styles.resultCover} /> : <View style={styles.resultCoverFallback} />}
+              {book.coverImageUri
+                ? <Image source={{ uri: book.coverImageUri }} style={styles.resultCover} />
+                : <View style={styles.resultCoverFallback} />}
               <View style={styles.resultCopy}>
                 <Text numberOfLines={2} style={styles.resultTitle}>{book.title}</Text>
                 <Text numberOfLines={1} style={styles.resultAuthor}>{book.authorName}</Text>
-                <Text numberOfLines={1} style={styles.resultMeta}>{book.publisher ?? "Open Library"} {book.pages ? `- ${book.pages} pags.` : ""}</Text>
+                <Text numberOfLines={1} style={styles.resultMeta}>
+                  {book.pages ? `${book.pages} pages` : ""}{book.publisher ? ` · ${book.publisher}` : ""}
+                </Text>
               </View>
+              <Ionicons name="add-circle" size={26} color={colors.teal} />
             </Pressable>
           ))}
         </View>
@@ -432,52 +439,51 @@ export function BookIntakeScreen() {
 
   return (
     <Screen>
-      <LinearGradient colors={[colors.cream, "#FFF8EA"]} style={styles.brandHero}>
-        <Image source={booklioLogo} style={styles.brandLogo} resizeMode="contain" />
-        <Text style={styles.brandCopy}>Agrega libros fisicos con foto, ISBN, busqueda o entrada manual. Cada libro cuenta tu historia.</Text>
-      </LinearGradient>
+      <View style={styles.pageHeader}>
+        <Text style={styles.pageEyebrow}>Add book</Text>
+        <Text style={styles.pageTitle}>How do you want to add it?</Text>
+      </View>
 
       <View style={styles.pathGrid}>
         <IntakePath
           accent={colors.teal}
           icon="camera"
-          title="Tomar foto"
-          description="Fotografia la portada del libro fisico y crea una ficha editable."
+          title="Take Photo"
+          description="Photograph the cover to create an entry."
           onPress={takeCoverPhoto}
         />
         <IntakePath
           accent={colors.gold}
           icon="barcode"
-          title="Escanear ISBN"
-          description="Lee el codigo de barras ISBN/EAN para completar metadata."
+          title="Scan ISBN"
+          description="Scan the barcode to fill in metadata."
           onPress={() => setMode("isbn")}
-        />
-        <IntakePath
-          accent={colors.navy}
-          icon="image"
-          title="Importar foto"
-          description="Usa una foto existente de portada o lomo desde tu galeria."
-          onPress={pickCoverPhoto}
         />
         <IntakePath
           accent={colors.coral}
           icon="search"
-          title="Buscar libro"
-          description="Busca por titulo, autor o saga usando ejemplos reales por ahora."
+          title="Search"
+          description="Search by title, author, or ISBN."
           onPress={() => setMode("search")}
+        />
+        <IntakePath
+          accent={colors.navy}
+          icon="image"
+          title="Import Photo"
+          description="Use an existing cover photo."
+          onPress={pickCoverPhoto}
         />
         <IntakePath
           accent={colors.green}
           icon="create"
           title="Manual"
-          description="Agrega ediciones raras, preventas o libros sin ISBN."
+          description="No barcode? Enter the details yourself."
           onPress={() => setMode("manual")}
         />
       </View>
 
       <View style={styles.examplesCard}>
-        <Text style={styles.cardTitle}>Ejemplos reales</Text>
-        <Text style={styles.cardCopy}>Mientras conectamos una API de libros, estos ejemplos crean fichas reales con metadata coherente.</Text>
+        <Text style={styles.examplesTitle}>Quick add</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.exampleRail}>
           {featuredExamples.map((isbn) => {
             const example = mockIsbnCatalog[isbn];
@@ -492,24 +498,6 @@ export function BookIntakeScreen() {
       </View>
 
       {coverUri ? <Image source={{ uri: coverUri }} style={styles.preview} /> : null}
-
-      <View style={styles.sessionCard}>
-        <View>
-          <Badge label="Lectura" tone="teal" />
-          <Text style={styles.cardTitle}>Registrar sesion de lectura</Text>
-          <Text style={styles.cardCopy}>Si ya tienes el libro en tu biblioteca, entra directo al log de paginas, minutos, mood y progreso.</Text>
-        </View>
-        <Pressable style={styles.primaryButton} onPress={() => navigation.navigate("AddReadingSession", {})}>
-          <Text style={styles.primaryButtonText}>Log session</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.backendCard}>
-        <Text style={styles.cardTitle}>Backend-ready</Text>
-        <Text style={styles.cardCopy}>
-          Este flujo puede conectarse a Google Books, Open Library, ISBNdb, OCR/vision para portada y una cola de revision manual.
-        </Text>
-      </View>
     </Screen>
   );
 }
@@ -557,26 +545,23 @@ function Field({ label, value, onChangeText, keyboardType = "default" }: FieldPr
 }
 
 const styles = StyleSheet.create({
-  brandHero: {
-    ...shadows.card,
-    alignItems: "center",
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    padding: spacing.lg
+  pageHeader: {
+    marginBottom: spacing.md
   },
-  brandLogo: {
-    height: 190,
-    marginBottom: spacing.sm,
-    width: "100%"
+  pageEyebrow: {
+    color: colors.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.3,
+    textTransform: "uppercase"
   },
-  brandCopy: {
+  pageTitle: {
     color: colors.navy,
-    fontFamily: fonts.bodyRegular,
-    fontSize: 15,
-    lineHeight: 22,
-    marginTop: spacing.md,
-    textAlign: "center"
+    fontFamily: fonts.display,
+    fontSize: 26,
+    fontWeight: "900",
+    marginTop: 2
   },
   pathGrid: {
     flexDirection: "row",
@@ -608,8 +593,16 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     padding: spacing.md
   },
+  examplesTitle: {
+    color: colors.navy,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase"
+  },
   exampleRail: {
-    marginTop: spacing.md
+    marginTop: spacing.sm
   },
   examplePill: {
     backgroundColor: "#FFFBF4",
@@ -870,5 +863,31 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     padding: spacing.md
+  },
+  searchRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.md
+  },
+  searchInput: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    color: colors.ink,
+    flex: 1,
+    fontFamily: fonts.body,
+    fontSize: 15,
+    fontWeight: "700",
+    padding: spacing.md
+  },
+  searchBtn: {
+    alignItems: "center",
+    backgroundColor: colors.navy,
+    borderRadius: radii.md,
+    height: 50,
+    justifyContent: "center",
+    width: 50
   }
 });

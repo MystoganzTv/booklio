@@ -134,6 +134,15 @@ export interface UserProfile {
   achievements: Achievement[];
 }
 
+export interface UpdateUserProfileInput {
+  name: string;
+  avatarInitials: string;
+  readingLevel: string;
+  yearlyGoal: number;
+  favoriteAuthors: string[];
+  favoriteGenres: string[];
+}
+
 export type NewReadingSessionInput = Omit<
   ReadingSession,
   "id" | "pagesRead" | "pagesPerHour"

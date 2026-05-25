@@ -23,41 +23,50 @@ export function BookCover({ book, size = "md" }: BookCoverProps) {
   const muted = isMuted(book);
   const dimmed = book.userStatus.status === "dnf";
   const gradient = muted ? (["#CBC6BE", "#827C73"] as [string, string]) : book.coverGradient;
+  const showTypographyOverlay = !book.coverImageUri;
 
   return (
     <View style={[styles.wrap, dimensions[size], dimmed && styles.dimmed]}>
       {book.coverImageUri ? (
         <ImageBackground source={{ uri: book.coverImageUri }} style={styles.cover} imageStyle={styles.imageCover}>
           {muted ? <View style={styles.mutedOverlay} /> : null}
-          <CoverContent book={book} size={size} />
+          <CoverContent book={book} size={size} showTypographyOverlay={showTypographyOverlay} />
         </ImageBackground>
       ) : (
         <LinearGradient colors={gradient} style={styles.cover}>
-          <CoverContent book={book} size={size} />
+          <CoverContent book={book} size={size} showTypographyOverlay={showTypographyOverlay} />
         </LinearGradient>
       )}
     </View>
   );
 }
 
-function CoverContent({ book, size }: BookCoverProps) {
+function CoverContent({
+  book,
+  size,
+  showTypographyOverlay
+}: BookCoverProps & { showTypographyOverlay: boolean }) {
   return (
     <>
-        <View style={styles.sheen} />
-        <Text numberOfLines={4} style={[styles.title, size === "sm" && styles.smallTitle]}>
-          {book.title}
-        </Text>
-        {book.seriesNumber ? <Text style={styles.series}>Book {book.seriesNumber}</Text> : null}
-        {book.userStatus.status === "reading" ? (
-          <View style={styles.progress}>
-            <ProgressRing progress={book.userStatus.progressPercent} size={size === "lg" ? 48 : 36} />
-          </View>
-        ) : null}
-        {book.userStatus.status === "dnf" ? (
-          <View style={styles.badge}>
-            <Badge label="DNF" tone="danger" />
-          </View>
-        ) : null}
+      {showTypographyOverlay ? <View style={styles.sheen} /> : <View style={styles.photoShade} />}
+      {showTypographyOverlay ? (
+        <>
+          <Text numberOfLines={4} style={[styles.title, size === "sm" && styles.smallTitle]}>
+            {book.title}
+          </Text>
+          {book.seriesNumber ? <Text style={styles.series}>Book {book.seriesNumber}</Text> : null}
+        </>
+      ) : null}
+      {book.userStatus.status === "reading" ? (
+        <View style={styles.progress}>
+          <ProgressRing progress={book.userStatus.progressPercent} size={size === "lg" ? 48 : 36} />
+        </View>
+      ) : null}
+      {book.userStatus.status === "dnf" ? (
+        <View style={styles.badge}>
+          <Badge label="DNF" tone="danger" />
+        </View>
+      ) : null}
     </>
   );
 }
@@ -83,6 +92,10 @@ const styles = StyleSheet.create({
   mutedOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(130,124,115,0.48)"
+  },
+  photoShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(15,23,42,0.08)"
   },
   sheen: {
     backgroundColor: "rgba(255,255,255,0.16)",

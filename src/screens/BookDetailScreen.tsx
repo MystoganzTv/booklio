@@ -1,10 +1,11 @@
-import { useNavigation, useRoute } from "@react-navigation/native";
-import { RouteProp } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
+import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Badge } from "../components/Badge";
-import { BarChart } from "../components/BarChart";
 import { BookCover } from "../components/BookCover";
+import { BookStatusSheet } from "../components/BookStatusSheet";
 import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
 import { SessionRow } from "../components/SessionRow";
@@ -15,143 +16,169 @@ import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
 export function BookDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, "BookDetail">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { getAuthor, getBook, getBookStats } = useBooklio();
+  const { getAuthor, getBook, getBookStats, updateBookStatus } = useBooklio();
   const book = getBook(route.params.bookId);
+  const [synopsisExpanded, setSynopsisExpanded] = useState(false);
+  const [statusSheetOpen, setStatusSheetOpen] = useState(false);
 
   if (!book) {
     return (
       <Screen>
-        <Text>Book not found.</Text>
+        <Text style={{ color: colors.muted, fontFamily: fonts.body, padding: spacing.lg }}>Book not found.</Text>
       </Screen>
     );
   }
 
   const author = getAuthor(book.authorId);
   const stats = getBookStats(book.id);
-  const progressData = stats.latestSessions
-    .slice()
-    .reverse()
-    .map((session) => ({
-      label: new Date(`${session.date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      value: session.pagesRead
-    }));
+
+  const statusLabel = book.userStatus.status.replaceAll("-", " ");
+  const isReading = book.userStatus.status === "reading";
+  const isDone = book.userStatus.status === "read";
 
   return (
     <Screen>
+      {/* Hero */}
       <View style={styles.hero}>
         <BookCover book={book} size="lg" />
         <View style={styles.heroCopy}>
           <Text style={styles.title}>{book.title}</Text>
           <Text style={styles.author}>{author?.name}</Text>
           {book.seriesName ? (
-            <Pressable onPress={() => navigation.navigate("SeriesTracker", { seriesId: book.seriesId ?? "" })}>
-              <Text style={styles.series}>
-                {book.seriesName} - Book {book.seriesNumber}
-              </Text>
+            <Pressable onPress={() => book.seriesId && navigation.navigate("SeriesTracker", { seriesId: book.seriesId })}>
+              <Text style={styles.series}>{book.seriesName} · Book {book.seriesNumber}</Text>
             </Pressable>
           ) : null}
-          <View style={styles.badges}>
-            <Badge label={book.userStatus.status.replaceAll("-", " ")} tone={book.userStatus.status === "dnf" ? "danger" : "gold"} />
-            <Badge label={book.userStatus.ownership === "owned" ? "Owned" : "Not Owned"} tone={book.userStatus.ownership === "owned" ? "green" : "gray"} />
-            {book.userStatus.wishlist ? <Badge label="Wishlist" tone="navy" /> : null}
-            {book.userStatus.wantToBuy ? <Badge label="Buy" tone="gold" /> : null}
-          </View>
+          <Pressable style={styles.badges} onPress={() => setStatusSheetOpen(true)}>
+            <Badge
+              label={statusLabel}
+              tone={book.userStatus.status === "dnf" ? "danger" : book.userStatus.status === "read" ? "green" : "gold"}
+            />
+            {book.userStatus.rating ? (
+              <Badge label={`${book.userStatus.rating} ★`} tone="navy" />
+            ) : null}
+            <Badge label="Edit ›" tone="gray" />
+          </Pressable>
         </View>
       </View>
 
-      <View style={styles.actionGrid}>
-        {[
-          ["Mark as Read", "read"],
-          ["Start Reading", "reading"],
-          ["Log Session", "log"],
-          ["Add to Wishlist", "wishlist"],
-          ["Want to Buy", "buy"],
-          ["Add Note", "note"],
-          ["View Similar Books", "similar"],
-          ["View Same Author", "author"],
-          ["View Saga", "saga"]
-        ].map(([label, action]) => (
+      {/* Primary actions */}
+      <View style={styles.actions}>
+        <Pressable
+          style={styles.primaryAction}
+          onPress={() => navigation.navigate("AddReadingSession", { bookId: book.id })}
+        >
+          <Ionicons name="pencil" size={15} color={colors.card} style={{ marginRight: 6 }} />
+          <Text style={styles.primaryActionText}>Log Session</Text>
+        </Pressable>
+        <Pressable
+          style={styles.secondaryAction}
+          onPress={() => navigation.navigate("ReadingLog", { bookId: book.id })}
+        >
+          <Ionicons name="time-outline" size={15} color={colors.navy} />
+        </Pressable>
+        {book.seriesId ? (
           <Pressable
-            key={label}
-            style={[styles.actionButton, action === "log" && styles.actionPrimary]}
-            onPress={() => {
-              if (action === "log") navigation.navigate("AddReadingSession", { bookId: book.id });
-              else if (action === "saga" && book.seriesId) navigation.navigate("SeriesTracker", { seriesId: book.seriesId });
-              else Alert.alert("Mock interaction", `${label} is wired as a backend-ready action.`);
-            }}
+            style={styles.secondaryAction}
+            onPress={() => navigation.navigate("SeriesTracker", { seriesId: book.seriesId! })}
           >
-            <Text style={[styles.actionText, action === "log" && styles.actionPrimaryText]}>{label}</Text>
+            <Ionicons name="layers-outline" size={15} color={colors.navy} />
           </Pressable>
-        ))}
+        ) : null}
       </View>
 
-      <SectionHeader title="Synopsis" />
-      <Text style={styles.paragraph}>{book.synopsis}</Text>
+      {/* Reading progress */}
+      {(isReading || isDone) && (
+        <View style={styles.progressCard}>
+          <View style={styles.progressHeader}>
+            <Text style={styles.progressLabel}>Progress</Text>
+            <Text style={styles.progressPct}>{book.userStatus.progressPercent}%</Text>
+          </View>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${book.userStatus.progressPercent}%` }]} />
+          </View>
+          <View style={styles.progressMeta}>
+            {book.userStatus.startDate ? (
+              <Text style={styles.progressMetaText}>Started {book.userStatus.startDate}</Text>
+            ) : null}
+            {book.userStatus.finishDate ? (
+              <Text style={styles.progressMetaText}>Finished {book.userStatus.finishDate}</Text>
+            ) : null}
+          </View>
+        </View>
+      )}
 
-      <SectionHeader title="Author Bio" />
-      <Text style={styles.paragraph}>{author?.bio}</Text>
+      {/* Reading stats */}
+      {stats.totalSessions > 0 && (
+        <View style={styles.statsStrip}>
+          <View style={styles.statItem}>
+            <Text style={styles.statVal}>{stats.totalSessions}</Text>
+            <Text style={styles.statLbl}>sessions</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statVal}>{stats.totalPages}</Text>
+            <Text style={styles.statLbl}>pages logged</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statVal}>{stats.averageSpeed}</Text>
+            <Text style={styles.statLbl}>pp/h avg</Text>
+          </View>
+        </View>
+      )}
 
-      <SectionHeader title="Metadata" />
-      <View style={styles.infoGrid}>
+      {/* Book info */}
+      <View style={styles.infoRow}>
         {[
           ["Genre", book.genre.join(", ")],
           ["Pages", `${book.pages}`],
-          ["Published", book.publishedDate],
-          ["Publisher", book.publisher],
-          ["Language", book.language],
-          ["ISBN", book.isbn],
-          ["Format", book.format]
+          ["Published", book.publishedDate.slice(0, 4)],
+          ["Format", book.format],
         ].map(([label, value]) => (
-          <View key={label} style={styles.infoCard}>
-            <Text style={styles.infoLabel}>{label}</Text>
-            <Text style={styles.infoValue}>{value}</Text>
+          <View key={label} style={styles.infoChip}>
+            <Text style={styles.infoChipLabel}>{label}</Text>
+            <Text style={styles.infoChipValue}>{value}</Text>
           </View>
         ))}
       </View>
 
-      <SectionHeader title="Your Data" />
-      <View style={styles.infoGrid}>
-        {[
-          ["Rating", book.userStatus.rating ? `${book.userStatus.rating}/5` : "Unrated"],
-          ["Personal Rank", book.userStatus.personalRanking ? `#${book.userStatus.personalRanking}` : "Not ranked"],
-          ["Start Date", book.userStatus.startDate ?? "Not started"],
-          ["Finish Date", book.userStatus.finishDate ?? "Open"],
-          ["Progress", `${book.userStatus.progressPercent}%`],
-          ["Sessions", `${stats.totalSessions}`],
-          ["Minutes", `${stats.totalMinutes}`],
-          ["Avg Speed", `${stats.averageSpeed} pp/h`]
-        ].map(([label, value]) => (
-          <View key={label} style={styles.infoCard}>
-            <Text style={styles.infoLabel}>{label}</Text>
-            <Text style={styles.infoValue}>{value}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.notesCard}>
-        <Text style={styles.notesLabel}>Notes</Text>
-        <Text style={styles.paragraph}>{book.userStatus.notes}</Text>
-        {book.userStatus.favoriteQuotes.map((quote) => (
-          <Text key={quote} style={styles.quote}>
-            "{quote}"
-          </Text>
-        ))}
-      </View>
-
-      <SectionHeader
-        title="Reading Log"
-        actionLabel="Full history"
-        onAction={() => navigation.navigate("ReadingLog", { bookId: book.id })}
-      />
-      {stats.latestSessions.map((session) => (
-        <SessionRow key={session.id} bookTitle={book.title} session={session} />
-      ))}
-      {progressData.length ? (
-        <View style={styles.chartCard}>
-          <Text style={styles.chartTitle}>Recent page bursts</Text>
-          <BarChart data={progressData} />
-        </View>
+      {/* Synopsis */}
+      {book.synopsis ? (
+        <>
+          <SectionHeader title="Synopsis" />
+          <Pressable onPress={() => setSynopsisExpanded((v) => !v)}>
+            <Text style={styles.synopsis} numberOfLines={synopsisExpanded ? undefined : 3}>
+              {book.synopsis}
+            </Text>
+            <Text style={styles.synopsisToggle}>
+              {synopsisExpanded ? "Show less" : "Read more"}
+            </Text>
+          </Pressable>
+        </>
       ) : null}
+
+      {/* Recent sessions */}
+      {stats.latestSessions.length > 0 ? (
+        <>
+          <SectionHeader
+            title="Recent Sessions"
+            actionLabel="All sessions"
+            onAction={() => navigation.navigate("ReadingLog", { bookId: book.id })}
+          />
+          {stats.latestSessions.slice(0, 3).map((session) => (
+            <SessionRow key={session.id} bookTitle={book.title} session={session} />
+          ))}
+        </>
+      ) : null}
+
+      <BookStatusSheet
+        open={statusSheetOpen}
+        currentStatus={book.userStatus.status}
+        currentRating={book.userStatus.rating}
+        onSave={(status, rating) => updateBookStatus(book.id, status, rating)}
+        onClose={() => setStatusSheetOpen(false)}
+      />
     </Screen>
   );
 }
@@ -163,6 +190,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
     flexDirection: "row",
     gap: spacing.md,
+    marginBottom: spacing.md,
     padding: spacing.md
   },
   heroCopy: {
@@ -171,128 +199,185 @@ const styles = StyleSheet.create({
   title: {
     color: colors.card,
     fontFamily: fonts.display,
-    fontSize: 30,
+    fontSize: 22,
     fontWeight: "900",
-    lineHeight: 33
+    lineHeight: 26
   },
   author: {
     color: "#E7DCCB",
-    fontFamily: fonts.body,
-    fontSize: 15,
-    fontWeight: "800",
-    marginTop: 6
-  },
-  series: {
-    color: colors.gold,
-    fontFamily: fonts.body,
-    fontSize: 13,
-    fontWeight: "900",
-    marginTop: 8
-  },
-  badges: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 7,
-    marginTop: spacing.md
-  },
-  actionGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    marginTop: spacing.lg
-  },
-  actionButton: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 11
-  },
-  actionPrimary: {
-    backgroundColor: colors.gold,
-    borderColor: colors.gold
-  },
-  actionText: {
-    color: colors.navy,
-    fontFamily: fonts.body,
-    fontSize: 12,
-    fontWeight: "900"
-  },
-  actionPrimaryText: {
-    color: colors.navy
-  },
-  paragraph: {
-    color: colors.ink,
-    fontFamily: fonts.body,
-    fontSize: 15,
-    lineHeight: 23
-  },
-  infoGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm
-  },
-  infoCard: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    padding: spacing.md,
-    width: "48%"
-  },
-  infoLabel: {
-    color: colors.muted,
-    fontFamily: fonts.body,
-    fontSize: 11,
-    fontWeight: "900",
-    textTransform: "uppercase"
-  },
-  infoValue: {
-    color: colors.navy,
     fontFamily: fonts.body,
     fontSize: 14,
     fontWeight: "800",
     marginTop: 5
   },
-  notesCard: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    marginTop: spacing.lg,
-    padding: spacing.md
-  },
-  notesLabel: {
+  series: {
     color: colors.gold,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "900",
-    letterSpacing: 1,
-    marginBottom: 8,
-    textTransform: "uppercase"
+    marginTop: 6
   },
-  quote: {
-    color: colors.navy,
-    fontFamily: fonts.display,
-    fontSize: 18,
-    fontStyle: "italic",
-    lineHeight: 25,
+  badges: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
     marginTop: spacing.sm
   },
-  chartCard: {
+  actions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.md
+  },
+  primaryAction: {
+    alignItems: "center",
+    backgroundColor: colors.navy,
+    borderRadius: radii.pill,
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "center",
+    paddingVertical: 13
+  },
+  primaryActionText: {
+    color: colors.card,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  secondaryAction: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    height: 46,
+    justifyContent: "center",
+    width: 46
+  },
+  progressCard: {
     backgroundColor: colors.card,
     borderColor: colors.border,
     borderRadius: radii.lg,
     borderWidth: 1,
+    marginBottom: spacing.md,
     padding: spacing.md
   },
-  chartTitle: {
+  progressHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: spacing.sm
+  },
+  progressLabel: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase"
+  },
+  progressPct: {
+    color: colors.navy,
+    fontFamily: fonts.display,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  progressTrack: {
+    backgroundColor: "#EEE7DB",
+    borderRadius: radii.pill,
+    height: 10,
+    overflow: "hidden"
+  },
+  progressFill: {
+    backgroundColor: colors.teal,
+    borderRadius: radii.pill,
+    height: "100%"
+  },
+  progressMeta: {
+    flexDirection: "row",
+    gap: spacing.md,
+    marginTop: spacing.xs
+  },
+  progressMetaText: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 11
+  },
+  statsStrip: {
+    ...shadows.card,
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  statItem: {
+    alignItems: "center",
+    flex: 1
+  },
+  statVal: {
+    color: colors.navy,
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "900"
+  },
+  statLbl: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 2,
+    textAlign: "center"
+  },
+  statDivider: {
+    backgroundColor: colors.border,
+    height: 32,
+    width: 1
+  },
+  infoRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginBottom: spacing.md
+  },
+  infoChip: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    width: "47%"
+  },
+  infoChipLabel: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase"
+  },
+  infoChipValue: {
     color: colors.navy,
     fontFamily: fonts.body,
     fontSize: 13,
+    fontWeight: "800",
+    marginTop: 3
+  },
+  synopsis: {
+    color: colors.ink,
+    fontFamily: fonts.body,
+    fontSize: 15,
+    lineHeight: 23
+  },
+  synopsisToggle: {
+    color: colors.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 13,
     fontWeight: "900",
-    marginBottom: spacing.md,
-    textTransform: "uppercase"
+    marginTop: spacing.xs
   }
 });

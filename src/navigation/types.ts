@@ -5,6 +5,7 @@ export type RootStackParamList = {
   AddReadingSession: { bookId?: string };
   BookIntake: undefined;
   SeriesTracker: { seriesId: string };
+  EditProfile: undefined;
 };
 
 export type MainTabParamList = {

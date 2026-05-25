@@ -30,11 +30,15 @@ export function SeriesTrackerScreen() {
       <View style={styles.hero}>
         <Text style={styles.eyebrow}>Saga tracker</Text>
         <Text style={styles.title}>{saga?.name ?? "Series"}</Text>
-        <Text style={styles.subtitle}>{saga?.description}</Text>
+        {saga?.description ? (
+          <Text style={styles.subtitle}>{saga.description}</Text>
+        ) : null}
         <View style={styles.completionTrack}>
           <View style={[styles.completionFill, { width: `${completion}%` }]} />
         </View>
-        <Text style={styles.completionText}>{completion}% complete - {completed}/{sagaBooks.length} tracked books read</Text>
+        <Text style={styles.completionText}>
+          {completed}/{sagaBooks.length} books read · {completion}% complete
+        </Text>
       </View>
 
       <View style={styles.orderRail}>
@@ -48,7 +52,7 @@ export function SeriesTrackerScreen() {
           <Text style={styles.nextTitle}>{nextBook.title}</Text>
           <Text style={styles.nextMeta}>{getAuthor(nextBook.authorId)?.name} - {nextBook.pages} pages</Text>
           <Pressable style={styles.nextButton} onPress={() => navigation.navigate("BookDetail", { bookId: nextBook.id })}>
-            <Text style={styles.nextButtonText}>Open Book</Text>
+            <Text style={styles.nextButtonText}>View book</Text>
           </Pressable>
         </View>
       ) : null}
@@ -59,7 +63,7 @@ export function SeriesTrackerScreen() {
           <View style={styles.bookCopy}>
             <Text style={styles.bookOrder}>#{order === "Reading order" ? book.sagaOrder : book.releaseOrder}</Text>
             <Text style={styles.bookTitle}>{book.title}</Text>
-            <Text style={styles.bookMeta}>{book.publishedDate} - {book.pages} pages</Text>
+            <Text style={styles.bookMeta}>{book.publishedDate.slice(0, 4)} · {book.pages} pages</Text>
             <View style={styles.badges}>
               <Badge label={book.userStatus.status.replaceAll("-", " ")} tone={book.userStatus.status === "read" ? "green" : "gray"} />
               {book.userStatus.ownership === "owned" ? <Badge label="Owned" tone="green" /> : null}
@@ -134,6 +138,7 @@ const styles = StyleSheet.create({
   },
   orderRail: {
     flexDirection: "row",
+    gap: spacing.sm,
     marginTop: spacing.lg
   },
   nextCard: {

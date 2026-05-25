@@ -12,6 +12,7 @@ import { ProfileScreen } from "../screens/ProfileScreen";
 import { ReadingLogScreen } from "../screens/ReadingLogScreen";
 import { SeriesTrackerScreen } from "../screens/SeriesTrackerScreen";
 import { StatsScreen } from "../screens/StatsScreen";
+import { EditProfileScreen } from "../screens/EditProfileScreen";
 import { MainTabParamList, RootStackParamList } from "./types";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -52,16 +53,22 @@ function MainTabs() {
             Home: focused ? "home" : "home-outline",
             Library: focused ? "library" : "library-outline",
             Add: focused ? "add-circle" : "add-circle-outline",
-            Stats: focused ? "stats-chart" : "stats-chart-outline",
+            Stats: focused ? "bar-chart" : "bar-chart-outline",
             Profile: focused ? "person-circle" : "person-circle-outline"
           };
-          return <Ionicons color={route.name === "Add" && focused ? colors.coral : color} name={icons[route.name]} size={route.name === "Add" ? size + 7 : size} />;
+          return (
+            <Ionicons
+              color={route.name === "Add" && focused ? colors.gold : color}
+              name={icons[route.name]}
+              size={route.name === "Add" ? size + 6 : size}
+            />
+          );
         }
       })}
     >
       <Tabs.Screen component={HomeScreen} name="Home" />
       <Tabs.Screen component={LibraryScreen} name="Library" />
-      <Tabs.Screen component={BookIntakeScreen} name="Add" options={{ title: "Añadir" }} />
+      <Tabs.Screen component={BookIntakeScreen} name="Add" options={{ title: "Add book" }} />
       <Tabs.Screen component={StatsScreen} name="Stats" />
       <Tabs.Screen component={ProfileScreen} name="Profile" />
     </Tabs.Navigator>
@@ -81,11 +88,12 @@ export function AppNavigator() {
         }}
       >
         <Stack.Screen component={MainTabs} name="MainTabs" options={{ headerShown: false }} />
-        <Stack.Screen component={BookDetailScreen} name="BookDetail" options={{ title: "Book Detail" }} />
-        <Stack.Screen component={ReadingLogScreen} name="ReadingLog" options={{ title: "Reading Log" }} />
-        <Stack.Screen component={AddReadingSessionScreen} name="AddReadingSession" options={{ title: "Log Session" }} />
-        <Stack.Screen component={BookIntakeScreen} name="BookIntake" options={{ title: "Añadir libro" }} />
-        <Stack.Screen component={SeriesTrackerScreen} name="SeriesTracker" options={{ title: "Saga Tracker" }} />
+        <Stack.Screen component={BookDetailScreen} name="BookDetail" options={{ title: "" }} />
+        <Stack.Screen component={ReadingLogScreen} name="ReadingLog" options={{ title: "" }} />
+        <Stack.Screen component={AddReadingSessionScreen} name="AddReadingSession" options={{ title: "" }} />
+        <Stack.Screen component={BookIntakeScreen} name="BookIntake" options={{ title: "Add Book" }} />
+        <Stack.Screen component={SeriesTrackerScreen} name="SeriesTracker" options={{ title: "" }} />
+        <Stack.Screen component={EditProfileScreen} name="EditProfile" options={{ title: "Edit Profile" }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
