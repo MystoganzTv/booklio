@@ -168,6 +168,13 @@ export function LibraryScreen() {
         <View style={styles.grid}>
           {filteredBooks.map((book) => {
             const author = getAuthor(book.authorId);
+            const bookMeta = book.userStatus.isRereading
+              ? book.userStatus.currentReadNumber === 2 ? "second read" : `read #${book.userStatus.currentReadNumber}`
+              : (book.userStatus.readCount ?? 0) > 1
+                ? `${book.userStatus.readCount} reads`
+                : book.userStatus.rating
+                  ? `${book.userStatus.rating} stars`
+                  : book.userStatus.status.replaceAll("-", " ");
             return (
               <Pressable
                 key={book.id}
@@ -177,11 +184,7 @@ export function LibraryScreen() {
                 <BookCover book={book} size="md" />
                 <Text numberOfLines={2} style={styles.bookTitle}>{book.title}</Text>
                 <Text numberOfLines={1} style={styles.bookAuthor}>{author?.name}</Text>
-                <Text style={styles.bookMeta}>
-                  {book.userStatus.rating
-                    ? `${book.userStatus.rating} stars`
-                    : book.userStatus.status.replaceAll("-", " ")}
-                </Text>
+                <Text style={styles.bookMeta}>{bookMeta}</Text>
               </Pressable>
             );
           })}

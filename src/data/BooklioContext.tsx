@@ -1,7 +1,17 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from "react";
 import { authors as authorSeed, books as bookSeed, readingSessions as sessionSeed, recommendations, series, userProfile } from "./mockData";
-import { Author, Book, CoreTrackingStatus, NewBookInput, NewReadingSessionInput, ReadingSession, UpdateUserProfileInput, UserProfile } from "../types/models";
+import {
+  Author,
+  Book,
+  CoreTrackingStatus,
+  NewBookInput,
+  NewReadingSessionInput,
+  ReadingSession,
+  UpdateBookInput,
+  UpdateUserProfileInput,
+  UserProfile
+} from "../types/models";
 
 type MonthBucket = {
   label: string;
@@ -52,6 +62,8 @@ type BooklioContextValue = {
   userProfile: UserProfile;
   addBook: (input: NewBookInput) => Book;
   addReadingSession: (input: NewReadingSessionInput) => ReadingSession;
+  startReread: (bookId: string) => void;
+  updateBook: (bookId: string, input: UpdateBookInput) => void;
   updateBookStatus: (bookId: string, status: CoreTrackingStatus, rating?: number) => void;
   updateUserProfile: (input: UpdateUserProfileInput) => void;
   getAuthor: (authorId: string) => Author | undefined;
@@ -64,6 +76,16 @@ type BooklioContextValue = {
 const BooklioContext = createContext<BooklioContextValue | null>(null);
 const STORAGE_KEY = "booklio:v1";
 
+const rereadAchievement = {
+  id: "ach-rereader",
+  title: "Rereader",
+  description: "Start a second read of a book you already finished.",
+  unlocked: false,
+  progress: 0,
+  goal: 1,
+  category: "habit" as const
+};
+
 type PersistedBooklioState = {
   authors: Author[];
   books: Book[];
@@ -75,10 +97,10 @@ const mergeSeedBookMetadata = (books: Book[]) =>
   books.map((book) => {
     const seedMatch = bookSeed.find((seed) => seed.id === book.id || (seed.isbn && seed.isbn === book.isbn));
     if (!seedMatch) {
-      return book;
+      return normalizeReadState(book);
     }
 
-    return {
+    return normalizeReadState({
       ...seedMatch,
       ...book,
       coverImageUri: book.coverImageUri ?? seedMatch.coverImageUri,
@@ -89,8 +111,57 @@ const mergeSeedBookMetadata = (books: Book[]) =>
         ...seedMatch.userStatus,
         ...book.userStatus
       }
-    };
+    });
   });
+
+const normalizeReadState = (book: Book): Book => {
+  const readCount = book.userStatus.readCount ?? (book.userStatus.status === "read" ? 1 : 0);
+  const isRereading = book.userStatus.isRereading ?? (book.userStatus.status === "reading" && readCount > 0);
+  const currentReadNumber =
+    book.userStatus.currentReadNumber ??
+    (book.userStatus.status === "reading" ? Math.max(1, readCount + 1) : readCount > 0 ? readCount : undefined);
+
+  return {
+    ...book,
+    userStatus: {
+      ...book.userStatus,
+      readCount,
+      currentReadNumber,
+      isRereading
+    }
+  };
+};
+
+const enrichProfileAchievements = (profile: UserProfile, books: Book[], sessions: ReadingSession[]): UserProfile => {
+  const rereadProgress = books.filter((book) => (book.userStatus.readCount ?? 0) > 1 || book.userStatus.isRereading).length;
+  const achievementMap = new Map(
+    [...profile.achievements, rereadAchievement].map((achievement) => [achievement.id, achievement])
+  );
+
+  achievementMap.set("ach-rereader", {
+    ...(achievementMap.get("ach-rereader") ?? rereadAchievement),
+    progress: rereadProgress,
+    unlocked: rereadProgress >= 1
+  });
+  achievementMap.set("ach-100-sessions", {
+    ...(achievementMap.get("ach-100-sessions") ?? {
+      id: "ach-100-sessions",
+      title: "100 Reading Sessions",
+      description: "Log 100 sessions.",
+      unlocked: false,
+      progress: 0,
+      goal: 100,
+      category: "habit" as const
+    }),
+    progress: sessions.length,
+    unlocked: sessions.length >= 100
+  });
+
+  return {
+    ...profile,
+    achievements: Array.from(achievementMap.values())
+  };
+};
 
 const sameYear = (date: string, year: number) => new Date(date).getFullYear() === year;
 
@@ -168,6 +239,8 @@ const slugify = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
+
+const buildAuthorId = (name: string) => `a-${slugify(name)}-${Date.now()}`;
 
 const colorsFromSource = (source: NewBookInput["source"]) => {
   if (source === "isbn") return { start: "#0F172A", end: "#14B8A6" };
@@ -270,7 +343,7 @@ const buildOverallStats = (books: Book[], sessions: ReadingSession[], authors: A
 
 export function BooklioProvider({ children }: PropsWithChildren) {
   const [authors, setAuthors] = useState<Author[]>(authorSeed);
-  const [books, setBooks] = useState<Book[]>(bookSeed);
+  const [books, setBooks] = useState<Book[]>(() => bookSeed.map(normalizeReadState));
   const [readingSessions, setReadingSessions] = useState<ReadingSession[]>(sessionSeed);
   const [profile, setProfile] = useState<UserProfile>(userProfile);
   const [hydrated, setHydrated] = useState(false);
@@ -287,7 +360,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
 
         const parsed = JSON.parse(saved) as PersistedBooklioState;
         setAuthors(parsed.authors?.length ? parsed.authors : authorSeed);
-        setBooks(parsed.books?.length ? mergeSeedBookMetadata(parsed.books) : bookSeed);
+        setBooks(parsed.books?.length ? mergeSeedBookMetadata(parsed.books) : bookSeed.map(normalizeReadState));
         setReadingSessions(parsed.readingSessions?.length ? parsed.readingSessions : sessionSeed);
         setProfile(parsed.userProfile?.id ? { ...userProfile, ...parsed.userProfile } : userProfile);
       } catch (error) {
@@ -339,21 +412,27 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         pagesPerHour
       };
 
-      setReadingSessions((current) => [session, ...current]);
+        setReadingSessions((current) => [session, ...current]);
       setBooks((current) =>
         current.map((book) => {
           if (book.id !== input.bookId) {
             return book;
           }
           const progressPercent = Math.min(100, Math.round((input.endPage / book.pages) * 100));
+          const completed = progressPercent >= 100;
+          const readCount = book.userStatus.readCount ?? (book.userStatus.status === "read" ? 1 : 0);
+          const nextReadCount = completed ? readCount + 1 : readCount;
           return {
             ...book,
             userStatus: {
               ...book.userStatus,
-              status: progressPercent >= 100 ? "read" : "reading",
+              status: completed ? "read" : "reading",
+              readCount: nextReadCount,
+              currentReadNumber: completed ? nextReadCount : Math.max(1, book.userStatus.currentReadNumber ?? readCount + 1),
+              isRereading: completed ? false : book.userStatus.isRereading,
               progressPercent,
               startDate: book.userStatus.startDate ?? input.date,
-              finishDate: progressPercent >= 100 ? input.date : book.userStatus.finishDate
+              finishDate: completed ? input.date : book.userStatus.finishDate
             }
           };
         })
@@ -365,7 +444,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
     const addBook = (input: NewBookInput) => {
       const authorName = input.authorName.trim() || "Author to identify";
       const existingAuthor = authors.find((author) => author.name.toLowerCase() === authorName.toLowerCase());
-      const authorId = existingAuthor?.id ?? `a-${slugify(authorName)}-${Date.now()}`;
+      const authorId = existingAuthor?.id ?? buildAuthorId(authorName);
 
       if (!existingAuthor) {
         setAuthors((current) => [
@@ -395,19 +474,43 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         format: "physical",
         coverGradient: [colorsFromSource(input.source).start, colorsFromSource(input.source).end],
         coverImageUri: input.coverImageUri,
-        userStatus: {
-          status: "want-to-read",
-          ownership: input.ownership ?? "owned",
-          wishlist: input.wishlist ?? false,
-          wantToBuy: input.wantToBuy ?? false,
-          progressPercent: 0,
-          notes: `Added through the ${input.source} flow.`,
-          favoriteQuotes: []
+          userStatus: {
+            status: "want-to-read",
+            ownership: input.ownership ?? "owned",
+            wishlist: input.wishlist ?? false,
+            wantToBuy: input.wantToBuy ?? false,
+            readCount: 0,
+            progressPercent: 0,
+            notes: `Added through the ${input.source} flow.`,
+            favoriteQuotes: []
         }
       };
 
       setBooks((current) => [book, ...current]);
       return book;
+    };
+
+    const startReread = (bookId: string) => {
+      const today = new Date().toISOString().slice(0, 10);
+      setBooks((current) =>
+        current.map((book) => {
+          if (book.id !== bookId) return book;
+          const readCount = Math.max(1, book.userStatus.readCount ?? (book.userStatus.status === "read" ? 1 : 0));
+          return {
+            ...book,
+            userStatus: {
+              ...book.userStatus,
+              status: "reading",
+              readCount,
+              currentReadNumber: readCount + 1,
+              isRereading: true,
+              progressPercent: 0,
+              startDate: today,
+              finishDate: undefined
+            }
+          };
+        })
+      );
     };
 
     const updateBookStatus = (bookId: string, newStatus: CoreTrackingStatus, rating?: number) => {
@@ -422,9 +525,71 @@ export function BooklioProvider({ children }: PropsWithChildren) {
               status: newStatus,
               ...(rating !== undefined ? { rating } : {}),
               ...(newStatus === "reading" && !book.userStatus.startDate ? { startDate: today } : {}),
-              ...(newStatus === "read" ? { progressPercent: 100, finishDate: book.userStatus.finishDate ?? today } : {})
+              ...(newStatus === "read"
+                ? {
+                    progressPercent: 100,
+                    finishDate: book.userStatus.finishDate ?? today,
+                    readCount: Math.max(1, book.userStatus.readCount ?? 0),
+                    currentReadNumber: Math.max(1, book.userStatus.readCount ?? 1),
+                    isRereading: false
+                  }
+                : {})
             }
           };
+        })
+      );
+    };
+
+    const updateBook = (bookId: string, input: UpdateBookInput) => {
+      const authorName = input.authorName.trim() || "Author to identify";
+      const existingAuthorId = authors.find((author) => author.name.toLowerCase() === authorName.toLowerCase())?.id;
+      const authorId = existingAuthorId ?? buildAuthorId(authorName);
+
+      if (!existingAuthorId) {
+        setAuthors((current) => [
+          ...current,
+          {
+            id: authorId,
+            name: authorName,
+            bio: "Author added from Booklio. Ready to be enriched when we connect a live books API.",
+            favoriteGenres: input.genre.length ? input.genre : ["Uncategorized"]
+          }
+        ]);
+      }
+
+      setBooks((current) =>
+        current.map((book) => {
+          if (book.id !== bookId) return book;
+          return normalizeReadState({
+            ...book,
+            title: input.title.trim() || book.title,
+            authorId,
+            synopsis: input.synopsis.trim() || "No synopsis yet.",
+            genre: input.genre.length ? input.genre : ["Uncategorized"],
+            pages: input.pages > 0 ? input.pages : book.pages,
+            publishedDate: input.publishedDate.trim() || book.publishedDate,
+            publisher: input.publisher.trim() || "Publisher pending confirmation",
+            language: input.language.trim() || "English",
+            isbn: input.isbn.trim() || "ISBN pending",
+            format: input.format,
+            coverImageUri: input.coverImageUri?.trim() || undefined,
+            seriesName: input.seriesName?.trim() || undefined,
+            seriesNumber: input.seriesNumber,
+            userStatus: {
+              ...book.userStatus,
+              status: input.status,
+              ownership: input.ownership,
+              wishlist: input.wishlist,
+              wantToBuy: input.wantToBuy,
+              rating: input.rating,
+              personalRanking: input.personalRanking,
+              startDate: input.startDate?.trim() || undefined,
+              finishDate: input.finishDate?.trim() || undefined,
+              progressPercent: Math.min(100, Math.max(0, input.progressPercent)),
+              notes: input.notes,
+              favoriteQuotes: input.favoriteQuotes
+            }
+          });
         })
       );
     };
@@ -447,9 +612,11 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       readingSessions: [...readingSessions].sort((a, b) => b.date.localeCompare(a.date)),
       recommendations,
       series,
-      userProfile: profile,
+      userProfile: enrichProfileAchievements(profile, books, readingSessions),
       addBook,
       addReadingSession,
+      startReread,
+      updateBook,
       updateBookStatus,
       updateUserProfile,
       getAuthor,

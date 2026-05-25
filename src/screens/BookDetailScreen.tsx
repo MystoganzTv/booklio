@@ -16,7 +16,7 @@ import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
 export function BookDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, "BookDetail">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { getAuthor, getBook, getBookStats, updateBookStatus } = useBooklio();
+  const { getAuthor, getBook, getBookStats, startReread, updateBookStatus } = useBooklio();
   const book = getBook(route.params.bookId);
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
   const [statusSheetOpen, setStatusSheetOpen] = useState(false);
@@ -35,6 +35,12 @@ export function BookDetailScreen() {
   const statusLabel = book.userStatus.status.replaceAll("-", " ");
   const isReading = book.userStatus.status === "reading";
   const isDone = book.userStatus.status === "read";
+  const readNumber = book.userStatus.currentReadNumber ?? Math.max(1, book.userStatus.readCount ?? 0);
+  const rereadLabel = book.userStatus.isRereading
+    ? readNumber === 2 ? "Second read" : `Read #${readNumber}`
+    : (book.userStatus.readCount ?? 0) > 1
+      ? `${book.userStatus.readCount} reads`
+      : null;
 
   return (
     <Screen>
@@ -57,6 +63,7 @@ export function BookDetailScreen() {
             {book.userStatus.rating ? (
               <Badge label={`${book.userStatus.rating} ★`} tone="navy" />
             ) : null}
+            {rereadLabel ? <Badge label={rereadLabel} tone="coral" /> : null}
             <Badge label="Edit ›" tone="gray" />
           </Pressable>
         </View>
@@ -71,6 +78,18 @@ export function BookDetailScreen() {
           <Ionicons name="pencil" size={15} color={colors.card} style={{ marginRight: 6 }} />
           <Text style={styles.primaryActionText}>Log Session</Text>
         </Pressable>
+        {isDone ? (
+          <Pressable
+            style={styles.rereadAction}
+            onPress={() => {
+              startReread(book.id);
+              navigation.navigate("AddReadingSession", { bookId: book.id });
+            }}
+          >
+            <Ionicons name="refresh" size={15} color={colors.navy} style={{ marginRight: 6 }} />
+            <Text style={styles.rereadActionText}>Read Again</Text>
+          </Pressable>
+        ) : null}
         <Pressable
           style={styles.secondaryAction}
           onPress={() => navigation.navigate("ReadingLog", { bookId: book.id })}
@@ -85,13 +104,19 @@ export function BookDetailScreen() {
             <Ionicons name="layers-outline" size={15} color={colors.navy} />
           </Pressable>
         ) : null}
+        <Pressable
+          style={styles.secondaryAction}
+          onPress={() => navigation.navigate("EditBook", { bookId: book.id })}
+        >
+          <Ionicons name="create-outline" size={15} color={colors.navy} />
+        </Pressable>
       </View>
 
       {/* Reading progress */}
       {(isReading || isDone) && (
         <View style={styles.progressCard}>
           <View style={styles.progressHeader}>
-            <Text style={styles.progressLabel}>Progress</Text>
+            <Text style={styles.progressLabel}>{book.userStatus.isRereading ? "Reread progress" : "Progress"}</Text>
             <Text style={styles.progressPct}>{book.userStatus.progressPercent}%</Text>
           </View>
           <View style={styles.progressTrack}>
@@ -225,6 +250,7 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
     marginBottom: spacing.md
   },
@@ -235,12 +261,31 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     justifyContent: "center",
+    minWidth: 150,
     paddingVertical: 13
   },
   primaryActionText: {
     color: colors.card,
     fontFamily: fonts.body,
     fontSize: 14,
+    fontWeight: "900"
+  },
+  rereadAction: {
+    alignItems: "center",
+    backgroundColor: "#FFF4D3",
+    borderColor: "#F7D27B",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexGrow: 1,
+    flexDirection: "row",
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 13
+  },
+  rereadActionText: {
+    color: colors.navy,
+    fontFamily: fonts.body,
+    fontSize: 13,
     fontWeight: "900"
   },
   secondaryAction: {

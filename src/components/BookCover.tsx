@@ -67,6 +67,11 @@ function CoverContent({
           <Badge label="DNF" tone="danger" />
         </View>
       ) : null}
+      {book.userStatus.isRereading ? (
+        <View style={styles.rereadBadge}>
+          <Badge label={book.userStatus.currentReadNumber === 2 ? "2nd read" : `Read #${book.userStatus.currentReadNumber}`} tone="coral" />
+        </View>
+      ) : null}
     </>
   );
 }
@@ -137,6 +142,11 @@ const styles = StyleSheet.create({
     left: 8,
     position: "absolute",
     top: 8
+  },
+  rereadBadge: {
+    bottom: 8,
+    left: 8,
+    position: "absolute"
   },
   dimmed: {
     opacity: 0.52

@@ -6,6 +6,7 @@ export type RootStackParamList = {
   BookIntake: undefined;
   SeriesTracker: { seriesId: string };
   EditProfile: undefined;
+  EditBook: { bookId: string };
 };
 
 export type MainTabParamList = {

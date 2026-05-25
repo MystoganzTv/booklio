@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, Share, StyleSheet, Text, View } from "react-native";
 import { BarChart } from "../components/BarChart";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
@@ -22,9 +22,32 @@ export function StatsScreen() {
   };
 
   const topGenre = overallStats.genreCounts[0]?.label ?? "—";
+  const topAuthor = overallStats.authorCounts[0]?.label ?? "—";
   const avgSpeed = Math.round(
     overallStats.speedOverTime.reduce((s, d) => s + d.value, 0) / (overallStats.speedOverTime.length || 1)
   );
+  const hoursRead = Math.round(overallStats.minutesRead / 60);
+
+  const shareYearInReview = async () => {
+    const year = new Date().getFullYear();
+    const text = [
+      `📚 My ${year} in books — powered by Booklio`,
+      ``,
+      `${overallStats.booksReadThisYear} books read`,
+      `${overallStats.pagesRead.toLocaleString()} pages`,
+      `${hoursRead} hours of reading`,
+      `${overallStats.longestStreak}-day longest streak`,
+      topGenre !== "—" ? `Favorite genre: ${topGenre}` : null,
+      topAuthor !== "—" ? `Most-read author: ${topAuthor}` : null,
+      overallStats.averageRating > 0 ? `Average rating: ${overallStats.averageRating} ★` : null
+    ].filter(Boolean).join("\n");
+
+    try {
+      await Share.share({ message: text });
+    } catch {
+      Alert.alert("Could not share", "Try again later.");
+    }
+  };
 
   const hasData = overallStats.totalBooksRead > 0 || overallStats.pagesRead > 0;
 
@@ -124,6 +147,58 @@ export function StatsScreen() {
           <BarChart data={overallStats.genreCounts.slice(0, 5)} />
         </View>
       ) : null}
+
+      {/* Year in Review */}
+      <View style={styles.yearCard}>
+        <View style={styles.yearHeader}>
+          <View>
+            <Text style={styles.yearEyebrow}>{new Date().getFullYear()} Year in Review</Text>
+            <Text style={styles.yearTitle}>Your reading year,{"\n"}at a glance.</Text>
+          </View>
+          <Ionicons name="trophy-outline" size={32} color={colors.gold} />
+        </View>
+
+        <View style={styles.yearGrid}>
+          <View style={styles.yearStat}>
+            <Text style={styles.yearStatVal}>{overallStats.booksReadThisYear}</Text>
+            <Text style={styles.yearStatLbl}>books read</Text>
+          </View>
+          <View style={styles.yearStat}>
+            <Text style={styles.yearStatVal}>{overallStats.pagesRead.toLocaleString()}</Text>
+            <Text style={styles.yearStatLbl}>pages</Text>
+          </View>
+          <View style={styles.yearStat}>
+            <Text style={styles.yearStatVal}>{hoursRead}h</Text>
+            <Text style={styles.yearStatLbl}>hours read</Text>
+          </View>
+          <View style={styles.yearStat}>
+            <Text style={styles.yearStatVal}>{overallStats.longestStreak}d</Text>
+            <Text style={styles.yearStatLbl}>best streak</Text>
+          </View>
+        </View>
+
+        {(topGenre !== "—" || topAuthor !== "—") && (
+          <View style={styles.yearHighlights}>
+            {topGenre !== "—" && (
+              <View style={styles.yearHighlight}>
+                <Text style={styles.yearHighlightLabel}>Top genre</Text>
+                <Text style={styles.yearHighlightValue}>{topGenre}</Text>
+              </View>
+            )}
+            {topAuthor !== "—" && (
+              <View style={styles.yearHighlight}>
+                <Text style={styles.yearHighlightLabel}>Most-read author</Text>
+                <Text style={styles.yearHighlightValue}>{topAuthor}</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        <Pressable style={styles.shareBtn} onPress={shareYearInReview}>
+          <Ionicons name="share-outline" size={16} color={colors.card} style={{ marginRight: 6 }} />
+          <Text style={styles.shareBtnText}>Share my year</Text>
+        </Pressable>
+      </View>
     </Screen>
   );
 }
@@ -319,5 +394,99 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     textAlign: "center"
+  },
+  yearCard: {
+    backgroundColor: colors.navy,
+    borderRadius: radii.lg,
+    marginBottom: spacing.md,
+    padding: spacing.lg
+  },
+  yearHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: spacing.lg
+  },
+  yearEyebrow: {
+    color: colors.gold,
+    fontFamily: fonts.body,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+    marginBottom: 4,
+    textTransform: "uppercase"
+  },
+  yearTitle: {
+    color: colors.card,
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "900",
+    lineHeight: 28
+  },
+  yearGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginBottom: spacing.md
+  },
+  yearStat: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: radii.md,
+    flex: 1,
+    minWidth: "44%",
+    padding: spacing.md
+  },
+  yearStatVal: {
+    color: colors.card,
+    fontFamily: fonts.display,
+    fontSize: 24,
+    fontWeight: "900"
+  },
+  yearStatLbl: {
+    color: "rgba(255,255,255,0.55)",
+    fontFamily: fonts.body,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 2
+  },
+  yearHighlights: {
+    borderTopColor: "rgba(255,255,255,0.12)",
+    borderTopWidth: 1,
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+    paddingTop: spacing.md
+  },
+  yearHighlight: {
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  yearHighlightLabel: {
+    color: "rgba(255,255,255,0.55)",
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  yearHighlightValue: {
+    color: colors.card,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900",
+    maxWidth: "60%",
+    textAlign: "right"
+  },
+  shareBtn: {
+    alignItems: "center",
+    backgroundColor: colors.gold,
+    borderRadius: radii.pill,
+    flexDirection: "row",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 12
+  },
+  shareBtnText: {
+    color: colors.card,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    fontWeight: "900"
   }
 });

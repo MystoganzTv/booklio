@@ -61,6 +61,8 @@ export function AddReadingSessionScreen() {
   const [customMinutes, setCustomMinutes] = useState("");
   const [useCustom, setUseCustom] = useState(false);
   const [format, setFormat] = useState<ReadingFormat>(selectedBook?.format ?? "physical");
+  const [note, setNote] = useState("");
+  const [noteOpen, setNoteOpen] = useState(false);
 
   const isAudiobook = format === "audiobook";
   const effectiveMinutes = useCustom ? Number(customMinutes) || 0 : minutes;
@@ -84,7 +86,7 @@ export function AddReadingSessionScreen() {
         Alert.alert("No progress logged", "Move the progress forward to log your session.");
         return;
       }
-      const startPage = Math.round((lastPct / 100) * totalPages);
+      const startPage = Math.min(totalPages, Math.round((lastPct / 100) * totalPages) + 1);
       const endPage = Math.round((currentPct / 100) * totalPages);
       addReadingSession({
         bookId,
@@ -92,7 +94,7 @@ export function AddReadingSessionScreen() {
         startPage,
         endPage,
         minutesRead: effectiveMinutes,
-        location: "—", mood: "—", format, notes: "",
+        location: "—", mood: "—", format, notes: note.trim(),
         difficulty: "moderate", enjoymentRating: 7
       });
       Alert.alert(
@@ -111,7 +113,7 @@ export function AddReadingSessionScreen() {
     addReadingSession({
       bookId,
       date: new Date().toISOString().split("T")[0],
-      startPage: lastPage,
+      startPage: lastPage + 1,
       endPage: currentPage,
       minutesRead: effectiveMinutes,
       location: "—", mood: "—", format, notes: "",
@@ -158,6 +160,11 @@ export function AddReadingSessionScreen() {
           <View style={styles.bookInfo}>
             <Text style={styles.bookTitle} numberOfLines={2}>{selectedBook.title}</Text>
             <Text style={styles.bookAuthor}>{getAuthor(selectedBook.authorId)?.name}</Text>
+            {selectedBook.userStatus.isRereading ? (
+              <Text style={styles.rereadNote}>
+                {selectedBook.userStatus.currentReadNumber === 2 ? "Second read" : `Read #${selectedBook.userStatus.currentReadNumber}`}
+              </Text>
+            ) : null}
             {!isAudiobook && (
               <Text style={styles.bookMeta}>{selectedBook.pages} pages total</Text>
             )}
@@ -301,6 +308,28 @@ export function AddReadingSessionScreen() {
         )}
       </View>
 
+      {/* Optional note */}
+      <Pressable style={styles.noteToggle} onPress={() => setNoteOpen((v) => !v)}>
+        <Ionicons name={noteOpen ? "chatbubble" : "chatbubble-outline"} size={15} color={noteOpen ? colors.tealDark : colors.muted} />
+        <Text style={[styles.noteToggleText, noteOpen && styles.noteToggleTextActive]}>
+          {noteOpen ? "Note" : "Add a note"}
+        </Text>
+        {note.trim().length > 0 && !noteOpen && (
+          <View style={styles.noteDot} />
+        )}
+      </Pressable>
+      {noteOpen && (
+        <TextInput
+          autoFocus
+          multiline
+          placeholder="Thoughts, a quote, a moment worth remembering..."
+          placeholderTextColor={colors.gray}
+          style={styles.noteInput}
+          value={note}
+          onChangeText={setNote}
+        />
+      )}
+
       {/* Stats strip */}
       {hasProgress && effectiveMinutes > 0 && (
         <View style={styles.statsRow}>
@@ -410,6 +439,20 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
     fontSize: 11,
     marginTop: 2
+  },
+  rereadNote: {
+    alignSelf: "flex-start",
+    backgroundColor: "#FFE1D8",
+    borderRadius: radii.pill,
+    color: colors.coral,
+    fontFamily: fonts.body,
+    fontSize: 11,
+    fontWeight: "900",
+    marginTop: spacing.xs,
+    overflow: "hidden",
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    textTransform: "uppercase"
   },
   progressBar: {
     backgroundColor: "#EEE7DB",
@@ -598,6 +641,42 @@ const styles = StyleSheet.create({
   },
   formatChipTextActive: {
     color: colors.card
+  },
+  noteToggle: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: spacing.sm,
+    paddingVertical: 4
+  },
+  noteToggleText: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  noteToggleTextActive: {
+    color: colors.tealDark
+  },
+  noteDot: {
+    backgroundColor: colors.teal,
+    borderRadius: 4,
+    height: 6,
+    width: 6
+  },
+  noteInput: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    color: colors.ink,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    marginBottom: spacing.md,
+    minHeight: 80,
+    padding: spacing.md,
+    textAlignVertical: "top"
   },
   statsRow: {
     ...shadows.card,

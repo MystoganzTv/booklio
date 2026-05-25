@@ -30,6 +30,9 @@ export interface UserBookStatus {
   ownership: OwnershipStatus;
   wishlist: boolean;
   wantToBuy: boolean;
+  readCount?: number;
+  currentReadNumber?: number;
+  isRereading?: boolean;
   rating?: number;
   personalRanking?: number;
   startDate?: string;
@@ -141,6 +144,33 @@ export interface UpdateUserProfileInput {
   yearlyGoal: number;
   favoriteAuthors: string[];
   favoriteGenres: string[];
+}
+
+export interface UpdateBookInput {
+  title: string;
+  authorName: string;
+  synopsis: string;
+  genre: string[];
+  pages: number;
+  publishedDate: string;
+  publisher: string;
+  language: string;
+  isbn: string;
+  format: ReadingFormat;
+  coverImageUri?: string;
+  seriesName?: string;
+  seriesNumber?: number;
+  status: CoreTrackingStatus;
+  ownership: OwnershipStatus;
+  wishlist: boolean;
+  wantToBuy: boolean;
+  rating?: number;
+  personalRanking?: number;
+  startDate?: string;
+  finishDate?: string;
+  progressPercent: number;
+  notes: string;
+  favoriteQuotes: string[];
 }
 
 export type NewReadingSessionInput = Omit<

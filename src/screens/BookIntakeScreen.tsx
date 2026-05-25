@@ -4,15 +4,14 @@ import * as ImagePicker from "expo-image-picker";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useState } from "react";
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { Badge } from "../components/Badge";
+import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
 import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { NewBookInput } from "../types/models";
 
-type IntakeMode = "menu" | "isbn" | "manual" | "search";
+type IntakeMode = "menu" | "isbn" | "manual" | "search" | "review";
 type IconName = keyof typeof Ionicons.glyphMap;
 
 const booklioLogo = require("../../assets/brand/booklio-logo.png");
@@ -203,6 +202,7 @@ export function BookIntakeScreen() {
   const [isBusy, setIsBusy] = useState(false);
   const [searchQuery, setSearchQuery] = useState("Dune");
   const [searchResults, setSearchResults] = useState<NewBookInput[]>([]);
+  const [reviewBook, setReviewBook] = useState<NewBookInput | null>(null);
   const [manual, setManual] = useState({
     title: "",
     authorName: "",
@@ -212,7 +212,18 @@ export function BookIntakeScreen() {
     publisher: ""
   });
 
-  const addAndOpen = (input: NewBookInput) => {
+  const stageBook = (input: NewBookInput) => {
+    setReviewBook({
+      ownership: "owned",
+      wishlist: false,
+      wantToBuy: false,
+      language: "English",
+      ...input
+    });
+    setMode("review");
+  };
+
+  const confirmAndOpen = (input: NewBookInput) => {
     const book = addBook(input);
     Alert.alert("Book added", `${book.title} is now in your library.`);
     navigation.navigate("BookDetail", { bookId: book.id });
@@ -231,7 +242,7 @@ export function BookIntakeScreen() {
     }
 
     const fallback = mockIsbnCatalog[clean];
-    addAndOpen({
+    stageBook({
       ...(found ?? fallback ?? {
         title: `ISBN Book ${clean}`,
         authorName: "Author to identify",
@@ -241,8 +252,7 @@ export function BookIntakeScreen() {
         publisher: "Publisher pending confirmation",
         synopsis: "ISBN captured. Ready to be completed from a live metadata provider."
       }),
-      source: "isbn",
-      ownership: "owned"
+      source: "isbn"
     });
   };
 
@@ -271,12 +281,11 @@ export function BookIntakeScreen() {
     if (result.canceled) return;
     const uri = result.assets[0]?.uri;
     setCoverUri(uri);
-    addAndOpen({
+    stageBook({
       ...mockIsbnCatalog["9780441172719"],
       coverImageUri: uri,
       source: "photo",
-      synopsis: "Real example detected from a cover photo. In production, this flow would use OCR or vision to confirm title, author, and ISBN.",
-      ownership: "owned"
+      synopsis: "Real example detected from a cover photo. In production, this flow would use OCR or vision to confirm title, author, and ISBN."
     });
   };
 
@@ -289,12 +298,11 @@ export function BookIntakeScreen() {
     if (result.canceled) return;
     const uri = result.assets[0]?.uri;
     setCoverUri(uri);
-    addAndOpen({
+    stageBook({
       ...mockIsbnCatalog["9780451524935"],
       coverImageUri: uri,
       source: "photo",
-      synopsis: "Real example imported from an image. Later we can replace this with actual visual recognition.",
-      ownership: "owned"
+      synopsis: "Real example imported from an image. Later we can replace this with actual visual recognition."
     });
   };
 
@@ -305,17 +313,109 @@ export function BookIntakeScreen() {
   };
 
   const saveManual = () => {
-    addAndOpen({
+    stageBook({
       title: manual.title || "New book",
       authorName: manual.authorName || "Author to identify",
       isbn: manual.isbn || undefined,
       pages: manual.pages ? Number(manual.pages) : undefined,
       genre: manual.genre ? manual.genre.split(",").map((item) => item.trim()).filter(Boolean) : ["Uncategorized"],
       publisher: manual.publisher || undefined,
-      source: "manual",
-      ownership: "owned"
+      source: "manual"
     });
   };
+
+  const updateReviewBook = (patch: Partial<NewBookInput>) => {
+    setReviewBook((current) => (current ? { ...current, ...patch } : current));
+  };
+
+  const confirmReviewBook = () => {
+    if (!reviewBook) return;
+    confirmAndOpen({
+      ...reviewBook,
+      title: reviewBook.title.trim() || "Untitled Book",
+      authorName: reviewBook.authorName.trim() || "Author to identify",
+      genre: reviewBook.genre?.length ? reviewBook.genre : ["Uncategorized"],
+      pages: reviewBook.pages && reviewBook.pages > 0 ? reviewBook.pages : 320
+    });
+  };
+
+  if (mode === "review" && reviewBook) {
+    return (
+      <Screen>
+        <View style={styles.reviewHeader}>
+          {reviewBook.coverImageUri ? (
+            <Image source={{ uri: reviewBook.coverImageUri }} style={styles.reviewCover} />
+          ) : (
+            <View style={styles.reviewCoverFallback}>
+              <Ionicons name="book-outline" size={28} color={colors.gold} />
+            </View>
+          )}
+          <View style={styles.reviewHeaderCopy}>
+            <Text style={styles.pageEyebrow}>Review & edit</Text>
+            <Text style={styles.reviewTitle} numberOfLines={3}>{reviewBook.title}</Text>
+            <Text style={styles.reviewAuthor} numberOfLines={1}>{reviewBook.authorName}</Text>
+          </View>
+        </View>
+
+        <Field label="Title" value={reviewBook.title} onChangeText={(title) => updateReviewBook({ title })} />
+        <Field label="Author" value={reviewBook.authorName} onChangeText={(authorName) => updateReviewBook({ authorName })} />
+        <Field
+          label="Genres"
+          value={reviewBook.genre?.join(", ") ?? ""}
+          onChangeText={(value) => updateReviewBook({ genre: splitList(value) })}
+          hint="Separate genres with commas"
+        />
+        <Field
+          label="Pages"
+          keyboardType="number-pad"
+          value={reviewBook.pages ? String(reviewBook.pages) : ""}
+          onChangeText={(value) => updateReviewBook({ pages: Number(value) || undefined })}
+        />
+        <Field label="ISBN" value={reviewBook.isbn ?? ""} onChangeText={(isbn) => updateReviewBook({ isbn })} />
+        <Field label="Publisher" value={reviewBook.publisher ?? ""} onChangeText={(publisher) => updateReviewBook({ publisher })} />
+        <Field label="Published date" value={reviewBook.publishedDate ?? ""} onChangeText={(publishedDate) => updateReviewBook({ publishedDate })} />
+        <Field label="Language" value={reviewBook.language ?? "English"} onChangeText={(language) => updateReviewBook({ language })} />
+        <Field
+          label="Cover image URL"
+          value={reviewBook.coverImageUri ?? ""}
+          onChangeText={(coverImageUri) => updateReviewBook({ coverImageUri })}
+          autoCapitalize="none"
+        />
+        <Field label="Synopsis" value={reviewBook.synopsis ?? ""} onChangeText={(synopsis) => updateReviewBook({ synopsis })} multiline />
+
+        <Text style={styles.reviewSectionTitle}>Shelf</Text>
+        <View style={styles.reviewChoiceGrid}>
+          <Choice
+            active={reviewBook.ownership === "owned"}
+            icon="checkmark-circle-outline"
+            label="Owned"
+            onPress={() => updateReviewBook({ ownership: "owned", wishlist: false, wantToBuy: false })}
+          />
+          <Choice
+            active={Boolean(reviewBook.wishlist)}
+            icon="bookmark-outline"
+            label="Wishlist"
+            onPress={() => updateReviewBook({ ownership: "not-owned", wishlist: true, wantToBuy: false })}
+          />
+          <Choice
+            active={Boolean(reviewBook.wantToBuy)}
+            icon="cart-outline"
+            label="Want to buy"
+            onPress={() => updateReviewBook({ ownership: "not-owned", wishlist: false, wantToBuy: true })}
+          />
+        </View>
+
+        <View style={styles.reviewActions}>
+          <Pressable style={styles.cancelButton} onPress={() => setMode("menu")}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </Pressable>
+          <Pressable style={styles.saveButton} onPress={confirmReviewBook}>
+            <Text style={styles.saveButtonText}>Add book</Text>
+          </Pressable>
+        </View>
+      </Screen>
+    );
+  }
 
   if (mode === "isbn") {
     return (
@@ -383,7 +483,7 @@ export function BookIntakeScreen() {
         <Field label="ISBN (optional)" value={manual.isbn} onChangeText={(v) => setManual((c) => ({ ...c, isbn: v }))} />
 
         <Pressable style={styles.saveButton} onPress={saveManual}>
-          <Text style={styles.saveButtonText}>Add to library</Text>
+          <Text style={styles.saveButtonText}>Review book</Text>
         </Pressable>
       </Screen>
     );
@@ -418,7 +518,7 @@ export function BookIntakeScreen() {
             ? searchResults
             : featuredExamples.map((isbn) => ({ ...mockIsbnCatalog[isbn], source: "search" as const }))
           ).map((book) => (
-            <Pressable key={`${book.title}-${book.isbn}`} style={styles.resultCard} onPress={() => addAndOpen(book)}>
+            <Pressable key={`${book.title}-${book.isbn}`} style={styles.resultCard} onPress={() => stageBook(book)}>
               {book.coverImageUri
                 ? <Image source={{ uri: book.coverImageUri }} style={styles.resultCover} />
                 : <View style={styles.resultCoverFallback} />}
@@ -482,21 +582,6 @@ export function BookIntakeScreen() {
         />
       </View>
 
-      <View style={styles.examplesCard}>
-        <Text style={styles.examplesTitle}>Quick add</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.exampleRail}>
-          {featuredExamples.map((isbn) => {
-            const example = mockIsbnCatalog[isbn];
-            return (
-              <Pressable key={isbn} style={styles.examplePill} onPress={() => addFromIsbn(isbn)}>
-                <Text style={styles.exampleTitle}>{example.title}</Text>
-                <Text style={styles.exampleAuthor}>{example.authorName}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
-
       {coverUri ? <Image source={{ uri: coverUri }} style={styles.preview} /> : null}
     </Screen>
   );
@@ -526,21 +611,61 @@ type FieldProps = {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
+  hint?: string;
   keyboardType?: "default" | "number-pad";
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  multiline?: boolean;
 };
 
-function Field({ label, value, onChangeText, keyboardType = "default" }: FieldProps) {
+function Field({
+  label,
+  value,
+  onChangeText,
+  hint,
+  keyboardType = "default",
+  autoCapitalize = "sentences",
+  multiline = false
+}: FieldProps) {
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
+      {hint ? <Text style={styles.fieldHint}>{hint}</Text> : null}
       <TextInput
+        autoCapitalize={autoCapitalize}
         keyboardType={keyboardType}
+        multiline={multiline}
         placeholderTextColor={colors.gray}
-        style={styles.input}
+        style={[styles.input, multiline && styles.textArea]}
         value={value}
         onChangeText={onChangeText}
       />
     </View>
+  );
+}
+
+function splitList(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function Choice({
+  active,
+  icon,
+  label,
+  onPress
+}: {
+  active: boolean;
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={[styles.choice, active && styles.choiceActive]} onPress={onPress}>
+      <Ionicons name={icon} size={16} color={active ? colors.navy : colors.muted} />
+      <Text style={[styles.choiceText, active && styles.choiceTextActive]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -585,46 +710,106 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     width: 44
   },
-  examplesCard: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+  reviewHeader: {
+    ...shadows.card,
+    alignItems: "center",
+    backgroundColor: colors.navy,
     borderRadius: radii.lg,
-    borderWidth: 1,
-    marginTop: spacing.lg,
+    flexDirection: "row",
+    gap: spacing.md,
+    marginBottom: spacing.lg,
     padding: spacing.md
   },
-  examplesTitle: {
-    color: colors.navy,
+  reviewCover: {
+    backgroundColor: colors.cream,
+    borderRadius: radii.md,
+    height: 148,
+    width: 98
+  },
+  reviewCoverFallback: {
+    alignItems: "center",
+    backgroundColor: colors.navy2,
+    borderColor: "rgba(255,255,255,0.18)",
+    borderRadius: radii.md,
+    borderWidth: 1,
+    height: 148,
+    justifyContent: "center",
+    width: 98
+  },
+  reviewHeaderCopy: {
+    flex: 1
+  },
+  reviewTitle: {
+    color: colors.card,
+    fontFamily: fonts.display,
+    fontSize: 25,
+    fontWeight: "900",
+    lineHeight: 30,
+    marginTop: 4
+  },
+  reviewAuthor: {
+    color: "#D8D2C8",
     fontFamily: fonts.body,
     fontSize: 13,
-    fontWeight: "900",
-    letterSpacing: 0.8,
-    textTransform: "uppercase"
+    marginTop: 5
   },
-  exampleRail: {
-    marginTop: spacing.sm
-  },
-  examplePill: {
-    backgroundColor: "#FFFBF4",
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    marginRight: spacing.sm,
-    padding: spacing.md,
-    width: 170
-  },
-  exampleTitle: {
+  reviewSectionTitle: {
     color: colors.navy,
     fontFamily: fonts.display,
-    fontSize: 18,
-    fontWeight: "900"
+    fontSize: 22,
+    fontWeight: "900",
+    marginBottom: spacing.sm,
+    marginTop: spacing.sm
   },
-  exampleAuthor: {
-    color: colors.tealDark,
+  reviewChoiceGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginBottom: spacing.md
+  },
+  choice: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10
+  },
+  choiceActive: {
+    backgroundColor: colors.gold,
+    borderColor: colors.gold
+  },
+  choiceText: {
+    color: colors.muted,
     fontFamily: fonts.body,
     fontSize: 12,
-    fontWeight: "900",
-    marginTop: 5
+    fontWeight: "900"
+  },
+  choiceTextActive: {
+    color: colors.navy
+  },
+  reviewActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.sm
+  },
+  cancelButton: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flex: 1,
+    paddingVertical: 15
+  },
+  cancelButtonText: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    fontWeight: "900"
   },
   resultsWrap: {
     gap: spacing.md,
@@ -853,6 +1038,12 @@ const styles = StyleSheet.create({
     marginBottom: 7,
     textTransform: "uppercase"
   },
+  fieldHint: {
+    color: colors.muted,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 12,
+    marginBottom: 6
+  },
   input: {
     backgroundColor: colors.card,
     borderColor: colors.border,
@@ -862,7 +1053,12 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
     fontSize: 15,
     fontWeight: "700",
+    minHeight: 50,
     padding: spacing.md
+  },
+  textArea: {
+    minHeight: 110,
+    textAlignVertical: "top"
   },
   searchRow: {
     alignItems: "center",
