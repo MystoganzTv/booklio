@@ -3,11 +3,15 @@ import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
-const STORAGE_KEY = "booklio:google-account";
+const STORAGE_KEY = "booklio_connected_account";
+const LEGACY_STORAGE_KEY = "booklio_google_account";
 
-export type GoogleAccount = {
+export type ConnectedAccountProvider = "google" | "apple";
+
+export type ConnectedAccount = {
   id: string;
-  email: string;
+  provider: ConnectedAccountProvider;
+  email?: string;
   name: string;
   picture?: string;
   givenName?: string;
@@ -40,32 +44,72 @@ export function buildInitials(name: string, email?: string) {
   return (email?.slice(0, 2) ?? "BK").toUpperCase();
 }
 
-export async function persistGoogleAccount(account: GoogleAccount) {
+export function buildAppleDisplayName({
+  fullName,
+  fallbackName,
+  fallbackEmail
+}: {
+  fullName?: { givenName?: string | null; familyName?: string | null } | null;
+  fallbackName?: string;
+  fallbackEmail?: string;
+}) {
+  const parts = [fullName?.givenName, fullName?.familyName].filter(Boolean);
+  if (parts.length) {
+    return parts.join(" ");
+  }
+
+  if (fallbackName?.trim()) {
+    return fallbackName.trim();
+  }
+
+  if (fallbackEmail?.trim()) {
+    return fallbackEmail.trim();
+  }
+
+  return "Booklio Reader";
+}
+
+export async function persistConnectedAccount(account: ConnectedAccount) {
   const value = JSON.stringify(account);
   if (Platform.OS === "web") {
     await AsyncStorage.setItem(STORAGE_KEY, value);
+    await AsyncStorage.removeItem(LEGACY_STORAGE_KEY);
     return;
   }
   await SecureStore.setItemAsync(STORAGE_KEY, value);
 }
 
-export async function readPersistedGoogleAccount() {
-  const raw = Platform.OS === "web"
-    ? await AsyncStorage.getItem(STORAGE_KEY)
-    : await SecureStore.getItemAsync(STORAGE_KEY);
-
-  if (!raw) return null;
-
+export async function readPersistedConnectedAccount() {
   try {
-    return JSON.parse(raw) as GoogleAccount;
+    if (Platform.OS === "web") {
+      const raw = await AsyncStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        return JSON.parse(raw) as ConnectedAccount;
+      }
+
+      const legacyRaw = await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
+      if (!legacyRaw) return null;
+
+      const parsed = JSON.parse(legacyRaw) as ConnectedAccount | Omit<ConnectedAccount, "provider">;
+      const normalized = "provider" in parsed ? parsed : { ...parsed, provider: "google" as const };
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+      await AsyncStorage.removeItem(LEGACY_STORAGE_KEY);
+      return normalized;
+    }
+
+    const raw = await SecureStore.getItemAsync(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ConnectedAccount | Omit<ConnectedAccount, "provider">;
+    return "provider" in parsed ? parsed : { ...parsed, provider: "google" as const };
   } catch {
     return null;
   }
 }
 
-export async function clearPersistedGoogleAccount() {
+export async function clearPersistedConnectedAccount() {
   if (Platform.OS === "web") {
     await AsyncStorage.removeItem(STORAGE_KEY);
+    await AsyncStorage.removeItem(LEGACY_STORAGE_KEY);
     return;
   }
   await SecureStore.deleteItemAsync(STORAGE_KEY);

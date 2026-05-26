@@ -18,6 +18,7 @@
     ],
     "ios": {
       "bundleIdentifier": "com.mystodev.booklio",
+      "usesAppleSignIn": true,
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Booklio uses the camera to photograph book covers and scan ISBN barcodes.",
@@ -39,7 +40,14 @@
       "expo-image-picker",
       "expo-asset",
       "expo-web-browser",
-      "expo-secure-store"
+      "expo-apple-authentication",
+      "expo-secure-store",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.167166673441-1m9fio2dlddt0a053ip2o8b6tan85pdb"
+        }
+      ]
     ],
     "extra": {
       "googleAuth": {

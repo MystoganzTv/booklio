@@ -20,7 +20,11 @@ export function RecommendationCard({
 }: RecommendationCardProps) {
   return (
     <Pressable style={[styles.card, compact && styles.cardCompact]} onPress={onPress}>
-      <BookCover book={book} size={compact ? "sm" : "md"} style={!compact ? styles.cover : undefined} />
+      <BookCover
+        book={book}
+        size={compact ? "sm" : "md"}
+        style={compact ? styles.coverCompact : styles.cover}
+      />
       <View style={styles.copy}>
         <View style={styles.topline}>
           <Text style={styles.reason}>{formatReason(recommendation.reason)}</Text>
@@ -56,7 +60,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginRight: spacing.md,
     padding: spacing.md,
-    width: 240
+    width: 212
   },
   cardCompact: {
     flexDirection: "row",
@@ -66,8 +70,12 @@ const styles = StyleSheet.create({
     width: "100%"
   },
   cover: {
-    height: 184,
+    height: 156,
     width: "100%"
+  },
+  coverCompact: {
+    width: 84,
+    height: 124
   },
   copy: {
     flex: 1,
@@ -87,27 +95,27 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   confidence: {
-    color: "#D9D4CA",
+    color: "#D0C7B8",
     fontFamily: fonts.body,
     fontSize: 10,
     fontWeight: "900"
   },
   title: {
-    color: colors.card,
+    color: colors.navy,
     fontFamily: fonts.display,
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "900",
-    lineHeight: 22,
+    lineHeight: 21,
     marginTop: 6
   },
   author: {
-    color: "#D8D2C8",
+    color: colors.muted,
     fontFamily: fonts.bodyRegular,
     fontSize: 12,
     marginTop: 4
   },
   note: {
-    color: "#F3E9D2",
+    color: colors.muted,
     fontFamily: fonts.bodyRegular,
     fontSize: 12,
     lineHeight: 18,

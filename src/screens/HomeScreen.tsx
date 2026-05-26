@@ -127,7 +127,7 @@ export function HomeScreen() {
       {/* Continue reading */}
       {continueBook ? (
         <View style={styles.continueCard}>
-          <BookCover book={continueBook} size="md" />
+          <BookCover book={continueBook} size="sm" style={styles.continueCover} />
           <View style={styles.continueCopy}>
             <Text style={styles.sectionEyebrow}>Continue reading</Text>
             <Text style={styles.continueTitle}>{continueBook.title}</Text>
@@ -167,6 +167,7 @@ export function HomeScreen() {
                     key={recommendation.id}
                     authorName={getAuthor(book.authorId)?.name ?? ""}
                     book={book}
+                    compact
                     recommendation={recommendation}
                     onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
                   />
@@ -417,6 +418,11 @@ const styles = StyleSheet.create({
   },
   continueCopy: {
     flex: 1
+  },
+  continueCover: {
+    width: 96,
+    height: 142,
+    marginTop: 2
   },
   sectionEyebrow: {
     color: colors.gold,

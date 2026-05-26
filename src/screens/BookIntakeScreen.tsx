@@ -4,7 +4,8 @@ import * as ImagePicker from "expo-image-picker";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useState } from "react";
-import { ActivityIndicator, Alert, Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { BooklioDialog } from "../components/BooklioDialog";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
@@ -150,6 +151,7 @@ export function BookIntakeScreen() {
   const [searchOffset, setSearchOffset] = useState(0);
   const [reviewBook, setReviewBook] = useState<NewBookInput | null>(null);
   const [reviewInsight, setReviewInsight] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<{ title: string; body: string } | null>(null);
   const [isRefreshingMetadata, setIsRefreshingMetadata] = useState(false);
   const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
   const [manual, setManual] = useState({
@@ -162,23 +164,35 @@ export function BookIntakeScreen() {
   });
 
   const photoSupport = getBookPhotoSupportSummary();
+  const dialogNode = (
+    <BooklioDialog
+      open={Boolean(dialog)}
+      title={dialog?.title ?? ""}
+      body={dialog?.body ?? ""}
+      onConfirm={() => setDialog(null)}
+    />
+  );
 
-  const stageBook = (input: NewBookInput, insight?: string | null) => {
-    setReviewBook({
+  const openDialog = (title: string, body: string) => {
+    setDialog({ title, body });
+  };
+
+  const stageBook = async (input: NewBookInput, insight?: string | null) => {
+    const draft: NewBookInput = {
       ownership: "owned",
       wishlist: false,
       wantToBuy: false,
       format: "physical",
       language: "English",
       ...input
-    });
+    };
+    setReviewBook(draft);
     setReviewInsight(insight ?? null);
     setMode("review");
   };
 
   const confirmAndOpen = (input: NewBookInput) => {
     const book = addBook(input);
-    Alert.alert("Book added", `${book.title} is now in your library.`);
     navigation.navigate("BookDetail", { bookId: book.id });
   };
 
@@ -219,12 +233,12 @@ export function BookIntakeScreen() {
       setSearchResults(results);
       setSearchTotal(total);
       if (!results.length) {
-        Alert.alert("No results", "Couldn't find books in Open Library. Try a different title or author name.");
+        openDialog("No results yet", "Booklio couldn't find a match in Open Library. Try a different title, author, or ISBN.");
       }
     } catch {
       setSearchResults([]);
       setSearchTotal(0);
-      Alert.alert(
+      openDialog(
         "Connection issue",
         Platform.OS === "web"
           ? "Couldn't reach metadata search. In the web demo, start `npm run metadata-proxy` and try again, or use manual entry."
@@ -253,9 +267,9 @@ export function BookIntakeScreen() {
   const selectSearchResult = async (book: NewBookInput) => {
     setIsBusy(true);
     try {
-      stageBook(await enrichBookInput(book), "Booklio enriched this result with shared metadata before review.");
+      await stageBook(await enrichBookInput(book));
     } catch {
-      stageBook(book);
+      await stageBook(book);
     } finally {
       setIsBusy(false);
     }
@@ -290,7 +304,7 @@ export function BookIntakeScreen() {
   };
 
   const saveManual = () => {
-    stageBook({
+    void stageBook({
       title: manual.title || "New book",
       authorName: manual.authorName || "Author to identify",
       isbn: manual.isbn || undefined,
@@ -307,7 +321,7 @@ export function BookIntakeScreen() {
 
   const refreshReviewMetadata = async () => {
     if (!reviewBook || !canFetchMetadata(reviewBook)) {
-      Alert.alert("Need a clue first", "Add an ISBN or at least a title before fetching metadata.");
+      openDialog("Need a clue first", "Add an ISBN or at least a title before refreshing metadata.");
       return;
     }
 
@@ -316,14 +330,13 @@ export function BookIntakeScreen() {
       const enriched = await enrichBookInput(reviewBook);
       const changes = summarizeMetadataChanges(reviewBook, enriched);
       setReviewBook(enriched);
-      Alert.alert(
-        changes.length ? "Metadata updated" : "No new metadata",
-        changes.length
-          ? `Updated: ${changes.join(", ")}.`
-          : "Booklio could not find any additional details for this draft."
-      );
+      if (changes.length) {
+        openDialog("Metadata refreshed", `Updated: ${changes.join(", ")}.`);
+      } else {
+        openDialog("No changes found", "Booklio couldn't find any additional details for this draft.");
+      }
     } catch {
-      Alert.alert(
+      openDialog(
         "Connection issue",
         Platform.OS === "web"
           ? "Couldn't reach metadata search. In the web demo, start `npm run metadata-proxy` and try again."
@@ -358,9 +371,9 @@ export function BookIntakeScreen() {
         base64: asset?.base64,
         fileName: asset?.fileName
       });
-      stageBook(result.draft, result.notes.join(" "));
+      await stageBook(result.draft, result.notes.join(" "));
     } catch {
-      stageBook({
+      await stageBook({
         title: "Book from photo",
         authorName: "Needs identification",
         genre: ["Uncategorized"],
@@ -378,6 +391,7 @@ export function BookIntakeScreen() {
   if (mode === "review" && reviewBook) {
     return (
       <Screen>
+      {dialogNode}
       <View style={styles.reviewHeader}>
           {reviewBook.coverImageUri ? (
             <Image source={{ uri: reviewBook.coverImageUri }} style={styles.reviewCover} />
@@ -494,11 +508,13 @@ export function BookIntakeScreen() {
         </View>
 
         <View style={styles.reviewActions}>
-          <Pressable style={styles.cancelButton} onPress={() => setMode("menu")}>
-            <Text style={styles.cancelButtonText}>Cancel</Text>
+          <Pressable style={styles.primaryReviewButton} onPress={confirmReviewBook}>
+            <Ionicons name="library-outline" size={18} color={colors.card} />
+            <Text style={styles.primaryReviewButtonText}>Add to library</Text>
           </Pressable>
-          <Pressable style={styles.saveButton} onPress={confirmReviewBook}>
-            <Text style={styles.saveButtonText}>Add book</Text>
+          <Pressable style={styles.secondaryReviewButton} onPress={() => setMode("menu")}>
+            <Ionicons name="close-outline" size={18} color={colors.muted} />
+            <Text style={styles.secondaryReviewButtonText}>Cancel this draft</Text>
           </Pressable>
         </View>
       </Screen>
@@ -508,6 +524,7 @@ export function BookIntakeScreen() {
   if (mode === "isbn") {
     return (
       <Screen>
+        {dialogNode}
         <View style={styles.pageHeader}>
           <Text style={styles.pageEyebrow}>Scan ISBN</Text>
           <Text style={styles.pageTitle}>Point at the barcode.</Text>
@@ -559,6 +576,7 @@ export function BookIntakeScreen() {
   if (mode === "manual") {
     return (
       <Screen>
+        {dialogNode}
         <View style={styles.pageHeader}>
           <Text style={styles.pageEyebrow}>Manual entry</Text>
           <Text style={styles.pageTitle}>Add a book by hand.</Text>
@@ -585,6 +603,7 @@ export function BookIntakeScreen() {
 
     return (
       <Screen>
+        {dialogNode}
         <View style={styles.pageHeader}>
           <Text style={styles.pageEyebrow}>Search</Text>
           <Text style={styles.pageTitle}>Find your book.</Text>
@@ -656,12 +675,24 @@ export function BookIntakeScreen() {
                   <Text numberOfLines={2} style={styles.resultTitle}>{book.title}</Text>
                   <Text numberOfLines={1} style={styles.resultAuthor}>{book.authorName}</Text>
                   <Text numberOfLines={1} style={styles.resultMeta}>
+                    {book.language ? `${book.language}` : ""}
+                    {book.language && (book.pages || book.publisher || book.publishedDate) ? " · " : ""}
                     {book.pages ? `${book.pages} pg` : ""}
                     {book.publisher ? ` · ${book.publisher}` : ""}
                     {book.publishedDate ? ` · ${String(book.publishedDate).slice(0, 4)}` : ""}
                   </Text>
+                  {!!book.editionCount && (
+                    <View style={styles.resultEditionPill}>
+                      <Ionicons name="layers-outline" size={12} color={colors.tealDark} />
+                      <Text style={styles.resultEditionText}>
+                        {book.editionCount} edition{book.editionCount === 1 ? "" : "s"}
+                      </Text>
+                    </View>
+                  )}
                 </View>
-                <Ionicons name="add-circle" size={26} color={colors.teal} />
+                <View style={styles.resultAction}>
+                  <Ionicons name="chevron-forward" size={18} color={colors.card} />
+                </View>
               </Pressable>
             ))}
             {searchResults.length > 0 && searchResults.length < searchTotal && (
@@ -687,6 +718,7 @@ export function BookIntakeScreen() {
 
   return (
     <Screen>
+      {dialogNode}
       <View style={styles.pageHeader}>
         <Text style={styles.pageEyebrow}>Add book</Text>
         <Text style={styles.pageTitle}>How do you want to add it?</Text>
@@ -1100,23 +1132,37 @@ const styles = StyleSheet.create({
     color: colors.navy
   },
   reviewActions: {
-    flexDirection: "row",
     gap: spacing.sm,
-    marginTop: spacing.sm
+    marginTop: spacing.lg,
+    paddingBottom: spacing.lg
   },
-  cancelButton: {
+  primaryReviewButton: {
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: colors.navy,
     borderRadius: radii.pill,
-    borderWidth: 1,
-    flex: 1,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
     paddingVertical: 15
   },
-  cancelButtonText: {
-    color: colors.muted,
+  primaryReviewButtonText: {
+    color: colors.card,
     fontFamily: fonts.body,
     fontSize: 14,
+    fontWeight: "900"
+  },
+  secondaryReviewButton: {
+    alignItems: "center",
+    alignSelf: "center",
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+    paddingVertical: 6
+  },
+  secondaryReviewButtonText: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 13,
     fontWeight: "900"
   },
   resultsWrap: {
@@ -1167,6 +1213,33 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bodyRegular,
     fontSize: 12,
     marginTop: 5
+  },
+  resultEditionPill: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#F1FBF8",
+    borderColor: "#CFECE4",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    marginTop: spacing.sm,
+    paddingHorizontal: 9,
+    paddingVertical: 5
+  },
+  resultEditionText: {
+    color: colors.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 11,
+    fontWeight: "900"
+  },
+  resultAction: {
+    alignItems: "center",
+    backgroundColor: colors.navy,
+    borderRadius: 18,
+    height: 36,
+    justifyContent: "center",
+    width: 36
   },
   pathTitle: {
     color: colors.navy,

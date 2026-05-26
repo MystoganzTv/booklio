@@ -2,6 +2,7 @@ import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { GoogleConnectionCard } from "../components/GoogleConnectionCard";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
@@ -42,6 +43,16 @@ export function EditProfileScreen() {
         <Text style={styles.pageEyebrow}>Edit profile</Text>
         <Text style={styles.pageTitle}>Make it yours.</Text>
       </View>
+
+      <View style={styles.accountSection}>
+        <Text style={styles.accountEyebrow}>Account</Text>
+        <Text style={styles.accountTitle}>Identity</Text>
+        <Text style={styles.accountBody}>
+          Choose how Booklio recognizes you before anything else.
+        </Text>
+      </View>
+
+      <GoogleConnectionCard />
 
       <Field label="Name" value={name} onChangeText={setName} />
       <Field
@@ -183,6 +194,32 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     marginTop: spacing.sm,
     paddingVertical: 15
+  },
+  accountSection: {
+    marginBottom: spacing.sm,
+    marginTop: spacing.md
+  },
+  accountEyebrow: {
+    color: colors.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.3,
+    textTransform: "uppercase"
+  },
+  accountTitle: {
+    color: colors.navy,
+    fontFamily: fonts.display,
+    fontSize: 24,
+    fontWeight: "900",
+    marginTop: 2
+  },
+  accountBody: {
+    color: colors.muted,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 6
   },
   saveButtonText: {
     color: colors.card,

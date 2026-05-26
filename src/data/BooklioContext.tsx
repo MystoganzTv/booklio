@@ -20,7 +20,7 @@ import {
   UpdateUserProfileInput,
   UserProfile
 } from "../types/models";
-import { buildInitials, clearPersistedGoogleAccount, GoogleAccount, persistGoogleAccount, readPersistedGoogleAccount } from "../utils/googleAuth";
+import { buildInitials, clearPersistedConnectedAccount, ConnectedAccount, persistConnectedAccount, readPersistedConnectedAccount } from "../utils/googleAuth";
 import { buildBookSpecificRecommendations, buildGlobalRecommendations } from "../utils/recommendationEngine";
 
 type MonthBucket = {
@@ -84,8 +84,8 @@ type BooklioContextValue = {
   series: typeof series;
   userProfile: UserProfile;
   repositoryStatus: RepositoryStatus;
-  connectGoogleAccount: (account: GoogleAccount) => Promise<void>;
-  disconnectGoogleAccount: () => Promise<void>;
+  connectIdentityAccount: (account: ConnectedAccount) => Promise<void>;
+  disconnectIdentityAccount: () => Promise<void>;
   addBook: (input: NewBookInput) => Book;
   addReadingSession: (input: NewReadingSessionInput) => ReadingSession;
   updateReadingSession: (sessionId: string, input: NewReadingSessionInput) => ReadingSession | undefined;
@@ -524,7 +524,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         setBooks(parsed.books?.length ? mergeSeedBookMetadata(parsed.books) : bookSeed.map(normalizeReadState));
         setReadingSessions(parsed.readingSessions?.length ? parsed.readingSessions : sessionSeed);
         if (parsed.userProfile?.id) {
-          const persistedGoogle = await readPersistedGoogleAccount();
+          const persistedAccount = await readPersistedConnectedAccount();
           const migratedAchievements = migrateAchievements(
             (parsed.userProfile.achievements as unknown as Record<string, unknown>[]) ?? [],
             userProfile.achievements
@@ -532,13 +532,13 @@ export function BooklioProvider({ children }: PropsWithChildren) {
           setProfile({
             ...userProfile,
             ...parsed.userProfile,
-            ...(persistedGoogle
+            ...(persistedAccount
               ? {
-                  name: persistedGoogle.name,
-                  avatarInitials: buildInitials(persistedGoogle.name, persistedGoogle.email),
-                  avatarUri: persistedGoogle.picture,
-                  email: persistedGoogle.email,
-                  authProvider: "google" as const
+                  name: persistedAccount.name,
+                  avatarInitials: buildInitials(persistedAccount.name, persistedAccount.email),
+                  avatarUri: persistedAccount.picture,
+                  email: persistedAccount.email,
+                  authProvider: persistedAccount.provider
                 }
               : {}),
             achievements: migratedAchievements
@@ -842,20 +842,20 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       }));
     };
 
-    const connectGoogleAccount = async (account: GoogleAccount) => {
-      await persistGoogleAccount(account);
+    const connectIdentityAccount = async (account: ConnectedAccount) => {
+      await persistConnectedAccount(account);
       setProfile((current) => ({
         ...current,
         name: account.name || current.name,
-        avatarInitials: buildInitials(account.name, account.email),
-        avatarUri: account.picture,
-        email: account.email,
-        authProvider: "google"
+        avatarInitials: buildInitials(account.name, account.email ?? current.email),
+        avatarUri: account.picture ?? current.avatarUri,
+        email: account.email ?? current.email,
+        authProvider: account.provider
       }));
     };
 
-    const disconnectGoogleAccount = async () => {
-      await clearPersistedGoogleAccount();
+    const disconnectIdentityAccount = async () => {
+      await clearPersistedConnectedAccount();
       setProfile((current) => ({
         ...current,
         avatarUri: undefined,
@@ -872,8 +872,8 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       series,
       userProfile: resolvedProfile,
       repositoryStatus,
-      connectGoogleAccount,
-      disconnectGoogleAccount,
+      connectIdentityAccount,
+      disconnectIdentityAccount,
       addBook,
       addReadingSession,
       updateReadingSession,

@@ -139,7 +139,7 @@ export interface UserProfile {
   avatarInitials: string;
   avatarUri?: string;
   email?: string;
-  authProvider?: "google";
+  authProvider?: "google" | "apple";
   readingLevel: string;
   yearlyGoal: number;
   favoriteAuthors: string[];
@@ -153,7 +153,7 @@ export interface UpdateUserProfileInput {
   avatarInitials: string;
   avatarUri?: string;
   email?: string;
-  authProvider?: "google";
+  authProvider?: "google" | "apple";
   readingLevel: string;
   yearlyGoal: number;
   favoriteAuthors: string[];
@@ -207,6 +207,9 @@ export interface NewBookInput {
   synopsis?: string;
   coverImageUri?: string;
   format?: ReadingFormat;
+  workKey?: string;
+  editionKey?: string;
+  editionCount?: number;
   source: "photo" | "isbn" | "manual" | "search";
   ownership?: OwnershipStatus;
   wishlist?: boolean;
