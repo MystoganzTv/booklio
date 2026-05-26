@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Badge } from "../components/Badge";
 import { BookCover } from "../components/BookCover";
+import { RecommendationCard } from "../components/RecommendationCard";
 import { BookStatusSheet } from "../components/BookStatusSheet";
 import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
@@ -17,7 +18,7 @@ import { formatStatusLabel } from "../utils/statusLabels";
 export function BookDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, "BookDetail">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { getAuthor, getBook, getBookStats, updateBookStatus } = useBooklio();
+  const { getAuthor, getBook, getBookStats, getRecommendationsForBook, updateBookStatus } = useBooklio();
   const book = getBook(route.params.bookId);
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
   const [statusSheetOpen, setStatusSheetOpen] = useState(false);
@@ -36,6 +37,9 @@ export function BookDetailScreen() {
   const statusLabel = formatStatusLabel(book.userStatus.status);
   const isReading = book.userStatus.status === "reading";
   const isDone = book.userStatus.status === "read";
+  const relatedRecommendations = getRecommendationsForBook(book.id, 3)
+    .map((recommendation) => ({ recommendation, recommendedBook: getBook(recommendation.bookId) }))
+    .filter((item): item is { recommendation: ReturnType<typeof getRecommendationsForBook>[number]; recommendedBook: NonNullable<ReturnType<typeof getBook>> } => Boolean(item.recommendedBook));
 
   return (
     <Screen>
@@ -135,6 +139,23 @@ export function BookDetailScreen() {
         </View>
       )}
 
+      <View style={styles.collectorSummary}>
+        <View style={styles.collectorSummaryItem}>
+          <Text style={styles.collectorSummaryValue}>{book.userStatus.readCount ?? 0}</Text>
+          <Text style={styles.collectorSummaryLabel}>times finished</Text>
+        </View>
+        <View style={styles.collectorDivider} />
+        <View style={styles.collectorSummaryItem}>
+          <Text style={styles.collectorSummaryValue}>{book.userStatus.personalRanking ?? "—"}</Text>
+          <Text style={styles.collectorSummaryLabel}>personal rank</Text>
+        </View>
+        <View style={styles.collectorDivider} />
+        <View style={styles.collectorSummaryItem}>
+          <Text style={styles.collectorSummaryValue}>{book.userStatus.favoriteQuotes.length}</Text>
+          <Text style={styles.collectorSummaryLabel}>saved quotes</Text>
+        </View>
+      </View>
+
       {/* Book info */}
       <View style={styles.infoRow}>
         {[
@@ -204,6 +225,24 @@ export function BookDetailScreen() {
               onPress={() => navigation.navigate("AddReadingSession", { bookId: book.id, sessionId: session.id })}
             />
           ))}
+        </>
+      ) : null}
+
+      {relatedRecommendations.length > 0 ? (
+        <>
+          <SectionHeader title="Keep This Shelf Moving" />
+          <View style={styles.recommendationStack}>
+            {relatedRecommendations.map(({ recommendation, recommendedBook }) => (
+              <RecommendationCard
+                key={recommendation.id}
+                authorName={getAuthor(recommendedBook.authorId)?.name ?? ""}
+                book={recommendedBook}
+                compact
+                recommendation={recommendation}
+                onPress={() => navigation.navigate("BookDetail", { bookId: recommendedBook.id })}
+              />
+            ))}
+          </View>
         </>
       ) : null}
 
@@ -351,6 +390,38 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm
   },
+  collectorSummary: {
+    backgroundColor: "#FFF9EF",
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  collectorSummaryItem: {
+    alignItems: "center",
+    flex: 1
+  },
+  collectorSummaryValue: {
+    color: colors.navy,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "900"
+  },
+  collectorSummaryLabel: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 10,
+    fontWeight: "900",
+    marginTop: 2,
+    textTransform: "uppercase"
+  },
+  collectorDivider: {
+    backgroundColor: colors.border,
+    width: 1
+  },
   statItem: {
     alignItems: "center",
     flex: 1
@@ -446,5 +517,8 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900",
     marginTop: spacing.xs
+  },
+  recommendationStack: {
+    marginBottom: spacing.sm
   }
 });

@@ -2,12 +2,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useState } from "react";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { BookCover } from "../components/BookCover";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
 import { CoreTrackingStatus, OwnershipStatus, ReadingFormat } from "../types/models";
+import {
+  canFetchMetadata,
+  isPlaceholderGenreList,
+  isPlaceholderText,
+  resolveBookMetadata
+} from "../utils/bookMetadata";
 import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
 
 const statusOptions: { value: CoreTrackingStatus; label: string }[] = [
@@ -25,101 +31,6 @@ const formatOptions: { value: ReadingFormat; label: string; icon: keyof typeof I
   { value: "kindle", label: "Kindle", icon: "tablet-portrait-outline" },
   { value: "audiobook", label: "Audio", icon: "headset-outline" }
 ];
-
-// ── Open Library helpers ────────────────────────────────────────────────────
-type OLIsbnDoc = {
-  title?: string;
-  authors?: { key: string }[];
-  covers?: number[];
-  publishers?: string[];
-  publish_date?: string;
-  number_of_pages?: number;
-  subjects?: string[];
-  description?: string | { value?: string };
-  isbn_13?: string[];
-  isbn_10?: string[];
-};
-
-type OLSearchDoc = {
-  title?: string;
-  author_name?: string[];
-  isbn?: string[];
-  cover_i?: number;
-  first_publish_year?: number;
-  publisher?: string[];
-  number_of_pages_median?: number;
-  subject?: string[];
-};
-
-const coverUrl = (id?: number) => (id ? `https://covers.openlibrary.org/b/id/${id}-L.jpg` : undefined);
-
-const readDesc = (d?: string | { value?: string }) =>
-  !d ? undefined : typeof d === "string" ? d : d.value;
-
-async function fetchAuthorNameFromKey(key?: string) {
-  if (!key) return undefined;
-  try {
-    const res = await fetch(`https://openlibrary.org${key}.json`);
-    const data = (await res.json()) as { name?: string };
-    return data.name;
-  } catch { return undefined; }
-}
-
-async function fetchByIsbn(isbn: string): Promise<Partial<FetchedMeta> | undefined> {
-  try {
-    const res = await fetch(`https://openlibrary.org/isbn/${isbn}.json`);
-    if (!res.ok) return undefined;
-    const data = (await res.json()) as OLIsbnDoc;
-    const authorName = await fetchAuthorNameFromKey(data.authors?.[0]?.key);
-    return {
-      title: data.title,
-      authorName,
-      isbn: data.isbn_13?.[0] ?? data.isbn_10?.[0] ?? isbn,
-      pages: data.number_of_pages,
-      genres: data.subjects?.slice(0, 4),
-      publisher: data.publishers?.[0],
-      publishedDate: data.publish_date,
-      synopsis: readDesc(data.description),
-      coverImageUri: coverUrl(data.covers?.[0])
-    };
-  } catch { return undefined; }
-}
-
-async function fetchByTitleAuthor(title: string, author: string): Promise<Partial<FetchedMeta> | undefined> {
-  try {
-    const query = `${title} ${author}`.trim();
-    const res = await fetch(
-      `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=1&fields=title,author_name,isbn,cover_i,first_publish_year,publisher,number_of_pages_median,subject`
-    );
-    if (!res.ok) return undefined;
-    const data = (await res.json()) as { docs?: OLSearchDoc[] };
-    const doc = data.docs?.[0];
-    if (!doc) return undefined;
-    return {
-      title: doc.title,
-      authorName: doc.author_name?.[0],
-      isbn: doc.isbn?.[0],
-      pages: doc.number_of_pages_median,
-      genres: doc.subject?.slice(0, 4),
-      publisher: doc.publisher?.[0],
-      publishedDate: doc.first_publish_year ? `${doc.first_publish_year}` : undefined,
-      synopsis: undefined,
-      coverImageUri: coverUrl(doc.cover_i)
-    };
-  } catch { return undefined; }
-}
-
-type FetchedMeta = {
-  title: string;
-  authorName: string;
-  isbn: string;
-  pages: number;
-  genres: string[];
-  publisher: string;
-  publishedDate: string;
-  synopsis: string;
-  coverImageUri: string;
-};
 
 const splitList = (value: string) =>
   value
@@ -170,36 +81,19 @@ export function EditBookScreen() {
   const [isFetching, setIsFetching] = useState(false);
 
   // A field is considered "empty/placeholder" if it has no real user-entered value
-  const isBlank = (val: string) =>
-    !val.trim() ||
-    val.toLowerCase().includes("pending") ||
-    val.toLowerCase().includes("unknown") ||
-    val.toLowerCase() === "uncategorized" ||
-    val.toLowerCase().includes("open library") ||
-    val.toLowerCase().includes("metadata") ||
-    val === "0";
+  const isBlank = (val: string) => isPlaceholderText(val) || val === "0";
 
   const fetchInfo = async () => {
+    if (!canFetchMetadata({ isbn, title, authorName })) {
+      Alert.alert("Need a clue first", "Add an ISBN or at least a title before fetching metadata.");
+      return;
+    }
+
     setIsFetching(true);
-    let meta: Partial<FetchedMeta> | undefined;
+    let meta;
 
     try {
-      // Try ISBN first (must be all digits/X and at least 10 chars)
-      const cleanIsbn = isbn.replace(/[^0-9X]/gi, "");
-      const hasValidIsbn = cleanIsbn.length >= 10 && /^[\dX]+$/i.test(cleanIsbn);
-
-      if (hasValidIsbn) {
-        meta = await fetchByIsbn(cleanIsbn);
-      }
-
-      // Fallback: search by title + author
-      if (!meta) {
-        const searchTitle = title || book?.title || "";
-        const searchAuthor = authorName || "";
-        if (searchTitle) {
-          meta = await fetchByTitleAuthor(searchTitle, searchAuthor);
-        }
-      }
+      meta = await resolveBookMetadata({ isbn, title: title || book?.title, authorName });
     } catch (err) {
       console.warn("[Fetch Info] error:", err);
     }
@@ -209,7 +103,9 @@ export function EditBookScreen() {
     if (!meta) {
       Alert.alert(
         "Nothing found",
-        "Open Library couldn't find this book. Check the title or add an ISBN and try again."
+        Platform.OS === "web"
+          ? "No metadata came back. If you're testing in the web demo, make sure `npm run metadata-proxy` is running, or add an ISBN and try again."
+          : "Open Library couldn't find this book. Check the title or add an ISBN and try again."
       );
       return;
     }
@@ -218,12 +114,15 @@ export function EditBookScreen() {
     const filled: string[] = [];
     const skipped: string[] = [];
 
+    if (meta.title && isBlank(title)) {
+      setTitle(meta.title); filled.push("title");
+    }
     if (meta.pages && meta.pages > 0) {
       if (isBlank(pages) || pages === "0") { setPages(String(meta.pages)); filled.push("pages"); }
       else skipped.push(`pages (kept ${pages})`);
     }
-    if (meta.genres?.length) {
-      if (isBlank(genre)) { setGenre(meta.genres.join(", ")); filled.push("genres"); }
+    if (meta.genre?.length) {
+      if (isPlaceholderGenreList(splitList(genre))) { setGenre(meta.genre.join(", ")); filled.push("genres"); }
       else skipped.push("genres (already set)");
     }
     if (meta.publisher) {

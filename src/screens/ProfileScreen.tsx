@@ -36,10 +36,11 @@ function UnlockedBubble({ achievement }: { achievement: Achievement }) {
 
 export function ProfileScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { books, getAuthor, overallStats, userProfile } = useBooklio();
+  const { books, getAuthor, overallStats, repositoryStatus, userProfile } = useBooklio();
   const topBooks = userProfile.topBookIds.map((id) => books.find((b) => b.id === id)).filter(Boolean);
   const unlocked = userProfile.achievements.filter((a) => a.unlocked).length;
   const goalPct = Math.min(100, Math.round((overallStats.booksReadThisYear / userProfile.yearlyGoal) * 100));
+  const repositoryCopy = getRepositoryCopy(repositoryStatus);
 
   return (
     <Screen>
@@ -69,6 +70,14 @@ export function ProfileScreen() {
         <Text style={styles.goalText}>{overallStats.booksReadThisYear} / {userProfile.yearlyGoal} books</Text>
         <View style={styles.goalTrack}>
           <View style={[styles.goalFill, { width: `${goalPct}%` }]} />
+        </View>
+      </View>
+
+      <View style={styles.syncCard}>
+        <View style={[styles.syncDot, { backgroundColor: repositoryCopy.accent }]} />
+        <View style={styles.syncCopy}>
+          <Text style={styles.syncTitle}>{repositoryCopy.title}</Text>
+          <Text style={styles.syncText}>{repositoryCopy.body}</Text>
         </View>
       </View>
 
@@ -150,6 +159,50 @@ export function ProfileScreen() {
       ) : null}
     </Screen>
   );
+}
+
+function getRepositoryCopy(repositoryStatus: ReturnType<typeof useBooklio>["repositoryStatus"]) {
+  if (repositoryStatus.syncState === "error") {
+    return {
+      accent: colors.coral,
+      title: repositoryStatus.remoteEnabled ? "Sync needs attention" : "Device save needs attention",
+      body: repositoryStatus.lastError ?? "Booklio could not persist your latest changes."
+    };
+  }
+
+  if (repositoryStatus.remoteEnabled) {
+    if (repositoryStatus.lastSavedAt) {
+      return {
+        accent: colors.teal,
+        title: "Remote sync ready",
+        body: `Library cached locally and ready for backend sync. Last saved ${formatSyncTime(repositoryStatus.lastSavedAt)}.`
+      };
+    }
+
+    return {
+      accent: colors.gold,
+      title: "Remote sync configured",
+      body: "Booklio will use local cache and sync snapshots to your backend when data changes."
+    };
+  }
+
+  return {
+    accent: colors.green,
+    title: "Saved on this device",
+    body: repositoryStatus.lastSavedAt
+      ? `Your library, sessions, profile, and achievements were saved ${formatSyncTime(repositoryStatus.lastSavedAt)}.`
+      : "Your library stays on this device until you connect a backend."
+  };
+}
+
+function formatSyncTime(timestamp: string) {
+  const parsed = new Date(timestamp);
+  return parsed.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
 }
 
 const styles = StyleSheet.create({
@@ -254,6 +307,38 @@ const styles = StyleSheet.create({
     backgroundColor: colors.green,
     borderRadius: radii.pill,
     height: "100%"
+  },
+  syncCard: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    marginBottom: spacing.md,
+    padding: spacing.md
+  },
+  syncDot: {
+    borderRadius: 6,
+    height: 12,
+    width: 12
+  },
+  syncCopy: {
+    flex: 1
+  },
+  syncTitle: {
+    color: colors.navy,
+    fontFamily: fonts.display,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  syncText: {
+    color: colors.muted,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 4
   },
   achievementsCard: {
     ...shadows.card,

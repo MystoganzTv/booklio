@@ -1,6 +1,12 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from "react";
-import { authors as authorSeed, books as bookSeed, readingSessions as sessionSeed, recommendations, series, userProfile } from "./mockData";
+import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { authors as authorSeed, books as bookSeed, readingSessions as sessionSeed, series, userProfile } from "./mockData";
+import {
+  BooklioRepository,
+  createBooklioSnapshot,
+  LocalFirstBooklioRepository,
+  PersistedBooklioState,
+  RepositoryStatus
+} from "./booklioRepository";
 import {
   Achievement,
   Author,
@@ -8,11 +14,13 @@ import {
   CoreTrackingStatus,
   NewBookInput,
   NewReadingSessionInput,
+  Recommendation,
   ReadingSession,
   UpdateBookInput,
   UpdateUserProfileInput,
   UserProfile
 } from "../types/models";
+import { buildBookSpecificRecommendations, buildGlobalRecommendations } from "../utils/recommendationEngine";
 
 type MonthBucket = {
   label: string;
@@ -46,12 +54,23 @@ type OverallStats = {
   averageRating: number;
   currentStreak: number;
   longestStreak: number;
+  completionRate: number;
+  averageSessionEnjoyment: number;
+  averageBookLength: number;
+  booksTracked: number;
+  ownedCount: number;
+  wishlistCount: number;
+  wantToBuyCount: number;
+  activeSeriesCount: number;
+  completedSeriesCount: number;
   bestReadingDay: string;
   longestSession?: ReadingSession;
   monthly: MonthBucket[];
   genreCounts: { label: string; value: number }[];
   authorCounts: { label: string; value: number }[];
   statusCounts: { label: string; value: number }[];
+  formatCounts: { label: string; value: number }[];
+  locationCounts: { label: string; value: number }[];
   speedOverTime: { label: string; value: number }[];
   mostActiveDays: { label: string; value: number }[];
 };
@@ -60,9 +79,10 @@ type BooklioContextValue = {
   authors: Author[];
   books: Book[];
   readingSessions: ReadingSession[];
-  recommendations: typeof recommendations;
+  recommendations: Recommendation[];
   series: typeof series;
   userProfile: UserProfile;
+  repositoryStatus: RepositoryStatus;
   addBook: (input: NewBookInput) => Book;
   addReadingSession: (input: NewReadingSessionInput) => ReadingSession;
   updateReadingSession: (sessionId: string, input: NewReadingSessionInput) => ReadingSession | undefined;
@@ -75,11 +95,11 @@ type BooklioContextValue = {
   getReadingSession: (sessionId: string) => ReadingSession | undefined;
   getBookStats: (bookId: string) => BookStats;
   getSessionsForBook: (bookId: string) => ReadingSession[];
+  getRecommendationsForBook: (bookId: string, limit?: number) => Recommendation[];
   overallStats: OverallStats;
 };
 
 const BooklioContext = createContext<BooklioContextValue | null>(null);
-const STORAGE_KEY = "booklio:v1";
 
 const rereadAchievement = {
   id: "ach-rereader",
@@ -92,13 +112,6 @@ const rereadAchievement = {
   category: "reading" as const,
   tier: "bronze" as const,
   icon: "📚"
-};
-
-type PersistedBooklioState = {
-  authors: Author[];
-  books: Book[];
-  readingSessions: ReadingSession[];
-  userProfile: UserProfile;
 };
 
 /**
@@ -208,6 +221,9 @@ const formatWeekday = (date: string) => {
   const parsed = new Date(`${date}T00:00:00`);
   return parsed.toLocaleDateString("en-US", { weekday: "short" });
 };
+
+const formatLabel = (value: string) =>
+  value.charAt(0).toUpperCase() + value.slice(1);
 
 const daysBetween = (a: Date, b: Date) => Math.round((a.getTime() - b.getTime()) / 86400000);
 
@@ -342,14 +358,25 @@ const buildOverallStats = (books: Book[], sessions: ReadingSession[], authors: A
   const booksReadThisYear = books.filter((book) => book.userStatus.finishDate && sameYear(book.userStatus.finishDate, new Date().getFullYear())).length;
   const rereadsCompleted = books.reduce((sum, book) => sum + Math.max(0, (book.userStatus.readCount ?? 0) - 1), 0);
   const activeRereads = books.filter((book) => book.userStatus.isRereading).length;
+  const booksTracked = books.length;
   const pagesRead = sessions.reduce((sum, session) => sum + session.pagesRead, 0);
   const minutesRead = sessions.reduce((sum, session) => sum + session.minutesRead, 0);
   const totalSessions = sessions.length;
+  const averageSessionEnjoyment = totalSessions
+    ? Number((sessions.reduce((sum, session) => sum + session.enjoymentRating, 0) / totalSessions).toFixed(1))
+    : 0;
+  const averageBookLength = booksTracked
+    ? Math.round(books.reduce((sum, book) => sum + book.pages, 0) / booksTracked)
+    : 0;
   const rated = books.filter((book) => typeof book.userStatus.rating === "number");
   const averageRating = rated.length
     ? Number((rated.reduce((sum, book) => sum + (book.userStatus.rating ?? 0), 0) / rated.length).toFixed(1))
     : 0;
   const { currentStreak, longestStreak } = calculateStreaks(sessions);
+  const completionRate = booksTracked ? Math.round((totalBooksRead / booksTracked) * 100) : 0;
+  const ownedCount = books.filter((book) => book.userStatus.ownership === "owned").length;
+  const wishlistCount = books.filter((book) => book.userStatus.wishlist).length;
+  const wantToBuyCount = books.filter((book) => book.userStatus.wantToBuy).length;
 
   const byDate = sessions.reduce<Record<string, number>>((acc, session) => {
     acc[session.date] = (acc[session.date] ?? 0) + session.pagesRead;
@@ -393,9 +420,9 @@ const buildOverallStats = (books: Book[], sessions: ReadingSession[], authors: A
     }, {});
 
   const statusCounts = [
-    { label: "Owned", value: books.filter((book) => book.userStatus.ownership === "owned").length },
-    { label: "Wishlist", value: books.filter((book) => book.userStatus.wishlist).length },
-    { label: "Want to Buy", value: books.filter((book) => book.userStatus.wantToBuy).length },
+    { label: "Owned", value: ownedCount },
+    { label: "Wishlist", value: wishlistCount },
+    { label: "Want to Buy", value: wantToBuyCount },
     { label: "Unfinished", value: books.filter((book) => book.userStatus.status === "dnf").length }
   ];
 
@@ -404,20 +431,47 @@ const buildOverallStats = (books: Book[], sessions: ReadingSession[], authors: A
     acc[weekday] = (acc[weekday] ?? 0) + 1;
     return acc;
   }, {});
+  const locationMap = sessions.reduce<Record<string, number>>((acc, session) => {
+    acc[session.location] = (acc[session.location] ?? 0) + 1;
+    return acc;
+  }, {});
+  const formatMap = sessions.reduce<Record<string, number>>((acc, session) => {
+    acc[session.format] = (acc[session.format] ?? 0) + 1;
+    return acc;
+  }, {});
+  const seriesProgressMap = books.reduce<Record<string, { total: number; finished: number; active: boolean }>>((acc, book) => {
+    if (!book.seriesId) return acc;
+    acc[book.seriesId] = acc[book.seriesId] ?? { total: 0, finished: 0, active: false };
+    acc[book.seriesId].total += 1;
+    if (book.userStatus.status === "read") acc[book.seriesId].finished += 1;
+    if (book.userStatus.status === "reading") acc[book.seriesId].active = true;
+    return acc;
+  }, {});
+  const completedSeriesCount = Object.values(seriesProgressMap).filter((entry) => entry.total > 0 && entry.finished === entry.total).length;
+  const activeSeriesCount = Object.values(seriesProgressMap).filter((entry) => entry.active).length;
 
   return {
     totalBooksRead,
     booksReadThisYear,
     rereadsCompleted,
     activeRereads,
+    booksTracked,
     pagesRead,
     minutesRead,
     totalSessions,
     averagePagesPerSession: totalSessions ? Math.round(pagesRead / totalSessions) : 0,
     averageMinutesPerSession: totalSessions ? Math.round(minutesRead / totalSessions) : 0,
     averageRating,
+    averageSessionEnjoyment,
+    averageBookLength,
     currentStreak,
     longestStreak,
+    completionRate,
+    ownedCount,
+    wishlistCount,
+    wantToBuyCount,
+    activeSeriesCount,
+    completedSeriesCount,
     bestReadingDay,
     longestSession,
     monthly: Object.values(monthlyMap),
@@ -426,6 +480,8 @@ const buildOverallStats = (books: Book[], sessions: ReadingSession[], authors: A
       .map(([authorId, value]) => ({ label: authors.find((author) => author.id === authorId)?.name ?? authorId, value }))
       .sort((a, b) => b.value - a.value),
     statusCounts,
+    formatCounts: Object.entries(formatMap).map(([label, value]) => ({ label: formatLabel(label), value })).sort((a, b) => b.value - a.value),
+    locationCounts: Object.entries(locationMap).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value),
     speedOverTime: [...sessions]
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((session) => ({ label: formatMonth(session.date), value: Math.round(session.pagesPerHour) })),
@@ -434,23 +490,33 @@ const buildOverallStats = (books: Book[], sessions: ReadingSession[], authors: A
 };
 
 export function BooklioProvider({ children }: PropsWithChildren) {
+  const repositoryRef = useRef<BooklioRepository>(new LocalFirstBooklioRepository());
   const [authors, setAuthors] = useState<Author[]>(authorSeed);
   const [books, setBooks] = useState<Book[]>(() => bookSeed.map(normalizeReadState));
   const [readingSessions, setReadingSessions] = useState<ReadingSession[]>(sessionSeed);
   const [profile, setProfile] = useState<UserProfile>(userProfile);
   const [hydrated, setHydrated] = useState(false);
+  const [repositoryStatus, setRepositoryStatus] = useState<RepositoryStatus>(repositoryRef.current.getStatus());
+  const resolvedProfile = useMemo(
+    () => enrichProfileAchievements(profile, books, readingSessions),
+    [books, profile, readingSessions]
+  );
 
   useEffect(() => {
     let mounted = true;
 
     const hydrate = async () => {
       try {
-        const saved = await AsyncStorage.getItem(STORAGE_KEY);
-        if (!saved || !mounted) {
+        const snapshot = await repositoryRef.current.load();
+        if (mounted) {
+          setRepositoryStatus(repositoryRef.current.getStatus());
+        }
+
+        if (!snapshot || !mounted) {
           return;
         }
 
-        const parsed = JSON.parse(saved) as PersistedBooklioState;
+        const parsed = snapshot as PersistedBooklioState;
         setAuthors(parsed.authors?.length ? parsed.authors : authorSeed);
         setBooks(parsed.books?.length ? mergeSeedBookMetadata(parsed.books) : bookSeed.map(normalizeReadState));
         setReadingSessions(parsed.readingSessions?.length ? parsed.readingSessions : sessionSeed);
@@ -467,6 +533,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         console.warn("Booklio could not hydrate local library", error);
       } finally {
         if (mounted) {
+          setRepositoryStatus(repositoryRef.current.getStatus());
           setHydrated(true);
         }
       }
@@ -484,16 +551,18 @@ export function BooklioProvider({ children }: PropsWithChildren) {
     }
 
     const persist = async () => {
-      const state: PersistedBooklioState = { authors, books, readingSessions, userProfile: profile };
+      const state: PersistedBooklioState = { authors, books, readingSessions, userProfile: resolvedProfile };
       try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        await repositoryRef.current.save(createBooklioSnapshot(state));
+        setRepositoryStatus(repositoryRef.current.getStatus());
       } catch (error) {
         console.warn("Booklio could not persist local library", error);
+        setRepositoryStatus(repositoryRef.current.getStatus());
       }
     };
 
     persist();
-  }, [authors, books, hydrated, profile, readingSessions]);
+  }, [authors, books, hydrated, readingSessions, resolvedProfile]);
 
   const value = useMemo<BooklioContextValue>(() => {
     const getBook = (bookId: string) => books.find((book) => book.id === bookId);
@@ -502,6 +571,12 @@ export function BooklioProvider({ children }: PropsWithChildren) {
     const getSessionsForBook = (bookId: string) =>
       readingSessions.filter((session) => session.bookId === bookId).sort((a, b) => b.date.localeCompare(a.date));
     const getBookStats = (bookId: string) => getBookStatsFromSessions(getSessionsForBook(bookId));
+    const recommendationList = buildGlobalRecommendations(books, readingSessions, authors);
+    const getRecommendationsForBook = (bookId: string, limit = 4) => {
+      const book = getBook(bookId);
+      if (!book) return [];
+      return buildBookSpecificRecommendations(book, books, readingSessions, authors, limit);
+    };
 
     const addReadingSession = (input: NewReadingSessionInput) => {
       const session = toSessionRecord(input);
@@ -751,9 +826,10 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       authors,
       books,
       readingSessions: [...readingSessions].sort((a, b) => b.date.localeCompare(a.date)),
-      recommendations,
+      recommendations: recommendationList,
       series,
-      userProfile: enrichProfileAchievements(profile, books, readingSessions),
+      userProfile: resolvedProfile,
+      repositoryStatus,
       addBook,
       addReadingSession,
       updateReadingSession,
@@ -766,9 +842,10 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       getReadingSession,
       getBookStats,
       getSessionsForBook,
+      getRecommendationsForBook,
       overallStats: buildOverallStats(books, readingSessions, authors)
     };
-  }, [authors, books, profile, readingSessions]);
+  }, [authors, books, readingSessions, repositoryStatus, resolvedProfile]);
 
   if (!hydrated) return null;
 

@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { NavigationProp, useNavigation } from "@react-navigation/native";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { BookCover } from "../components/BookCover";
+import { RecommendationCard } from "../components/RecommendationCard";
 import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
 import { SessionRow } from "../components/SessionRow";
@@ -30,11 +31,16 @@ function getStreakMessage(streak: number): { headline: string; sub: string; acce
 
 export function HomeScreen() {
   const navigation = useNavigation<NavigationProp<RootStackParamList & MainTabParamList>>();
-  const { books, getAuthor, getBook, overallStats, readingSessions, userProfile } = useBooklio();
+  const { books, getAuthor, getBook, overallStats, readingSessions, recommendations, userProfile } = useBooklio();
   const continueBook = books.find((b) => b.userStatus.status === "reading") ?? null;
   const goalPct = Math.min(100, Math.round((overallStats.booksReadThisYear / userProfile.yearlyGoal) * 100));
   const remaining = userProfile.yearlyGoal - overallStats.booksReadThisYear;
   const streakMsg = getStreakMessage(overallStats.currentStreak);
+  const homeRecommendations = recommendations
+    .map((recommendation) => ({ recommendation, book: getBook(recommendation.bookId) }))
+    .filter((item): item is { recommendation: typeof recommendations[number]; book: NonNullable<ReturnType<typeof getBook>> } => Boolean(item.book))
+    .slice(0, 4);
+  const topLocation = overallStats.locationCounts[0]?.label ?? "—";
 
   return (
     <Screen>
@@ -101,6 +107,23 @@ export function HomeScreen() {
         </Text>
       </View>
 
+      <View style={styles.collectorCard}>
+        <View style={styles.collectorRow}>
+          <CollectorMini label="Owned" value={overallStats.ownedCount.toString()} accent={colors.tealDark} />
+          <CollectorMini label="Wishlist" value={overallStats.wishlistCount.toString()} accent={colors.gold} />
+          <CollectorMini label="Want to buy" value={overallStats.wantToBuyCount.toString()} accent={colors.coral} />
+        </View>
+        <View style={styles.collectorMetaRow}>
+          <Text style={styles.collectorMetaText}>
+            {overallStats.completedSeriesCount} sagas completed
+          </Text>
+          <Text style={styles.collectorMetaDot}>•</Text>
+          <Text style={styles.collectorMetaText}>
+            Favorite place: {topLocation}
+          </Text>
+        </View>
+      </View>
+
       {/* Continue reading */}
       {continueBook ? (
         <View style={styles.continueCard}>
@@ -135,6 +158,23 @@ export function HomeScreen() {
       {/* Recent sessions */}
       {readingSessions.length > 0 ? (
         <>
+          {homeRecommendations.length > 0 ? (
+            <>
+              <SectionHeader title="Recommended For You" />
+              <View style={styles.recommendationRail}>
+                {homeRecommendations.map(({ recommendation, book }) => (
+                  <RecommendationCard
+                    key={recommendation.id}
+                    authorName={getAuthor(book.authorId)?.name ?? ""}
+                    book={book}
+                    recommendation={recommendation}
+                    onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
+                  />
+                ))}
+              </View>
+            </>
+          ) : null}
+
           <SectionHeader
             title="Recent Sessions"
             actionLabel="View all"
@@ -153,6 +193,34 @@ export function HomeScreen() {
     </Screen>
   );
 }
+
+function CollectorMini({ label, value, accent }: { label: string; value: string; accent: string }) {
+  return (
+    <View style={stylesCollectorMini.wrap}>
+      <Text style={[stylesCollectorMini.value, { color: accent }]}>{value}</Text>
+      <Text style={stylesCollectorMini.label}>{label}</Text>
+    </View>
+  );
+}
+
+const stylesCollectorMini = StyleSheet.create({
+  wrap: {
+    flex: 1
+  },
+  value: {
+    fontFamily: fonts.display,
+    fontSize: 24,
+    fontWeight: "900"
+  },
+  label: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 2,
+    textTransform: "uppercase"
+  }
+});
 
 const styles = StyleSheet.create({
   header: {
@@ -305,6 +373,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: spacing.xs
   },
+  collectorCard: {
+    ...shadows.card,
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+    padding: spacing.md
+  },
+  collectorRow: {
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  collectorMetaRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    marginTop: spacing.sm
+  },
+  collectorMetaText: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  collectorMetaDot: {
+    color: colors.border,
+    marginHorizontal: 8
+  },
   continueCard: {
     ...shadows.card,
     backgroundColor: colors.card,
@@ -315,6 +411,9 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     marginBottom: spacing.md,
     padding: spacing.md
+  },
+  recommendationRail: {
+    marginBottom: spacing.md
   },
   continueCopy: {
     flex: 1

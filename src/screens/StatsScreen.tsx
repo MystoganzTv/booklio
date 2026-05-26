@@ -23,6 +23,8 @@ export function StatsScreen() {
 
   const topGenre  = overallStats.genreCounts[0]?.label  ?? "—";
   const topAuthor = overallStats.authorCounts[0]?.label ?? "—";
+  const topLocation = overallStats.locationCounts[0]?.label ?? "—";
+  const topFormat = overallStats.formatCounts[0]?.label ?? "—";
   const avgSpeed  = Math.round(
     overallStats.speedOverTime.reduce((s, d) => s + d.value, 0) /
     (overallStats.speedOverTime.length || 1)
@@ -141,11 +143,45 @@ export function StatsScreen() {
         </View>
       </View>
 
+      <View style={styles.chartCard}>
+        <Text style={styles.sectionTitle}>Collector dashboard</Text>
+        <View style={styles.collectorGrid}>
+          <CollectorTile label="Tracked books" value={overallStats.booksTracked.toString()} sub={`${overallStats.completionRate}% completed`} accent={colors.tealDark} />
+          <CollectorTile label="Owned shelf" value={overallStats.ownedCount.toString()} sub={`${overallStats.wishlistCount} wishlist`} accent={colors.gold} />
+          <CollectorTile label="Want to buy" value={overallStats.wantToBuyCount.toString()} sub={`${overallStats.completedSeriesCount} sagas done`} accent={colors.coral} />
+          <CollectorTile label="Avg length" value={`${overallStats.averageBookLength}`} sub="pages per tracked book" accent={colors.navy} />
+        </View>
+      </View>
+
+      <View style={styles.chartCard}>
+        <Text style={styles.sectionTitle}>Habit lens</Text>
+        <View style={styles.collectorGrid}>
+          <CollectorTile label="Enjoyment" value={`${overallStats.averageSessionEnjoyment.toFixed(1)} / 10`} sub="average session rating" accent={colors.green} />
+          <CollectorTile label="Session length" value={`${overallStats.averageMinutesPerSession}m`} sub="average reading session" accent={colors.teal} />
+          <CollectorTile label="Top place" value={topLocation} sub="where you read most" accent={colors.gold} />
+          <CollectorTile label="Top format" value={topFormat} sub="dominant reading format" accent={colors.coral} />
+        </View>
+      </View>
+
       {/* ── Genre breakdown ────────────────────────────────────── */}
       {overallStats.genreCounts.length > 0 && (
         <View style={styles.chartCard}>
           <Text style={styles.sectionTitle}>By genre</Text>
           <BarChart data={overallStats.genreCounts.slice(0, 6)} />
+        </View>
+      )}
+
+      {overallStats.locationCounts.length > 0 && (
+        <View style={styles.chartCard}>
+          <Text style={styles.sectionTitle}>Reading places</Text>
+          <BarChart data={overallStats.locationCounts.slice(0, 5)} />
+        </View>
+      )}
+
+      {overallStats.formatCounts.length > 0 && (
+        <View style={styles.chartCard}>
+          <Text style={styles.sectionTitle}>By format</Text>
+          <BarChart data={overallStats.formatCounts} />
         </View>
       )}
 
@@ -179,6 +215,58 @@ export function StatsScreen() {
     </Screen>
   );
 }
+
+function CollectorTile({
+  label,
+  value,
+  sub,
+  accent
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  accent: string;
+}) {
+  return (
+    <View style={collectorTileStyles.tile}>
+      <Text style={[collectorTileStyles.value, { color: accent }]} numberOfLines={1}>{value}</Text>
+      <Text style={collectorTileStyles.label}>{label}</Text>
+      <Text style={collectorTileStyles.sub} numberOfLines={2}>{sub}</Text>
+    </View>
+  );
+}
+
+const collectorTileStyles = StyleSheet.create({
+  tile: {
+    backgroundColor: colors.cream,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flex: 1,
+    minWidth: "47%",
+    padding: spacing.sm + 2
+  },
+  value: {
+    fontFamily: fonts.display,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  label: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 10,
+    fontWeight: "900",
+    marginTop: 4,
+    textTransform: "uppercase"
+  },
+  sub: {
+    color: colors.muted,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 4
+  }
+});
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -395,6 +483,12 @@ const styles = StyleSheet.create({
     padding: spacing.md
   },
   insightsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.sm
+  },
+  collectorGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm,

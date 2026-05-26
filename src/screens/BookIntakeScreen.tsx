@@ -4,15 +4,25 @@ import * as ImagePicker from "expo-image-picker";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useState } from "react";
-import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
 import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { NewBookInput, ReadingFormat } from "../types/models";
+import { analyzeBookPhoto, getBookPhotoSupportSummary } from "../utils/bookPhotoIntake";
+import {
+  canFetchMetadata,
+  enrichBookInput,
+  fetchBookMetadataByIsbn,
+  metadataToBookInput,
+  OPEN_LIBRARY_PAGE_SIZE,
+  searchBookMetadata,
+  SearchMode,
+  summarizeMetadataChanges
+} from "../utils/bookMetadata";
 
 type IntakeMode = "menu" | "isbn" | "manual" | "search" | "review";
-type SearchMode = "general" | "author";
 type IconName = keyof typeof Ionicons.glyphMap;
 
 const booklioLogo = require("../../assets/brand/booklio-logo.png");
@@ -124,133 +134,6 @@ const sourceLabel: Record<NewBookInput["source"], string> = {
   search: "Book search"
 };
 
-type OpenLibraryIsbnResponse = {
-  title?: string;
-  authors?: { key: string }[];
-  covers?: number[];
-  publishers?: string[];
-  publish_date?: string;
-  number_of_pages?: number;
-  subjects?: string[];
-  description?: string | { value?: string };
-  isbn_13?: string[];
-  isbn_10?: string[];
-};
-
-type OpenLibrarySearchResponse = {
-  numFound?: number;
-  docs?: {
-    title?: string;
-    author_name?: string[];
-    isbn?: string[];
-    cover_i?: number;
-    first_publish_year?: number;
-    publisher?: string[];
-    number_of_pages_median?: number;
-    subject?: string[];
-  }[];
-};
-
-const coverUrl = (coverId?: number) => (coverId ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg` : undefined);
-
-const readDescription = (description?: string | { value?: string }) => {
-  if (!description) return undefined;
-  return typeof description === "string" ? description : description.value;
-};
-
-async function fetchAuthorName(authorKey?: string) {
-  if (!authorKey) return undefined;
-  try {
-    const response = await fetch(`https://openlibrary.org${authorKey}.json`);
-    const data = (await response.json()) as { name?: string };
-    return data.name;
-  } catch {
-    return undefined;
-  }
-}
-
-async function lookupByIsbn(isbn: string): Promise<NewBookInput | undefined> {
-  const response = await fetch(`https://openlibrary.org/isbn/${isbn}.json`);
-  if (!response.ok) return undefined;
-  const data = (await response.json()) as OpenLibraryIsbnResponse;
-  const authorName = await fetchAuthorName(data.authors?.[0]?.key);
-
-  return {
-    title: data.title ?? `ISBN Book ${isbn}`,
-    authorName: authorName ?? "Author to identify",
-    isbn: data.isbn_13?.[0] ?? data.isbn_10?.[0] ?? isbn,
-    pages: data.number_of_pages,
-    genre: data.subjects?.slice(0, 3) ?? ["Uncategorized"],
-    publisher: data.publishers?.[0],
-    publishedDate: data.publish_date,
-    language: "English",
-    synopsis: readDescription(data.description) ?? "Metadata imported from Open Library.",
-    coverImageUri: coverUrl(data.covers?.[0]),
-    source: "isbn",
-    ownership: "owned"
-  };
-}
-
-const OL_PAGE_SIZE = 50;
-
-async function searchOpenLibrary(
-  query: string,
-  mode: SearchMode = "general",
-  offset = 0
-): Promise<{ results: NewBookInput[]; total: number }> {
-  const fields = "title,author_name,isbn,cover_i,first_publish_year,publisher,number_of_pages_median,subject";
-  // Author mode: no cap — paginate until done. General: single page of 25.
-  const limit = mode === "author" ? OL_PAGE_SIZE : 25;
-  const param = mode === "author"
-    ? `author=${encodeURIComponent(query)}`
-    : `q=${encodeURIComponent(query)}`;
-  const response = await fetch(
-    `https://openlibrary.org/search.json?${param}&limit=${limit}&offset=${offset}&fields=${fields}`
-  );
-  if (!response.ok) return { results: [], total: 0 };
-  const data = (await response.json()) as OpenLibrarySearchResponse;
-  const results = (data.docs ?? [])
-    .filter((doc) => doc.title && doc.author_name?.[0])
-    .map((doc) => ({
-      title: doc.title ?? "Untitled Book",
-      authorName: doc.author_name?.[0] ?? "Author to identify",
-      isbn: doc.isbn?.[0],
-      pages: doc.number_of_pages_median,
-      genre: doc.subject?.slice(0, 3) ?? ["Uncategorized"],
-      publisher: doc.publisher?.[0],
-      publishedDate: doc.first_publish_year ? `${doc.first_publish_year}-01-01` : undefined,
-      language: "English",
-      synopsis: undefined,
-      coverImageUri: coverUrl(doc.cover_i),
-      source: "search" as const,
-      ownership: "owned" as const
-    }));
-  return { results, total: data.numFound ?? results.length };
-}
-
-async function enrichFromIsbn(isbn: string, base: NewBookInput): Promise<NewBookInput> {
-  try {
-    const response = await fetch(`https://openlibrary.org/isbn/${isbn}.json`);
-    if (!response.ok) return base;
-    const data = (await response.json()) as OpenLibraryIsbnResponse;
-    const authorName = await fetchAuthorName(data.authors?.[0]?.key);
-    return {
-      ...base,
-      title: data.title ?? base.title,
-      authorName: authorName ?? base.authorName,
-      isbn: data.isbn_13?.[0] ?? data.isbn_10?.[0] ?? isbn,
-      pages: data.number_of_pages ?? base.pages,
-      genre: data.subjects?.slice(0, 4) ?? base.genre,
-      publisher: data.publishers?.[0] ?? base.publisher,
-      publishedDate: data.publish_date ?? base.publishedDate,
-      synopsis: readDescription(data.description) ?? base.synopsis,
-      coverImageUri: coverUrl(data.covers?.[0]) ?? base.coverImageUri
-    };
-  } catch {
-    return base;
-  }
-}
-
 export function BookIntakeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { addBook } = useBooklio();
@@ -266,6 +149,9 @@ export function BookIntakeScreen() {
   const [searchTotal, setSearchTotal] = useState(0);
   const [searchOffset, setSearchOffset] = useState(0);
   const [reviewBook, setReviewBook] = useState<NewBookInput | null>(null);
+  const [reviewInsight, setReviewInsight] = useState<string | null>(null);
+  const [isRefreshingMetadata, setIsRefreshingMetadata] = useState(false);
+  const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
   const [manual, setManual] = useState({
     title: "",
     authorName: "",
@@ -275,7 +161,9 @@ export function BookIntakeScreen() {
     publisher: ""
   });
 
-  const stageBook = (input: NewBookInput) => {
+  const photoSupport = getBookPhotoSupportSummary();
+
+  const stageBook = (input: NewBookInput, insight?: string | null) => {
     setReviewBook({
       ownership: "owned",
       wishlist: false,
@@ -284,6 +172,7 @@ export function BookIntakeScreen() {
       language: "English",
       ...input
     });
+    setReviewInsight(insight ?? null);
     setMode("review");
   };
 
@@ -298,7 +187,8 @@ export function BookIntakeScreen() {
     setIsBusy(true);
     let found: NewBookInput | undefined;
     try {
-      found = await lookupByIsbn(clean);
+      const metadata = await fetchBookMetadataByIsbn(clean);
+      found = metadata ? metadataToBookInput(metadata, "isbn", { isbn: metadata.isbn ?? clean }) : undefined;
     } catch {
       found = undefined;
     } finally {
@@ -317,7 +207,7 @@ export function BookIntakeScreen() {
         synopsis: "ISBN captured. Ready to be completed from a live metadata provider."
       }),
       source: "isbn"
-    });
+    }, found ? "Booklio matched this ISBN with live metadata." : "Booklio captured the ISBN. Review and complete any missing details.");
   };
 
   const runSearch = async () => {
@@ -325,7 +215,7 @@ export function BookIntakeScreen() {
     setIsBusy(true);
     setSearchOffset(0);
     try {
-      const { results, total } = await searchOpenLibrary(searchQuery.trim(), searchMode, 0);
+      const { results, total } = await searchBookMetadata(searchQuery.trim(), searchMode, 0);
       setSearchResults(results);
       setSearchTotal(total);
       if (!results.length) {
@@ -334,7 +224,12 @@ export function BookIntakeScreen() {
     } catch {
       setSearchResults([]);
       setSearchTotal(0);
-      Alert.alert("Connection issue", "Couldn't reach Open Library right now. Try again or use manual entry.");
+      Alert.alert(
+        "Connection issue",
+        Platform.OS === "web"
+          ? "Couldn't reach metadata search. In the web demo, start `npm run metadata-proxy` and try again, or use manual entry."
+          : "Couldn't reach Open Library right now. Try again or use manual entry."
+      );
     } finally {
       setIsBusy(false);
     }
@@ -342,10 +237,10 @@ export function BookIntakeScreen() {
 
   const loadMoreResults = async () => {
     if (isLoadingMore) return;
-    const nextOffset = searchOffset + OL_PAGE_SIZE;
+    const nextOffset = searchOffset + OPEN_LIBRARY_PAGE_SIZE;
     setIsLoadingMore(true);
     try {
-      const { results } = await searchOpenLibrary(searchQuery.trim(), searchMode, nextOffset);
+      const { results } = await searchBookMetadata(searchQuery.trim(), searchMode, nextOffset);
       setSearchResults((prev) => [...prev, ...results]);
       setSearchOffset(nextOffset);
     } catch {
@@ -356,18 +251,13 @@ export function BookIntakeScreen() {
   };
 
   const selectSearchResult = async (book: NewBookInput) => {
-    if (book.isbn) {
-      setIsBusy(true);
-      try {
-        const enriched = await enrichFromIsbn(book.isbn, book);
-        stageBook(enriched);
-      } catch {
-        stageBook(book);
-      } finally {
-        setIsBusy(false);
-      }
-    } else {
+    setIsBusy(true);
+    try {
+      stageBook(await enrichBookInput(book), "Booklio enriched this result with shared metadata before review.");
+    } catch {
       stageBook(book);
+    } finally {
+      setIsBusy(false);
     }
   };
 
@@ -375,34 +265,22 @@ export function BookIntakeScreen() {
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [3, 4],
+      base64: true,
       quality: 0.85
     });
     if (result.canceled) return;
-    const uri = result.assets[0]?.uri;
-    setCoverUri(uri);
-    stageBook({
-      ...mockIsbnCatalog["9780441172719"],
-      coverImageUri: uri,
-      source: "photo",
-      synopsis: "Real example detected from a cover photo. In production, this flow would use OCR or vision to confirm title, author, and ISBN."
-    });
+    await processPhotoAsset(result.assets[0]);
   };
 
   const pickCoverPhoto = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       allowsEditing: true,
       aspect: [3, 4],
+      base64: true,
       quality: 0.85
     });
     if (result.canceled) return;
-    const uri = result.assets[0]?.uri;
-    setCoverUri(uri);
-    stageBook({
-      ...mockIsbnCatalog["9780451524935"],
-      coverImageUri: uri,
-      source: "photo",
-      synopsis: "Real example imported from an image. Later we can replace this with actual visual recognition."
-    });
+    await processPhotoAsset(result.assets[0]);
   };
 
   const handleBarcode = ({ data }: BarcodeScanningResult) => {
@@ -420,11 +298,40 @@ export function BookIntakeScreen() {
       genre: manual.genre ? manual.genre.split(",").map((item) => item.trim()).filter(Boolean) : ["Uncategorized"],
       publisher: manual.publisher || undefined,
       source: "manual"
-    });
+    }, "This draft started from manual entry. You can still refresh metadata before saving.");
   };
 
   const updateReviewBook = (patch: Partial<NewBookInput>) => {
     setReviewBook((current) => (current ? { ...current, ...patch } : current));
+  };
+
+  const refreshReviewMetadata = async () => {
+    if (!reviewBook || !canFetchMetadata(reviewBook)) {
+      Alert.alert("Need a clue first", "Add an ISBN or at least a title before fetching metadata.");
+      return;
+    }
+
+    setIsRefreshingMetadata(true);
+    try {
+      const enriched = await enrichBookInput(reviewBook);
+      const changes = summarizeMetadataChanges(reviewBook, enriched);
+      setReviewBook(enriched);
+      Alert.alert(
+        changes.length ? "Metadata updated" : "No new metadata",
+        changes.length
+          ? `Updated: ${changes.join(", ")}.`
+          : "Booklio could not find any additional details for this draft."
+      );
+    } catch {
+      Alert.alert(
+        "Connection issue",
+        Platform.OS === "web"
+          ? "Couldn't reach metadata search. In the web demo, start `npm run metadata-proxy` and try again."
+          : "Couldn't reach Open Library right now. Try again in a moment."
+      );
+    } finally {
+      setIsRefreshingMetadata(false);
+    }
   };
 
   const confirmReviewBook = () => {
@@ -438,10 +345,40 @@ export function BookIntakeScreen() {
     });
   };
 
+  const processPhotoAsset = async (asset?: ImagePicker.ImagePickerAsset) => {
+    const uri = asset?.uri;
+    if (!uri) return;
+
+    setCoverUri(uri);
+    setIsAnalyzingPhoto(true);
+
+    try {
+      const result = await analyzeBookPhoto({
+        uri,
+        base64: asset?.base64,
+        fileName: asset?.fileName
+      });
+      stageBook(result.draft, result.notes.join(" "));
+    } catch {
+      stageBook({
+        title: "Book from photo",
+        authorName: "Needs identification",
+        genre: ["Uncategorized"],
+        language: "English",
+        synopsis: "Booklio saved your photo, but detection failed this time. Review the draft and refresh metadata once you add a title or ISBN.",
+        coverImageUri: uri,
+        source: "photo",
+        ownership: "owned"
+      }, "Booklio could not inspect that image right now, but your photo is attached and ready for review.");
+    } finally {
+      setIsAnalyzingPhoto(false);
+    }
+  };
+
   if (mode === "review" && reviewBook) {
     return (
       <Screen>
-        <View style={styles.reviewHeader}>
+      <View style={styles.reviewHeader}>
           {reviewBook.coverImageUri ? (
             <Image source={{ uri: reviewBook.coverImageUri }} style={styles.reviewCover} />
           ) : (
@@ -460,6 +397,13 @@ export function BookIntakeScreen() {
         </View>
       </View>
 
+      {reviewInsight ? (
+        <View style={styles.reviewInsightCard}>
+          <Ionicons name="sparkles-outline" size={16} color={colors.tealDark} />
+          <Text style={styles.reviewInsightText}>{reviewInsight}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.metadataStrip}>
         <View style={styles.metadataItem}>
           <Text style={styles.metadataLabel}>Pages</Text>
@@ -476,6 +420,20 @@ export function BookIntakeScreen() {
           <Text style={styles.metadataValue} numberOfLines={1}>{reviewBook.publisher ?? "Pending"}</Text>
         </View>
       </View>
+
+        <Pressable
+          style={[styles.fetchMetaButton, isRefreshingMetadata && styles.fetchMetaButtonBusy]}
+          onPress={refreshReviewMetadata}
+          disabled={isRefreshingMetadata}
+        >
+          {isRefreshingMetadata
+            ? <ActivityIndicator size="small" color={colors.tealDark} />
+            : <Ionicons name="sparkles-outline" size={16} color={colors.tealDark} />
+          }
+          <Text style={styles.fetchMetaButtonText}>
+            {isRefreshingMetadata ? "Refreshing metadata..." : "Refresh metadata"}
+          </Text>
+        </Pressable>
 
         <Text style={styles.reviewSectionTitle}>Verify details</Text>
         <Field label="Title" value={reviewBook.title} onChangeText={(title) => updateReviewBook({ title })} />
@@ -739,7 +697,7 @@ export function BookIntakeScreen() {
           accent={colors.teal}
           icon="camera"
           title="Take Photo"
-          description="Photograph the cover to create an entry."
+          description="Photograph the back cover or inside flap and let Booklio inspect the image."
           onPress={takeCoverPhoto}
         />
         <IntakePath
@@ -760,7 +718,7 @@ export function BookIntakeScreen() {
           accent={colors.navy}
           icon="image"
           title="Import Photo"
-          description="Use an existing cover photo."
+          description="Import a saved photo and try real ISBN detection from the image."
           onPress={pickCoverPhoto}
         />
         <IntakePath
@@ -771,6 +729,29 @@ export function BookIntakeScreen() {
           onPress={() => setMode("manual")}
         />
       </View>
+
+      {isAnalyzingPhoto ? (
+        <View style={styles.photoBusyCard}>
+          <ActivityIndicator size="small" color={colors.tealDark} />
+          <Text style={styles.photoBusyText}>Inspecting photo for ISBN and book clues…</Text>
+        </View>
+      ) : null}
+
+      {!photoSupport.imageBarcodeIsbnSupported || !photoSupport.visionProviderConfigured ? (
+        <View style={styles.photoHintCard}>
+          <Text style={styles.photoHintTitle}>Photo intake tips</Text>
+          <Text style={styles.photoHintCopy}>
+            {photoSupport.imageBarcodeIsbnSupported
+              ? "Best results come from the back cover, barcode area, or copyright page."
+              : "On iPhone, static photo ISBN detection is limited. For the strongest match, use Scan ISBN or add a title after taking the photo."}
+          </Text>
+          {!photoSupport.visionProviderConfigured ? (
+            <Text style={styles.photoHintCopy}>
+              Cover OCR can also be connected later through `EXPO_PUBLIC_BOOKLIO_VISION_ENDPOINT` without redesigning this flow.
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
 
       {coverUri ? <Image source={{ uri: coverUri }} style={styles.preview} /> : null}
     </Screen>
@@ -1017,6 +998,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm
   },
+  reviewInsightCard: {
+    alignItems: "flex-start",
+    backgroundColor: "#F1FBF8",
+    borderColor: "#CFECE4",
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+    padding: spacing.md
+  },
+  reviewInsightText: {
+    color: colors.tealDark,
+    flex: 1,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 13,
+    lineHeight: 19
+  },
   metadataItem: {
     flex: 1
   },
@@ -1047,6 +1046,28 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginBottom: spacing.sm,
     marginTop: spacing.sm
+  },
+  fetchMetaButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#F1FBF8",
+    borderColor: "#CFECE4",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 11
+  },
+  fetchMetaButtonBusy: {
+    opacity: 0.8
+  },
+  fetchMetaButtonText: {
+    color: colors.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    fontWeight: "900"
   },
   reviewChoiceGrid: {
     flexDirection: "row",
@@ -1166,6 +1187,44 @@ const styles = StyleSheet.create({
     height: 220,
     marginTop: spacing.lg,
     width: 160
+  },
+  photoBusyCard: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    padding: spacing.md
+  },
+  photoBusyText: {
+    color: colors.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  photoHintCard: {
+    backgroundColor: "#FFF9EF",
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    marginTop: spacing.md,
+    padding: spacing.md
+  },
+  photoHintTitle: {
+    color: colors.navy,
+    fontFamily: fonts.display,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  photoHintCopy: {
+    color: colors.muted,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 6
   },
   sessionCard: {
     backgroundColor: colors.navy,
