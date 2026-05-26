@@ -137,6 +137,9 @@ export interface UserProfile {
   id: string;
   name: string;
   avatarInitials: string;
+  avatarUri?: string;
+  email?: string;
+  authProvider?: "google";
   readingLevel: string;
   yearlyGoal: number;
   favoriteAuthors: string[];
@@ -148,6 +151,9 @@ export interface UserProfile {
 export interface UpdateUserProfileInput {
   name: string;
   avatarInitials: string;
+  avatarUri?: string;
+  email?: string;
+  authProvider?: "google";
   readingLevel: string;
   yearlyGoal: number;
   favoriteAuthors: string[];

@@ -3,6 +3,7 @@
     "name": "Booklio",
     "slug": "booklio",
     "version": "1.0.0",
+    "scheme": "booklio",
     "orientation": "portrait",
     "icon": "./assets/brand/booklio-icon.png",
     "favicon": "./assets/brand/booklio-icon.png",
@@ -16,6 +17,7 @@
       "**/*"
     ],
     "ios": {
+      "bundleIdentifier": "com.mystodev.booklio",
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Booklio uses the camera to photograph book covers and scan ISBN barcodes.",
@@ -23,15 +25,31 @@
       }
     },
     "android": {
+      "package": "com.mystodev.booklio",
       "permissions": [
-        "CAMERA",
-        "READ_MEDIA_IMAGES"
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "plugins": [
       "expo-font",
       "expo-camera",
-      "expo-image-picker"
-    ]
+      "expo-image-picker",
+      "expo-asset",
+      "expo-web-browser",
+      "expo-secure-store"
+    ],
+    "extra": {
+      "googleAuth": {
+        "webClientId": "167166673441-1m9fio2dlddt0a053ip2o8b6tan85pdb.apps.googleusercontent.com",
+        "iosClientId": "167166673441-1m9fio2dlddt0a053ip2o8b6tan85pdb.apps.googleusercontent.com",
+        "androidClientId": "167166673441-v01ji3rds3frjipugsur98fdvlcm0li9.apps.googleusercontent.com"
+      },
+      "eas": {
+        "projectId": "280cde91-ff6e-4e44-8ceb-53eed6ce39b0"
+      }
+    }
   }
 }

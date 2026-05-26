@@ -20,6 +20,7 @@ import {
   UpdateUserProfileInput,
   UserProfile
 } from "../types/models";
+import { buildInitials, clearPersistedGoogleAccount, GoogleAccount, persistGoogleAccount, readPersistedGoogleAccount } from "../utils/googleAuth";
 import { buildBookSpecificRecommendations, buildGlobalRecommendations } from "../utils/recommendationEngine";
 
 type MonthBucket = {
@@ -83,6 +84,8 @@ type BooklioContextValue = {
   series: typeof series;
   userProfile: UserProfile;
   repositoryStatus: RepositoryStatus;
+  connectGoogleAccount: (account: GoogleAccount) => Promise<void>;
+  disconnectGoogleAccount: () => Promise<void>;
   addBook: (input: NewBookInput) => Book;
   addReadingSession: (input: NewReadingSessionInput) => ReadingSession;
   updateReadingSession: (sessionId: string, input: NewReadingSessionInput) => ReadingSession | undefined;
@@ -521,11 +524,25 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         setBooks(parsed.books?.length ? mergeSeedBookMetadata(parsed.books) : bookSeed.map(normalizeReadState));
         setReadingSessions(parsed.readingSessions?.length ? parsed.readingSessions : sessionSeed);
         if (parsed.userProfile?.id) {
+          const persistedGoogle = await readPersistedGoogleAccount();
           const migratedAchievements = migrateAchievements(
             (parsed.userProfile.achievements as unknown as Record<string, unknown>[]) ?? [],
             userProfile.achievements
           );
-          setProfile({ ...userProfile, ...parsed.userProfile, achievements: migratedAchievements });
+          setProfile({
+            ...userProfile,
+            ...parsed.userProfile,
+            ...(persistedGoogle
+              ? {
+                  name: persistedGoogle.name,
+                  avatarInitials: buildInitials(persistedGoogle.name, persistedGoogle.email),
+                  avatarUri: persistedGoogle.picture,
+                  email: persistedGoogle.email,
+                  authProvider: "google" as const
+                }
+              : {}),
+            achievements: migratedAchievements
+          });
         } else {
           setProfile(userProfile);
         }
@@ -815,10 +832,35 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         ...current,
         name: input.name.trim() || current.name,
         avatarInitials: input.avatarInitials.trim().slice(0, 3).toUpperCase() || current.avatarInitials,
+        avatarUri: input.avatarUri ?? current.avatarUri,
+        email: input.email ?? current.email,
+        authProvider: input.authProvider ?? current.authProvider,
         readingLevel: input.readingLevel.trim() || current.readingLevel,
         yearlyGoal: input.yearlyGoal > 0 ? input.yearlyGoal : current.yearlyGoal,
         favoriteAuthors: input.favoriteAuthors.length ? input.favoriteAuthors : current.favoriteAuthors,
         favoriteGenres: input.favoriteGenres.length ? input.favoriteGenres : current.favoriteGenres
+      }));
+    };
+
+    const connectGoogleAccount = async (account: GoogleAccount) => {
+      await persistGoogleAccount(account);
+      setProfile((current) => ({
+        ...current,
+        name: account.name || current.name,
+        avatarInitials: buildInitials(account.name, account.email),
+        avatarUri: account.picture,
+        email: account.email,
+        authProvider: "google"
+      }));
+    };
+
+    const disconnectGoogleAccount = async () => {
+      await clearPersistedGoogleAccount();
+      setProfile((current) => ({
+        ...current,
+        avatarUri: undefined,
+        email: undefined,
+        authProvider: undefined
       }));
     };
 
@@ -830,6 +872,8 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       series,
       userProfile: resolvedProfile,
       repositoryStatus,
+      connectGoogleAccount,
+      disconnectGoogleAccount,
       addBook,
       addReadingSession,
       updateReadingSession,

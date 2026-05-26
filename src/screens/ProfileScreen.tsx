@@ -3,6 +3,7 @@ import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { BookCard } from "../components/BookCard";
+import { GoogleConnectionCard } from "../components/GoogleConnectionCard";
 import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
 import { useBooklio } from "../data/BooklioContext";
@@ -46,12 +47,17 @@ export function ProfileScreen() {
     <Screen>
       {/* Profile hero */}
       <View style={styles.hero}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{userProfile.avatarInitials}</Text>
-        </View>
+        {userProfile.avatarUri ? (
+          <Image source={{ uri: userProfile.avatarUri }} style={styles.avatarImage} />
+        ) : (
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{userProfile.avatarInitials}</Text>
+          </View>
+        )}
         <View style={styles.heroCopy}>
           <Text style={styles.name}>{userProfile.name}</Text>
           <Text style={styles.level}>{userProfile.readingLevel}</Text>
+          {userProfile.email ? <Text style={styles.email}>{userProfile.email}</Text> : null}
           <Text style={styles.meta}>
             {overallStats.totalBooksRead} books · {overallStats.totalSessions} sessions · {unlocked} badges
           </Text>
@@ -80,6 +86,8 @@ export function ProfileScreen() {
           <Text style={styles.syncText}>{repositoryCopy.body}</Text>
         </View>
       </View>
+
+      <GoogleConnectionCard />
 
       {/* Achievements teaser */}
       <Pressable style={styles.achievementsCard} onPress={() => navigation.navigate("Achievements")}>
@@ -224,6 +232,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 60
   },
+  avatarImage: {
+    borderRadius: 30,
+    height: 60,
+    width: 60
+  },
   avatarText: {
     color: colors.navy,
     fontFamily: fonts.display,
@@ -245,6 +258,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900",
     marginTop: 2
+  },
+  email: {
+    color: "#D7EAE4",
+    fontFamily: fonts.bodyRegular,
+    fontSize: 12,
+    marginTop: 4
   },
   meta: {
     color: "#BDB8B0",
