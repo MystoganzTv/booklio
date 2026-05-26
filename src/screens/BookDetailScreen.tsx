@@ -12,11 +12,12 @@ import { SessionRow } from "../components/SessionRow";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
 import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { formatStatusLabel } from "../utils/statusLabels";
 
 export function BookDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, "BookDetail">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { getAuthor, getBook, getBookStats, startReread, updateBookStatus } = useBooklio();
+  const { getAuthor, getBook, getBookStats, updateBookStatus } = useBooklio();
   const book = getBook(route.params.bookId);
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
   const [statusSheetOpen, setStatusSheetOpen] = useState(false);
@@ -32,15 +33,9 @@ export function BookDetailScreen() {
   const author = getAuthor(book.authorId);
   const stats = getBookStats(book.id);
 
-  const statusLabel = book.userStatus.status.replaceAll("-", " ");
+  const statusLabel = formatStatusLabel(book.userStatus.status);
   const isReading = book.userStatus.status === "reading";
   const isDone = book.userStatus.status === "read";
-  const readNumber = book.userStatus.currentReadNumber ?? Math.max(1, book.userStatus.readCount ?? 0);
-  const rereadLabel = book.userStatus.isRereading
-    ? readNumber === 2 ? "Second read" : `Read #${readNumber}`
-    : (book.userStatus.readCount ?? 0) > 1
-      ? `${book.userStatus.readCount} reads`
-      : null;
 
   return (
     <Screen>
@@ -63,7 +58,6 @@ export function BookDetailScreen() {
             {book.userStatus.rating ? (
               <Badge label={`${book.userStatus.rating} ★`} tone="navy" />
             ) : null}
-            {rereadLabel ? <Badge label={rereadLabel} tone="coral" /> : null}
             <Badge label="Edit ›" tone="gray" />
           </Pressable>
         </View>
@@ -78,18 +72,6 @@ export function BookDetailScreen() {
           <Ionicons name="pencil" size={15} color={colors.card} style={{ marginRight: 6 }} />
           <Text style={styles.primaryActionText}>Log Session</Text>
         </Pressable>
-        {isDone ? (
-          <Pressable
-            style={styles.rereadAction}
-            onPress={() => {
-              startReread(book.id);
-              navigation.navigate("AddReadingSession", { bookId: book.id });
-            }}
-          >
-            <Ionicons name="refresh" size={15} color={colors.navy} style={{ marginRight: 6 }} />
-            <Text style={styles.rereadActionText}>Read Again</Text>
-          </Pressable>
-        ) : null}
         <Pressable
           style={styles.secondaryAction}
           onPress={() => navigation.navigate("ReadingLog", { bookId: book.id })}
@@ -116,7 +98,7 @@ export function BookDetailScreen() {
       {(isReading || isDone) && (
         <View style={styles.progressCard}>
           <View style={styles.progressHeader}>
-            <Text style={styles.progressLabel}>{book.userStatus.isRereading ? "Reread progress" : "Progress"}</Text>
+            <Text style={styles.progressLabel}>Progress</Text>
             <Text style={styles.progressPct}>{book.userStatus.progressPercent}%</Text>
           </View>
           <View style={styles.progressTrack}>
@@ -168,6 +150,29 @@ export function BookDetailScreen() {
         ))}
       </View>
 
+      {/* Metadata badges: bestseller / sequel / tags */}
+      {(book.isBestseller || book.isSequel || (book.tags && book.tags.length > 0)) && (
+        <View style={styles.tagWrap}>
+          {book.isBestseller && (
+            <View style={[styles.tagPill, styles.tagBestseller]}>
+              <Ionicons name="star" size={11} color={colors.navy} style={{ marginRight: 4 }} />
+              <Text style={styles.tagPillText}>Bestseller</Text>
+            </View>
+          )}
+          {book.isSequel && (
+            <View style={[styles.tagPill, styles.tagSequel]}>
+              <Ionicons name="git-branch-outline" size={11} color={colors.card} style={{ marginRight: 4 }} />
+              <Text style={[styles.tagPillText, { color: colors.card }]}>Sequel</Text>
+            </View>
+          )}
+          {book.tags?.map((tag) => (
+            <View key={tag} style={styles.tagPill}>
+              <Text style={styles.tagPillText}>{tag}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
       {/* Synopsis */}
       {book.synopsis ? (
         <>
@@ -192,7 +197,12 @@ export function BookDetailScreen() {
             onAction={() => navigation.navigate("ReadingLog", { bookId: book.id })}
           />
           {stats.latestSessions.slice(0, 3).map((session) => (
-            <SessionRow key={session.id} bookTitle={book.title} session={session} />
+            <SessionRow
+              key={session.id}
+              bookTitle={book.title}
+              session={session}
+              onPress={() => navigation.navigate("AddReadingSession", { bookId: book.id, sessionId: session.id })}
+            />
           ))}
         </>
       ) : null}
@@ -268,24 +278,6 @@ const styles = StyleSheet.create({
     color: colors.card,
     fontFamily: fonts.body,
     fontSize: 14,
-    fontWeight: "900"
-  },
-  rereadAction: {
-    alignItems: "center",
-    backgroundColor: "#FFF4D3",
-    borderColor: "#F7D27B",
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    flexGrow: 1,
-    flexDirection: "row",
-    justifyContent: "center",
-    paddingHorizontal: spacing.md,
-    paddingVertical: 13
-  },
-  rereadActionText: {
-    color: colors.navy,
-    fontFamily: fonts.body,
-    fontSize: 13,
     fontWeight: "900"
   },
   secondaryAction: {
@@ -411,6 +403,36 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
     marginTop: 3
+  },
+  tagWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    marginBottom: spacing.md
+  },
+  tagPill: {
+    alignItems: "center",
+    backgroundColor: colors.navy + "18",
+    borderColor: colors.border,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    paddingHorizontal: 10,
+    paddingVertical: 5
+  },
+  tagBestseller: {
+    backgroundColor: colors.gold,
+    borderColor: colors.gold
+  },
+  tagSequel: {
+    backgroundColor: colors.teal,
+    borderColor: colors.teal
+  },
+  tagPillText: {
+    color: colors.navy,
+    fontFamily: fonts.body,
+    fontSize: 11,
+    fontWeight: "900"
   },
   synopsis: {
     color: colors.ink,

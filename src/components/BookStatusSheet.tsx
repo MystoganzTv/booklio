@@ -15,7 +15,7 @@ const STATUS_OPTIONS: StatusOption[] = [
   { value: "want-to-read", label: "Want to read", icon: "bookmark-outline",         color: colors.muted  },
   { value: "reading",      label: "Reading",      icon: "book-outline",              color: colors.teal   },
   { value: "read",         label: "Read",          icon: "checkmark-circle-outline", color: colors.green  },
-  { value: "dnf",          label: "DNF",           icon: "close-circle-outline",     color: colors.coral  }
+  { value: "dnf",          label: "Unfinished",    icon: "close-circle-outline",     color: colors.coral  }
 ];
 
 type Props = {

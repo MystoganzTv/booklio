@@ -145,6 +145,7 @@ export function HomeScreen() {
               key={session.id}
               bookTitle={getBook(session.bookId)?.title ?? "Unknown book"}
               session={session}
+              onPress={() => navigation.navigate("AddReadingSession", { bookId: session.bookId, sessionId: session.id })}
             />
           ))}
         </>

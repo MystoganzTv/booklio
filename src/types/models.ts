@@ -62,6 +62,10 @@ export interface Book {
   coverGradient: [string, string];
   coverImageUri?: string;
   upcomingReleaseDate?: string;
+  // Extra metadata
+  isBestseller?: boolean;
+  isSequel?: boolean;            // true if it's not book #1 in a series
+  tags?: string[];               // free-form tags: "thriller", "award-winner", "slow-burn", etc.
   userStatus: UserBookStatus;
 }
 
@@ -102,10 +106,14 @@ export interface Achievement {
   id: string;
   title: string;
   description: string;
+  flavour: string;          // fun celebration text shown when unlocked
   unlocked: boolean;
+  unlockedAt?: string;      // ISO date
   progress: number;
   goal: number;
-  category: "reading" | "collection" | "genre" | "habit" | "speed";
+  category: "reading" | "collection" | "genre" | "habit" | "speed" | "social";
+  tier: "bronze" | "silver" | "gold" | "legendary";
+  icon: string;
 }
 
 export interface Recommendation {
@@ -160,6 +168,9 @@ export interface UpdateBookInput {
   coverImageUri?: string;
   seriesName?: string;
   seriesNumber?: number;
+  isBestseller?: boolean;
+  isSequel?: boolean;
+  tags?: string[];
   status: CoreTrackingStatus;
   ownership: OwnershipStatus;
   wishlist: boolean;
@@ -189,6 +200,7 @@ export interface NewBookInput {
   language?: string;
   synopsis?: string;
   coverImageUri?: string;
+  format?: ReadingFormat;
   source: "photo" | "isbn" | "manual" | "search";
   ownership?: OwnershipStatus;
   wishlist?: boolean;

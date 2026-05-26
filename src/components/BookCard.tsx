@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Book } from "../types/models";
 import { colors, fonts, spacing } from "../theme/theme";
-import { Badge } from "./Badge";
+import { formatStatusLabel } from "../utils/statusLabels";
 import { BookCover } from "./BookCover";
 
 type BookCardProps = {
@@ -12,30 +12,25 @@ type BookCardProps = {
 };
 
 export function BookCard({ book, authorName, compact = false, onPress }: BookCardProps) {
-  const badges = [
-    book.userStatus.ownership === "owned" ? "Owned" : null,
-    book.userStatus.wishlist ? "Wishlist" : null,
-    book.userStatus.wantToBuy ? "Buy" : null
-  ].filter(Boolean);
+  const meta = book.userStatus.rating
+    ? `${book.userStatus.rating} stars`
+    : formatStatusLabel(book.userStatus.status);
 
   return (
     <Pressable style={[styles.card, compact && styles.compact]} onPress={onPress}>
-      <BookCover book={book} size={compact ? "sm" : "md"} />
+      <BookCover
+        book={book}
+        size={compact ? "sm" : "md"}
+        style={compact ? undefined : styles.cover}
+      />
       <View style={styles.copy}>
         <Text numberOfLines={2} style={styles.title}>
           {book.title}
         </Text>
         <Text numberOfLines={1} style={styles.author}>
-          {authorName}
+          By {authorName}
         </Text>
-        <Text numberOfLines={1} style={styles.meta}>
-          {book.seriesName ? `${book.seriesName} #${book.seriesNumber}` : book.genre[0]}
-        </Text>
-        <View style={styles.badges}>
-          {badges.slice(0, 2).map((badge) => (
-            <Badge key={badge} label={badge ?? ""} tone={badge === "Owned" ? "green" : badge === "Buy" ? "gold" : "navy"} />
-          ))}
-        </View>
+        <Text numberOfLines={1} style={styles.meta}>{meta}</Text>
       </View>
     </Pressable>
   );
@@ -44,7 +39,7 @@ export function BookCard({ book, authorName, compact = false, onPress }: BookCar
 const styles = StyleSheet.create({
   card: {
     marginRight: spacing.md,
-    width: 132
+    width: 168
   },
   compact: {
     flexDirection: "row",
@@ -53,34 +48,34 @@ const styles = StyleSheet.create({
     marginRight: 0,
     width: "100%"
   },
+  cover: {
+    height: 236,
+    width: "100%"
+  },
   copy: {
     flex: 1,
     marginTop: spacing.sm
   },
   title: {
-    color: colors.ink,
+    color: colors.navy,
     fontFamily: fonts.display,
-    fontSize: 17,
-    fontWeight: "700",
-    lineHeight: 20
+    fontSize: 15,
+    fontWeight: "800",
+    lineHeight: 19
   },
   author: {
     color: colors.muted,
-    fontFamily: fonts.body,
+    fontFamily: fonts.bodyRegular,
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "700",
     marginTop: 3
   },
   meta: {
-    color: colors.gray,
+    color: colors.gold,
     fontFamily: fonts.body,
     fontSize: 11,
-    marginTop: 3
-  },
-  badges: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    marginTop: 8
+    fontWeight: "900",
+    marginTop: 5,
+    textTransform: "uppercase"
   }
 });

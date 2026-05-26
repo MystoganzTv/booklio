@@ -10,6 +10,7 @@ import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
 import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { formatStatusLabel } from "../utils/statusLabels";
 
 export function SeriesTrackerScreen() {
   const route = useRoute<RouteProp<RootStackParamList, "SeriesTracker">>();
@@ -65,7 +66,7 @@ export function SeriesTrackerScreen() {
             <Text style={styles.bookTitle}>{book.title}</Text>
             <Text style={styles.bookMeta}>{book.publishedDate.slice(0, 4)} · {book.pages} pages</Text>
             <View style={styles.badges}>
-              <Badge label={book.userStatus.status.replaceAll("-", " ")} tone={book.userStatus.status === "read" ? "green" : "gray"} />
+              <Badge label={formatStatusLabel(book.userStatus.status)} tone={book.userStatus.status === "read" ? "green" : "gray"} />
               {book.userStatus.ownership === "owned" ? <Badge label="Owned" tone="green" /> : null}
               {book.userStatus.wishlist ? <Badge label="Wishlist" tone="navy" /> : null}
             </View>

@@ -1,15 +1,24 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ReadingSession } from "../types/models";
 import { colors, fonts, radii, spacing } from "../theme/theme";
 
 type SessionRowProps = {
   session: ReadingSession;
   bookTitle: string;
+  onPress?: () => void;
 };
 
-export function SessionRow({ session, bookTitle }: SessionRowProps) {
+export function SessionRow({ session, bookTitle, onPress }: SessionRowProps) {
+  const contextLine = [
+    session.location !== "—" ? `At ${session.location}` : null,
+    session.mood !== "—" ? session.mood : null
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const notesLine = session.notes.trim();
+
   return (
-    <View style={styles.row}>
+    <Pressable style={({ pressed }) => [styles.row, pressed && onPress ? styles.rowPressed : null]} onPress={onPress}>
       <View style={styles.datePill}>
         <Text style={styles.dateMonth}>
           {new Date(`${session.date}T00:00:00`).toLocaleDateString("en-US", { month: "short" })}
@@ -23,12 +32,19 @@ export function SessionRow({ session, bookTitle }: SessionRowProps) {
         <Text style={styles.meta}>
           {session.pagesRead} pages - {session.minutesRead} min - {Math.round(session.pagesPerHour)} pp/h
         </Text>
-        <Text numberOfLines={2} style={styles.notes}>
-          {session.mood} at {session.location}. {session.notes}
-        </Text>
+        {contextLine ? (
+          <Text numberOfLines={1} style={styles.context}>
+            {contextLine}
+          </Text>
+        ) : null}
+        {notesLine ? (
+          <Text numberOfLines={2} style={styles.notes}>
+            {notesLine}
+          </Text>
+        ) : null}
       </View>
       <Text style={styles.rating}>{session.enjoymentRating}/10</Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -43,6 +59,9 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     marginBottom: spacing.sm,
     padding: spacing.md
+  },
+  rowPressed: {
+    opacity: 0.88
   },
   datePill: {
     alignItems: "center",
@@ -81,6 +100,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     marginTop: 3
+  },
+  context: {
+    color: colors.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 4
   },
   notes: {
     color: colors.muted,

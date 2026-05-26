@@ -1,53 +1,35 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { BookCard } from "../components/BookCard";
 import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
 import { useBooklio } from "../data/BooklioContext";
 import { Achievement } from "../types/models";
 import { RootStackParamList } from "../navigation/types";
+import { getAchievementIconSource } from "../utils/achievementIcons";
 import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
 
-type BadgeConfig = {
-  icon: keyof typeof Ionicons.glyphMap;
-  color: string;
-  bg: string;
+const TIER_COLOR: Record<Achievement["tier"], string> = {
+  bronze:    "#CD7F32",
+  silver:    "#A8A9AD",
+  gold:      "#FFC857",
+  legendary: "#9B5DE5"
 };
 
-const BADGE_CONFIG: Record<Achievement["category"], BadgeConfig> = {
-  reading:    { icon: "book",              color: "#0F172A", bg: "#FFC857" },
-  habit:      { icon: "flame",             color: "#FFFFFF", bg: "#FF7A59" },
-  genre:      { icon: "trophy-outline",    color: "#FFFFFF", bg: "#14B8A6" },
-  collection: { icon: "library",           color: "#FFFFFF", bg: "#7FB069" },
-  speed:      { icon: "speedometer",       color: "#FFFFFF", bg: "#6366F1" }
-};
-
-function AchievementBadge({ achievement }: { achievement: Achievement }) {
-  const cfg = BADGE_CONFIG[achievement.category] ?? BADGE_CONFIG["reading"];
-  const pct = Math.min(100, Math.round((achievement.progress / achievement.goal) * 100));
-  const locked = !achievement.unlocked;
-
+function UnlockedBubble({ achievement }: { achievement: Achievement }) {
+  const source = getAchievementIconSource(achievement);
+  const isCompound = Array.from(achievement.icon).length > 1;
   return (
-    <View style={[styles.badge, locked && styles.badgeLocked]}>
-      <View style={[styles.badgeIcon, { backgroundColor: locked ? "#D5CFC5" : cfg.bg }]}>
-        <Ionicons name={cfg.icon} size={22} color={locked ? "#A09890" : cfg.color} />
-      </View>
-      <Text style={[styles.badgeTitle, locked && styles.badgeTitleLocked]} numberOfLines={2}>
-        {achievement.title}
-      </Text>
-      <Text style={styles.badgeDesc} numberOfLines={2}>
-        {achievement.description}
-      </Text>
-      <View style={styles.badgeTrack}>
-        <View style={[styles.badgeFill, { width: `${pct}%`, backgroundColor: locked ? "#C5BEB4" : cfg.bg }]} />
-      </View>
-      <Text style={[styles.badgePct, { color: locked ? colors.muted : cfg.bg }]}>
-        {achievement.unlocked
-          ? "Unlocked ✓"
-          : `${Math.min(achievement.progress, achievement.goal)} / ${achievement.goal}`}
-      </Text>
+    <View style={[styles.bubble, { borderColor: TIER_COLOR[achievement.tier] }]}>
+      {source ? (
+        <Image source={source} style={styles.achievementArtwork} resizeMode="contain" />
+      ) : (
+        <Text numberOfLines={1} style={[styles.achievementEmoji, isCompound && styles.achievementEmojiCompound]}>
+          {achievement.icon}
+        </Text>
+      )}
     </View>
   );
 }
@@ -90,13 +72,35 @@ export function ProfileScreen() {
         </View>
       </View>
 
-      {/* Achievements */}
-      <SectionHeader title="Achievements" />
-      <View style={styles.achievementGrid}>
-        {userProfile.achievements.map((a) => (
-          <AchievementBadge key={a.id} achievement={a} />
-        ))}
-      </View>
+      {/* Achievements teaser */}
+      <Pressable style={styles.achievementsCard} onPress={() => navigation.navigate("Achievements")}>
+        <View style={styles.achievementsCardTop}>
+          <View>
+            <Text style={styles.achievementsEyebrow}>Achievements</Text>
+            <Text style={styles.achievementsCount}>
+              {unlocked} <Text style={styles.achievementsCountMuted}>of {userProfile.achievements.length} unlocked</Text>
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+        </View>
+        {unlocked > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.bubblesRow}>
+            {userProfile.achievements.filter((a) => a.unlocked).map((a) => (
+              <UnlockedBubble key={a.id} achievement={a} />
+            ))}
+            {userProfile.achievements.filter((a) => !a.unlocked).length > 0 && (
+              <View style={styles.lockedCount}>
+                <Ionicons name="lock-closed" size={12} color={colors.muted} />
+                <Text style={styles.lockedCountText}>
+                  +{userProfile.achievements.filter((a) => !a.unlocked).length}
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+        ) : (
+          <Text style={styles.achievementsEmpty}>Log sessions and finish books to earn your first badge.</Text>
+        )}
+      </Pressable>
 
       {/* Top books */}
       {topBooks.length > 0 ? (
@@ -251,65 +255,93 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     height: "100%"
   },
-  achievementGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    marginBottom: spacing.md
-  },
-  badge: {
+  achievementsCard: {
+    ...shadows.card,
     backgroundColor: colors.card,
     borderColor: colors.border,
-    borderRadius: radii.md,
+    borderRadius: radii.lg,
     borderWidth: 1,
-    padding: spacing.md,
-    width: "48%"
+    marginBottom: spacing.md,
+    padding: spacing.md
   },
-  badgeLocked: {
-    backgroundColor: "#F7F4EF",
-    borderColor: "#E5DDD3"
-  },
-  badgeIcon: {
+  achievementsCardTop: {
     alignItems: "center",
-    borderRadius: 14,
-    height: 44,
-    justifyContent: "center",
-    marginBottom: spacing.sm,
-    width: 44
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: spacing.md
   },
-  badgeTitle: {
-    color: colors.navy,
-    fontFamily: fonts.body,
-    fontSize: 13,
-    fontWeight: "900",
-    lineHeight: 17
-  },
-  badgeTitleLocked: {
-    color: "#9E978E"
-  },
-  badgeDesc: {
+  achievementsEyebrow: {
     color: colors.muted,
     fontFamily: fonts.body,
     fontSize: 11,
-    lineHeight: 15,
-    marginTop: 3
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase"
   },
-  badgeTrack: {
-    backgroundColor: "#EEE7DB",
-    borderRadius: radii.pill,
-    height: 5,
-    marginTop: spacing.sm,
-    overflow: "hidden"
+  achievementsCount: {
+    color: colors.navy,
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "900",
+    marginTop: 2
   },
-  badgeFill: {
-    borderRadius: radii.pill,
-    height: "100%"
-  },
-  badgePct: {
+  achievementsCountMuted: {
+    color: colors.muted,
     fontFamily: fonts.body,
-    fontSize: 11,
-    fontWeight: "800",
-    marginTop: 5
+    fontSize: 16,
+    fontWeight: "700"
+  },
+  bubblesRow: {
+    flexDirection: "row"
+  },
+  bubble: {
+    alignItems: "center",
+    borderRadius: 32,
+    borderWidth: 2,
+    height: 64,
+    justifyContent: "center",
+    marginRight: spacing.sm,
+    overflow: "visible",
+    width: 64,
+    backgroundColor: colors.cream
+  },
+  achievementArtwork: {
+    height: 60,
+    width: 60
+  },
+  achievementEmoji: {
+    fontSize: 25,
+    includeFontPadding: false,
+    lineHeight: 34,
+    minWidth: 48,
+    textAlign: "center"
+  },
+  achievementEmojiCompound: {
+    fontSize: 20,
+    lineHeight: 28,
+    minWidth: 58
+  },
+  lockedCount: {
+    alignItems: "center",
+    backgroundColor: "#F0EDE8",
+    borderRadius: 28,
+    flexDirection: "row",
+    gap: 4,
+    height: 52,
+    justifyContent: "center",
+    paddingHorizontal: 14
+  },
+  lockedCountText: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  achievementsEmpty: {
+    color: colors.muted,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 13,
+    lineHeight: 19
   },
   tagWrap: {
     flexDirection: "row",

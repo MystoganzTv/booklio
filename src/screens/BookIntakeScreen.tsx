@@ -9,9 +9,10 @@ import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
 import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
-import { NewBookInput } from "../types/models";
+import { NewBookInput, ReadingFormat } from "../types/models";
 
 type IntakeMode = "menu" | "isbn" | "manual" | "search" | "review";
+type SearchMode = "general" | "author";
 type IconName = keyof typeof Ionicons.glyphMap;
 
 const booklioLogo = require("../../assets/brand/booklio-logo.png");
@@ -104,6 +105,25 @@ const featuredExamples = [
   "9780756404741"
 ];
 
+const COMMON_LANGUAGES = [
+  "English", "Spanish", "French", "German", "Italian",
+  "Portuguese", "Russian", "Japanese", "Chinese", "Korean",
+  "Arabic", "Dutch", "Swedish", "Polish", "Turkish"
+];
+
+const REVIEW_FORMATS: { value: ReadingFormat; label: string; icon: IconName }[] = [
+  { value: "physical", label: "Physical", icon: "book-outline" },
+  { value: "kindle", label: "Kindle", icon: "tablet-portrait-outline" },
+  { value: "audiobook", label: "Audiobook", icon: "headset-outline" }
+];
+
+const sourceLabel: Record<NewBookInput["source"], string> = {
+  photo: "Cover photo",
+  isbn: "ISBN scan",
+  manual: "Manual entry",
+  search: "Book search"
+};
+
 type OpenLibraryIsbnResponse = {
   title?: string;
   authors?: { key: string }[];
@@ -118,6 +138,7 @@ type OpenLibraryIsbnResponse = {
 };
 
 type OpenLibrarySearchResponse = {
+  numFound?: number;
   docs?: {
     title?: string;
     author_name?: string[];
@@ -170,11 +191,25 @@ async function lookupByIsbn(isbn: string): Promise<NewBookInput | undefined> {
   };
 }
 
-async function searchOpenLibrary(query: string): Promise<NewBookInput[]> {
-  const response = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=8`);
-  if (!response.ok) return [];
+const OL_PAGE_SIZE = 50;
+
+async function searchOpenLibrary(
+  query: string,
+  mode: SearchMode = "general",
+  offset = 0
+): Promise<{ results: NewBookInput[]; total: number }> {
+  const fields = "title,author_name,isbn,cover_i,first_publish_year,publisher,number_of_pages_median,subject";
+  // Author mode: no cap — paginate until done. General: single page of 25.
+  const limit = mode === "author" ? OL_PAGE_SIZE : 25;
+  const param = mode === "author"
+    ? `author=${encodeURIComponent(query)}`
+    : `q=${encodeURIComponent(query)}`;
+  const response = await fetch(
+    `https://openlibrary.org/search.json?${param}&limit=${limit}&offset=${offset}&fields=${fields}`
+  );
+  if (!response.ok) return { results: [], total: 0 };
   const data = (await response.json()) as OpenLibrarySearchResponse;
-  return (data.docs ?? [])
+  const results = (data.docs ?? [])
     .filter((doc) => doc.title && doc.author_name?.[0])
     .map((doc) => ({
       title: doc.title ?? "Untitled Book",
@@ -185,11 +220,35 @@ async function searchOpenLibrary(query: string): Promise<NewBookInput[]> {
       publisher: doc.publisher?.[0],
       publishedDate: doc.first_publish_year ? `${doc.first_publish_year}-01-01` : undefined,
       language: "English",
-      synopsis: "Imported from Open Library. You can refine it later in Booklio.",
+      synopsis: undefined,
       coverImageUri: coverUrl(doc.cover_i),
-      source: "search",
-      ownership: "owned"
+      source: "search" as const,
+      ownership: "owned" as const
     }));
+  return { results, total: data.numFound ?? results.length };
+}
+
+async function enrichFromIsbn(isbn: string, base: NewBookInput): Promise<NewBookInput> {
+  try {
+    const response = await fetch(`https://openlibrary.org/isbn/${isbn}.json`);
+    if (!response.ok) return base;
+    const data = (await response.json()) as OpenLibraryIsbnResponse;
+    const authorName = await fetchAuthorName(data.authors?.[0]?.key);
+    return {
+      ...base,
+      title: data.title ?? base.title,
+      authorName: authorName ?? base.authorName,
+      isbn: data.isbn_13?.[0] ?? data.isbn_10?.[0] ?? isbn,
+      pages: data.number_of_pages ?? base.pages,
+      genre: data.subjects?.slice(0, 4) ?? base.genre,
+      publisher: data.publishers?.[0] ?? base.publisher,
+      publishedDate: data.publish_date ?? base.publishedDate,
+      synopsis: readDescription(data.description) ?? base.synopsis,
+      coverImageUri: coverUrl(data.covers?.[0]) ?? base.coverImageUri
+    };
+  } catch {
+    return base;
+  }
 }
 
 export function BookIntakeScreen() {
@@ -200,8 +259,12 @@ export function BookIntakeScreen() {
   const [scanned, setScanned] = useState(false);
   const [coverUri, setCoverUri] = useState<string | undefined>();
   const [isBusy, setIsBusy] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("Dune");
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMode, setSearchMode] = useState<SearchMode>("general");
   const [searchResults, setSearchResults] = useState<NewBookInput[]>([]);
+  const [searchTotal, setSearchTotal] = useState(0);
+  const [searchOffset, setSearchOffset] = useState(0);
   const [reviewBook, setReviewBook] = useState<NewBookInput | null>(null);
   const [manual, setManual] = useState({
     title: "",
@@ -217,6 +280,7 @@ export function BookIntakeScreen() {
       ownership: "owned",
       wishlist: false,
       wantToBuy: false,
+      format: "physical",
       language: "English",
       ...input
     });
@@ -257,18 +321,53 @@ export function BookIntakeScreen() {
   };
 
   const runSearch = async () => {
+    if (!searchQuery.trim()) return;
     setIsBusy(true);
+    setSearchOffset(0);
     try {
-      const results = await searchOpenLibrary(searchQuery);
+      const { results, total } = await searchOpenLibrary(searchQuery.trim(), searchMode, 0);
       setSearchResults(results);
+      setSearchTotal(total);
       if (!results.length) {
-        Alert.alert("No results", "I couldn't find books in Open Library. Try a title, author, or ISBN.");
+        Alert.alert("No results", "Couldn't find books in Open Library. Try a different title or author name.");
       }
     } catch {
       setSearchResults([]);
-      Alert.alert("Connection issue", "I couldn't reach Open Library right now. You can still use the real examples or manual entry.");
+      setSearchTotal(0);
+      Alert.alert("Connection issue", "Couldn't reach Open Library right now. Try again or use manual entry.");
     } finally {
       setIsBusy(false);
+    }
+  };
+
+  const loadMoreResults = async () => {
+    if (isLoadingMore) return;
+    const nextOffset = searchOffset + OL_PAGE_SIZE;
+    setIsLoadingMore(true);
+    try {
+      const { results } = await searchOpenLibrary(searchQuery.trim(), searchMode, nextOffset);
+      setSearchResults((prev) => [...prev, ...results]);
+      setSearchOffset(nextOffset);
+    } catch {
+      // silent — keep existing results
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
+  const selectSearchResult = async (book: NewBookInput) => {
+    if (book.isbn) {
+      setIsBusy(true);
+      try {
+        const enriched = await enrichFromIsbn(book.isbn, book);
+        stageBook(enriched);
+      } catch {
+        stageBook(book);
+      } finally {
+        setIsBusy(false);
+      }
+    } else {
+      stageBook(book);
     }
   };
 
@@ -350,13 +449,35 @@ export function BookIntakeScreen() {
               <Ionicons name="book-outline" size={28} color={colors.gold} />
             </View>
           )}
-          <View style={styles.reviewHeaderCopy}>
-            <Text style={styles.pageEyebrow}>Review & edit</Text>
-            <Text style={styles.reviewTitle} numberOfLines={3}>{reviewBook.title}</Text>
-            <Text style={styles.reviewAuthor} numberOfLines={1}>{reviewBook.authorName}</Text>
+        <View style={styles.reviewHeaderCopy}>
+          <Text style={styles.pageEyebrow}>Review & edit</Text>
+          <Text style={styles.reviewTitle} numberOfLines={3}>{reviewBook.title}</Text>
+          <Text style={styles.reviewAuthor} numberOfLines={1}>{reviewBook.authorName}</Text>
+          <View style={styles.reviewSourcePill}>
+            <Ionicons name="sparkles-outline" size={14} color={colors.gold} />
+            <Text style={styles.reviewSourceText}>{sourceLabel[reviewBook.source]}</Text>
           </View>
         </View>
+      </View>
 
+      <View style={styles.metadataStrip}>
+        <View style={styles.metadataItem}>
+          <Text style={styles.metadataLabel}>Pages</Text>
+          <Text style={styles.metadataValue}>{reviewBook.pages ?? "—"}</Text>
+        </View>
+        <View style={styles.metadataDivider} />
+        <View style={styles.metadataItem}>
+          <Text style={styles.metadataLabel}>ISBN</Text>
+          <Text style={styles.metadataValue} numberOfLines={1}>{reviewBook.isbn ?? "Pending"}</Text>
+        </View>
+        <View style={styles.metadataDivider} />
+        <View style={styles.metadataItem}>
+          <Text style={styles.metadataLabel}>Publisher</Text>
+          <Text style={styles.metadataValue} numberOfLines={1}>{reviewBook.publisher ?? "Pending"}</Text>
+        </View>
+      </View>
+
+        <Text style={styles.reviewSectionTitle}>Verify details</Text>
         <Field label="Title" value={reviewBook.title} onChangeText={(title) => updateReviewBook({ title })} />
         <Field label="Author" value={reviewBook.authorName} onChangeText={(authorName) => updateReviewBook({ authorName })} />
         <Field
@@ -371,17 +492,26 @@ export function BookIntakeScreen() {
           value={reviewBook.pages ? String(reviewBook.pages) : ""}
           onChangeText={(value) => updateReviewBook({ pages: Number(value) || undefined })}
         />
-        <Field label="ISBN" value={reviewBook.isbn ?? ""} onChangeText={(isbn) => updateReviewBook({ isbn })} />
-        <Field label="Publisher" value={reviewBook.publisher ?? ""} onChangeText={(publisher) => updateReviewBook({ publisher })} />
-        <Field label="Published date" value={reviewBook.publishedDate ?? ""} onChangeText={(publishedDate) => updateReviewBook({ publishedDate })} />
-        <Field label="Language" value={reviewBook.language ?? "English"} onChangeText={(language) => updateReviewBook({ language })} />
-        <Field
-          label="Cover image URL"
-          value={reviewBook.coverImageUri ?? ""}
-          onChangeText={(coverImageUri) => updateReviewBook({ coverImageUri })}
-          autoCapitalize="none"
-        />
         <Field label="Synopsis" value={reviewBook.synopsis ?? ""} onChangeText={(synopsis) => updateReviewBook({ synopsis })} multiline />
+
+        <Text style={styles.reviewSectionTitle}>Preferences</Text>
+        <LanguagePicker
+          selected={reviewBook.language ?? "English"}
+          onSelect={(language) => updateReviewBook({ language })}
+        />
+
+        <Text style={styles.reviewSectionTitle}>Format</Text>
+        <View style={styles.reviewChoiceGrid}>
+          {REVIEW_FORMATS.map((option) => (
+            <Choice
+              key={option.value}
+              active={reviewBook.format === option.value}
+              icon={option.icon}
+              label={option.label}
+              onPress={() => updateReviewBook({ format: option.value })}
+            />
+          ))}
+        </View>
 
         <Text style={styles.reviewSectionTitle}>Shelf</Text>
         <View style={styles.reviewChoiceGrid}>
@@ -480,6 +610,7 @@ export function BookIntakeScreen() {
         <Field label="Author" value={manual.authorName} onChangeText={(v) => setManual((c) => ({ ...c, authorName: v }))} />
         <Field label="Pages" keyboardType="number-pad" value={manual.pages} onChangeText={(v) => setManual((c) => ({ ...c, pages: v }))} />
         <Field label="Genre(s), comma separated" value={manual.genre} onChangeText={(v) => setManual((c) => ({ ...c, genre: v }))} />
+        <Field label="Publisher" value={manual.publisher} onChangeText={(v) => setManual((c) => ({ ...c, publisher: v }))} />
         <Field label="ISBN (optional)" value={manual.isbn} onChangeText={(v) => setManual((c) => ({ ...c, isbn: v }))} />
 
         <Pressable style={styles.saveButton} onPress={saveManual}>
@@ -490,17 +621,41 @@ export function BookIntakeScreen() {
   }
 
   if (mode === "search") {
+    const displayResults = searchResults.length
+      ? searchResults
+      : featuredExamples.map((isbn) => ({ ...mockIsbnCatalog[isbn], source: "search" as const }));
+
     return (
       <Screen>
         <View style={styles.pageHeader}>
           <Text style={styles.pageEyebrow}>Search</Text>
-          <Text style={styles.pageTitle}>Title, author, or ISBN.</Text>
+          <Text style={styles.pageTitle}>Find your book.</Text>
+        </View>
+
+        {/* Mode toggle */}
+        <View style={styles.searchModeRow}>
+          {(["general", "author"] as SearchMode[]).map((m) => (
+            <Pressable
+              key={m}
+              style={[styles.searchModeChip, searchMode === m && styles.searchModeChipActive]}
+              onPress={() => setSearchMode(m)}
+            >
+              <Ionicons
+                name={m === "author" ? "person-outline" : "search-outline"}
+                size={13}
+                color={searchMode === m ? colors.card : colors.muted}
+              />
+              <Text style={[styles.searchModeText, searchMode === m && styles.searchModeTextActive]}>
+                {m === "author" ? "By author" : "Title / keyword"}
+              </Text>
+            </Pressable>
+          ))}
         </View>
 
         <View style={styles.searchRow}>
           <TextInput
             autoFocus
-            placeholder="Dune, Patrick Rothfuss..."
+            placeholder={searchMode === "author" ? "David Baldacci, J.K. Rowling…" : "Dune, Memory Man, ISBN…"}
             placeholderTextColor={colors.gray}
             style={styles.searchInput}
             value={searchQuery}
@@ -508,31 +663,66 @@ export function BookIntakeScreen() {
             onSubmitEditing={runSearch}
             returnKeyType="search"
           />
-          <Pressable style={styles.searchBtn} onPress={runSearch}>
+          <Pressable style={[styles.searchBtn, isBusy && { opacity: 0.6 }]} onPress={runSearch} disabled={isBusy}>
             <Ionicons name={isBusy ? "hourglass-outline" : "search"} size={18} color={colors.card} />
           </Pressable>
         </View>
 
-        <View style={styles.resultsWrap}>
-          {(searchResults.length
-            ? searchResults
-            : featuredExamples.map((isbn) => ({ ...mockIsbnCatalog[isbn], source: "search" as const }))
-          ).map((book) => (
-            <Pressable key={`${book.title}-${book.isbn}`} style={styles.resultCard} onPress={() => stageBook(book)}>
-              {book.coverImageUri
-                ? <Image source={{ uri: book.coverImageUri }} style={styles.resultCover} />
-                : <View style={styles.resultCoverFallback} />}
-              <View style={styles.resultCopy}>
-                <Text numberOfLines={2} style={styles.resultTitle}>{book.title}</Text>
-                <Text numberOfLines={1} style={styles.resultAuthor}>{book.authorName}</Text>
-                <Text numberOfLines={1} style={styles.resultMeta}>
-                  {book.pages ? `${book.pages} pages` : ""}{book.publisher ? ` · ${book.publisher}` : ""}
+        {isBusy ? (
+          <View style={styles.busyRow}>
+            <Ionicons name="hourglass-outline" size={18} color={colors.muted} />
+            <Text style={styles.busyText}>Searching Open Library…</Text>
+          </View>
+        ) : (
+          <View style={styles.resultsWrap}>
+            {!searchResults.length && (
+              <Text style={styles.resultsHint}>
+                {searchQuery.trim() ? "Showing example books — tap Search to find yours." : "Try searching above. Results come from Open Library."}
+              </Text>
+            )}
+            {searchResults.length > 0 && (
+              <Text style={styles.resultCount}>
+                {searchResults.length} of {searchTotal.toLocaleString()} results
+              </Text>
+            )}
+            {displayResults.map((book) => (
+              <Pressable
+                key={`${book.title}-${book.isbn}`}
+                style={styles.resultCard}
+                onPress={() => selectSearchResult(book)}
+              >
+                {book.coverImageUri
+                  ? <Image source={{ uri: book.coverImageUri }} style={styles.resultCover} />
+                  : <View style={styles.resultCoverFallback}><Ionicons name="book-outline" size={22} color={colors.card} /></View>}
+                <View style={styles.resultCopy}>
+                  <Text numberOfLines={2} style={styles.resultTitle}>{book.title}</Text>
+                  <Text numberOfLines={1} style={styles.resultAuthor}>{book.authorName}</Text>
+                  <Text numberOfLines={1} style={styles.resultMeta}>
+                    {book.pages ? `${book.pages} pg` : ""}
+                    {book.publisher ? ` · ${book.publisher}` : ""}
+                    {book.publishedDate ? ` · ${String(book.publishedDate).slice(0, 4)}` : ""}
+                  </Text>
+                </View>
+                <Ionicons name="add-circle" size={26} color={colors.teal} />
+              </Pressable>
+            ))}
+            {searchResults.length > 0 && searchResults.length < searchTotal && (
+              <Pressable
+                style={[styles.loadMoreBtn, isLoadingMore && { opacity: 0.6 }]}
+                onPress={loadMoreResults}
+                disabled={isLoadingMore}
+              >
+                {isLoadingMore
+                  ? <Ionicons name="hourglass-outline" size={15} color={colors.tealDark} />
+                  : <Ionicons name="chevron-down-circle-outline" size={15} color={colors.tealDark} />
+                }
+                <Text style={styles.loadMoreText}>
+                  {isLoadingMore ? "Loading…" : `Load more (${(searchTotal - searchResults.length).toLocaleString()} remaining)`}
                 </Text>
-              </View>
-              <Ionicons name="add-circle" size={26} color={colors.teal} />
-            </Pressable>
-          ))}
-        </View>
+              </Pressable>
+            )}
+          </View>
+        )}
       </Screen>
     );
   }
@@ -639,6 +829,49 @@ function Field({
         value={value}
         onChangeText={onChangeText}
       />
+    </View>
+  );
+}
+
+function LanguagePicker({ selected, onSelect }: { selected: string; onSelect: (lang: string) => void }) {
+  const [custom, setCustom] = useState("");
+  const [showCustom, setShowCustom] = useState(!COMMON_LANGUAGES.includes(selected));
+
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>Language</Text>
+      <View style={styles.languageGrid}>
+        {COMMON_LANGUAGES.map((lang) => {
+          const active = !showCustom && selected === lang;
+          return (
+            <Pressable
+              key={lang}
+              style={[styles.languageChip, active && styles.languageChipActive]}
+              onPress={() => { onSelect(lang); setShowCustom(false); }}
+            >
+              <Text style={[styles.languageChipText, active && styles.languageChipTextActive]}>
+                {lang}
+              </Text>
+            </Pressable>
+          );
+        })}
+        <Pressable
+          style={[styles.languageChip, showCustom && styles.languageChipActive]}
+          onPress={() => setShowCustom(true)}
+        >
+          <Text style={[styles.languageChipText, showCustom && styles.languageChipTextActive]}>Other…</Text>
+        </Pressable>
+      </View>
+      {showCustom && (
+        <TextInput
+          autoFocus
+          placeholder="Type language…"
+          placeholderTextColor={colors.gray}
+          style={[styles.input, { marginTop: spacing.sm }]}
+          value={custom}
+          onChangeText={(v) => { setCustom(v); onSelect(v); }}
+        />
+      )}
     </View>
   );
 }
@@ -752,6 +985,60 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
     fontSize: 13,
     marginTop: 5
+  },
+  reviewSourcePill: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(255,255,255,0.12)",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    marginTop: spacing.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 7
+  },
+  reviewSourceText: {
+    color: colors.gold,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  metadataStrip: {
+    ...shadows.card,
+    alignItems: "stretch",
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  metadataItem: {
+    flex: 1
+  },
+  metadataLabel: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase"
+  },
+  metadataValue: {
+    color: colors.navy,
+    fontFamily: fonts.display,
+    fontSize: 16,
+    fontWeight: "900",
+    marginTop: 4
+  },
+  metadataDivider: {
+    backgroundColor: colors.border,
+    marginHorizontal: spacing.sm,
+    width: 1
   },
   reviewSectionTitle: {
     color: colors.navy,
@@ -1085,5 +1372,104 @@ const styles = StyleSheet.create({
     height: 50,
     justifyContent: "center",
     width: 50
+  },
+  searchModeRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.sm
+  },
+  searchModeChip: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 9
+  },
+  searchModeChipActive: {
+    backgroundColor: colors.navy,
+    borderColor: colors.navy
+  },
+  searchModeText: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  searchModeTextActive: {
+    color: colors.card
+  },
+  busyRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    paddingVertical: spacing.xl
+  },
+  busyText: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  resultCount: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    fontWeight: "800",
+    marginBottom: spacing.sm,
+    textAlign: "center"
+  },
+  loadMoreBtn: {
+    alignItems: "center",
+    backgroundColor: colors.teal + "12",
+    borderColor: colors.teal + "44",
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    marginTop: spacing.sm,
+    paddingVertical: 13
+  },
+  loadMoreText: {
+    color: colors.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  resultsHint: {
+    color: colors.muted,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 13,
+    marginBottom: spacing.md,
+    textAlign: "center"
+  },
+  languageGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs
+  },
+  languageChip: {
+    borderColor: colors.border,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8
+  },
+  languageChipActive: {
+    backgroundColor: colors.tealDark,
+    borderColor: colors.tealDark
+  },
+  languageChipText: {
+    color: colors.ink,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  languageChipTextActive: {
+    color: colors.card
   }
 });

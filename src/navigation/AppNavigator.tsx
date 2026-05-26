@@ -15,6 +15,7 @@ import { SeriesTrackerScreen } from "../screens/SeriesTrackerScreen";
 import { StatsScreen } from "../screens/StatsScreen";
 import { EditProfileScreen } from "../screens/EditProfileScreen";
 import { EditBookScreen } from "../screens/EditBookScreen";
+import { AchievementsScreen } from "../screens/AchievementsScreen";
 import { MainTabParamList, RootStackParamList } from "./types";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -105,6 +106,7 @@ export function AppNavigator() {
         <Stack.Screen component={SeriesTrackerScreen} name="SeriesTracker" options={{ title: "" }} />
         <Stack.Screen component={EditProfileScreen} name="EditProfile" options={{ title: "Edit Profile" }} />
         <Stack.Screen component={EditBookScreen} name="EditBook" options={{ title: "Edit Book" }} />
+        <Stack.Screen component={AchievementsScreen} name="Achievements" options={{ title: "" }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

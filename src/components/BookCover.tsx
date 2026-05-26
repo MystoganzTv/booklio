@@ -1,13 +1,15 @@
 import { LinearGradient } from "expo-linear-gradient";
-import { ImageBackground, StyleSheet, Text, View } from "react-native";
+import { ImageBackground, StyleProp, StyleSheet, Text, View, ViewStyle } from "react-native";
 import { Book } from "../types/models";
 import { colors, fonts, radii, shadows } from "../theme/theme";
+import { formatStatusLabel } from "../utils/statusLabels";
 import { Badge } from "./Badge";
 import { ProgressRing } from "./ProgressRing";
 
 type BookCoverProps = {
   book: Book;
   size?: "sm" | "md" | "lg";
+  style?: StyleProp<ViewStyle>;
 };
 
 const dimensions = {
@@ -19,14 +21,14 @@ const dimensions = {
 const isMuted = (book: Book) =>
   ["want-to-read", "wishlist", "want-to-buy", "upcoming-release"].includes(book.userStatus.status);
 
-export function BookCover({ book, size = "md" }: BookCoverProps) {
+export function BookCover({ book, size = "md", style }: BookCoverProps) {
   const muted = isMuted(book);
   const dimmed = book.userStatus.status === "dnf";
   const gradient = muted ? (["#CBC6BE", "#827C73"] as [string, string]) : book.coverGradient;
   const showTypographyOverlay = !book.coverImageUri;
 
   return (
-    <View style={[styles.wrap, dimensions[size], dimmed && styles.dimmed]}>
+    <View style={[styles.wrap, dimensions[size], style, dimmed && styles.dimmed]}>
       {book.coverImageUri ? (
         <ImageBackground source={{ uri: book.coverImageUri }} style={styles.cover} imageStyle={styles.imageCover}>
           {muted ? <View style={styles.mutedOverlay} /> : null}
@@ -63,13 +65,8 @@ function CoverContent({
         </View>
       ) : null}
       {book.userStatus.status === "dnf" ? (
-        <View style={styles.badge}>
-          <Badge label="DNF" tone="danger" />
-        </View>
-      ) : null}
-      {book.userStatus.isRereading ? (
-        <View style={styles.rereadBadge}>
-          <Badge label={book.userStatus.currentReadNumber === 2 ? "2nd read" : `Read #${book.userStatus.currentReadNumber}`} tone="coral" />
+        <View style={styles.dnfBadge}>
+          <Badge label={formatStatusLabel(book.userStatus.status)} tone="danger" />
         </View>
       ) : null}
     </>
@@ -78,29 +75,31 @@ function CoverContent({
 
 const styles = StyleSheet.create({
   wrap: {
-    ...shadows.card,
-    borderRadius: radii.md,
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.18,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 8,
+    borderRadius: 22,
     overflow: "hidden"
   },
   cover: {
-    borderColor: "rgba(255,255,255,0.35)",
-    borderRadius: radii.md,
-    borderWidth: 1,
+    backgroundColor: colors.navy2,
     flex: 1,
     justifyContent: "flex-end",
     overflow: "hidden",
     padding: 12
   },
   imageCover: {
-    borderRadius: radii.md
+    borderRadius: 22
   },
   mutedOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(130,124,115,0.48)"
+    backgroundColor: "rgba(94,89,82,0.52)"
   },
   photoShade: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(15,23,42,0.08)"
+    backgroundColor: "rgba(7,17,35,0.16)"
   },
   sheen: {
     backgroundColor: "rgba(255,255,255,0.16)",
@@ -138,17 +137,12 @@ const styles = StyleSheet.create({
     right: 8,
     top: 8
   },
-  badge: {
+  dnfBadge: {
     left: 8,
     position: "absolute",
     top: 8
   },
-  rereadBadge: {
-    bottom: 8,
-    left: 8,
-    position: "absolute"
-  },
   dimmed: {
-    opacity: 0.52
+    opacity: 0.58
   }
 });

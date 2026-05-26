@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from "react";
 import { authors as authorSeed, books as bookSeed, readingSessions as sessionSeed, recommendations, series, userProfile } from "./mockData";
 import {
+  Achievement,
   Author,
   Book,
   CoreTrackingStatus,
@@ -35,6 +36,8 @@ type BookStats = {
 type OverallStats = {
   totalBooksRead: number;
   booksReadThisYear: number;
+  rereadsCompleted: number;
+  activeRereads: number;
   pagesRead: number;
   minutesRead: number;
   totalSessions: number;
@@ -62,12 +65,14 @@ type BooklioContextValue = {
   userProfile: UserProfile;
   addBook: (input: NewBookInput) => Book;
   addReadingSession: (input: NewReadingSessionInput) => ReadingSession;
-  startReread: (bookId: string) => void;
+  updateReadingSession: (sessionId: string, input: NewReadingSessionInput) => ReadingSession | undefined;
+  deleteReadingSession: (sessionId: string) => void;
   updateBook: (bookId: string, input: UpdateBookInput) => void;
   updateBookStatus: (bookId: string, status: CoreTrackingStatus, rating?: number) => void;
   updateUserProfile: (input: UpdateUserProfileInput) => void;
   getAuthor: (authorId: string) => Author | undefined;
   getBook: (bookId: string) => Book | undefined;
+  getReadingSession: (sessionId: string) => ReadingSession | undefined;
   getBookStats: (bookId: string) => BookStats;
   getSessionsForBook: (bookId: string) => ReadingSession[];
   overallStats: OverallStats;
@@ -78,12 +83,15 @@ const STORAGE_KEY = "booklio:v1";
 
 const rereadAchievement = {
   id: "ach-rereader",
-  title: "Rereader",
-  description: "Start a second read of a book you already finished.",
+  title: "Old Favorite",
+  description: "Reread a book.",
+  flavour: "Because some stories only get better the second time.",
   unlocked: false,
   progress: 0,
   goal: 1,
-  category: "habit" as const
+  category: "reading" as const,
+  tier: "bronze" as const,
+  icon: "📚"
 };
 
 type PersistedBooklioState = {
@@ -92,6 +100,29 @@ type PersistedBooklioState = {
   readingSessions: ReadingSession[];
   userProfile: UserProfile;
 };
+
+/**
+ * Migrate persisted achievements against the current seed.
+ * Keeps the user's progress/unlock state, but always uses the seed's
+ * static fields (icon, tier, title, description, flavour, goal, category).
+ * New achievements in the seed are added with their default state.
+ */
+const migrateAchievements = (
+  persisted: Record<string, unknown>[],
+  seed: Achievement[]
+): Achievement[] =>
+  seed.map((seedAch) => {
+    const saved = persisted?.find((a) => a.id === seedAch.id) as Record<string, unknown> | undefined;
+    if (!saved) return seedAch;
+    const progress = typeof saved.progress === "number" ? saved.progress : seedAch.progress;
+    const unlocked = Boolean(saved.unlocked ?? seedAch.unlocked) || progress >= seedAch.goal;
+    return {
+      ...seedAch,                                    // fresh: icon, tier, title, description, flavour, goal, category
+      unlocked,
+      unlockedAt: (saved.unlockedAt as string | undefined) ?? seedAch.unlockedAt,
+      progress
+    };
+  });
 
 const mergeSeedBookMetadata = (books: Book[]) =>
   books.map((book) => {
@@ -143,18 +174,21 @@ const enrichProfileAchievements = (profile: UserProfile, books: Book[], sessions
     progress: rereadProgress,
     unlocked: rereadProgress >= 1
   });
-  achievementMap.set("ach-100-sessions", {
-    ...(achievementMap.get("ach-100-sessions") ?? {
-      id: "ach-100-sessions",
-      title: "100 Reading Sessions",
-      description: "Log 100 sessions.",
+  achievementMap.set("ach-sessions-50", {
+    ...(achievementMap.get("ach-sessions-50") ?? {
+      id: "ach-sessions-50",
+      title: "Fifty Sessions",
+      description: "Log 50 reading sessions.",
+      flavour: "Consistency is a superpower. You have it.",
       unlocked: false,
       progress: 0,
-      goal: 100,
-      category: "habit" as const
+      goal: 50,
+      category: "habit" as const,
+      tier: "silver" as const,
+      icon: "📅"
     }),
     progress: sessions.length,
-    unlocked: sessions.length >= 100
+    unlocked: sessions.length >= 50
   });
 
   return {
@@ -249,9 +283,65 @@ const colorsFromSource = (source: NewBookInput["source"]) => {
   return { start: "#7FB069", end: "#F3E9D2" };
 };
 
+const toSessionRecord = (session: NewReadingSessionInput): ReadingSession => {
+  const pagesRead = Math.max(0, session.endPage - session.startPage + 1);
+  const pagesPerHour = session.minutesRead > 0 ? Number(((pagesRead / session.minutesRead) * 60).toFixed(1)) : 0;
+
+  return {
+    ...session,
+    id: `rs-${Date.now()}`,
+    pagesRead,
+    pagesPerHour
+  };
+};
+
+const buildUpdatedSession = (sessionId: string, input: NewReadingSessionInput): ReadingSession => {
+  const pagesRead = Math.max(0, input.endPage - input.startPage + 1);
+  const pagesPerHour = input.minutesRead > 0 ? Number(((pagesRead / input.minutesRead) * 60).toFixed(1)) : 0;
+
+  return {
+    ...input,
+    id: sessionId,
+    pagesRead,
+    pagesPerHour
+  };
+};
+
+const syncBookWithSessions = (book: Book, sessions: ReadingSession[]) => {
+  if (!sessions.length) {
+    return book;
+  }
+
+  const sorted = [...sessions].sort((a, b) => a.date.localeCompare(b.date));
+  const firstSession = sorted[0];
+  const latestSession = sorted[sorted.length - 1];
+  const latestProgress = Math.min(100, Math.round((latestSession.endPage / book.pages) * 100));
+  const completed = latestProgress >= 100;
+
+  return normalizeReadState({
+    ...book,
+    userStatus: {
+      ...book.userStatus,
+      status: completed ? "read" : "reading",
+      progressPercent: latestProgress,
+      startDate: firstSession.date,
+      finishDate: completed ? latestSession.date : undefined,
+      ...(completed
+        ? {
+            readCount: Math.max(1, book.userStatus.readCount ?? 0),
+            currentReadNumber: Math.max(1, book.userStatus.readCount ?? 1),
+            isRereading: false
+          }
+        : {})
+    }
+  });
+};
+
 const buildOverallStats = (books: Book[], sessions: ReadingSession[], authors: Author[]): OverallStats => {
   const totalBooksRead = books.filter((book) => book.userStatus.status === "read").length;
   const booksReadThisYear = books.filter((book) => book.userStatus.finishDate && sameYear(book.userStatus.finishDate, new Date().getFullYear())).length;
+  const rereadsCompleted = books.reduce((sum, book) => sum + Math.max(0, (book.userStatus.readCount ?? 0) - 1), 0);
+  const activeRereads = books.filter((book) => book.userStatus.isRereading).length;
   const pagesRead = sessions.reduce((sum, session) => sum + session.pagesRead, 0);
   const minutesRead = sessions.reduce((sum, session) => sum + session.minutesRead, 0);
   const totalSessions = sessions.length;
@@ -306,7 +396,7 @@ const buildOverallStats = (books: Book[], sessions: ReadingSession[], authors: A
     { label: "Owned", value: books.filter((book) => book.userStatus.ownership === "owned").length },
     { label: "Wishlist", value: books.filter((book) => book.userStatus.wishlist).length },
     { label: "Want to Buy", value: books.filter((book) => book.userStatus.wantToBuy).length },
-    { label: "DNF", value: books.filter((book) => book.userStatus.status === "dnf").length }
+    { label: "Unfinished", value: books.filter((book) => book.userStatus.status === "dnf").length }
   ];
 
   const weekdayMap = sessions.reduce<Record<string, number>>((acc, session) => {
@@ -318,6 +408,8 @@ const buildOverallStats = (books: Book[], sessions: ReadingSession[], authors: A
   return {
     totalBooksRead,
     booksReadThisYear,
+    rereadsCompleted,
+    activeRereads,
     pagesRead,
     minutesRead,
     totalSessions,
@@ -362,7 +454,15 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         setAuthors(parsed.authors?.length ? parsed.authors : authorSeed);
         setBooks(parsed.books?.length ? mergeSeedBookMetadata(parsed.books) : bookSeed.map(normalizeReadState));
         setReadingSessions(parsed.readingSessions?.length ? parsed.readingSessions : sessionSeed);
-        setProfile(parsed.userProfile?.id ? { ...userProfile, ...parsed.userProfile } : userProfile);
+        if (parsed.userProfile?.id) {
+          const migratedAchievements = migrateAchievements(
+            (parsed.userProfile.achievements as unknown as Record<string, unknown>[]) ?? [],
+            userProfile.achievements
+          );
+          setProfile({ ...userProfile, ...parsed.userProfile, achievements: migratedAchievements });
+        } else {
+          setProfile(userProfile);
+        }
       } catch (error) {
         console.warn("Booklio could not hydrate local library", error);
       } finally {
@@ -398,47 +498,88 @@ export function BooklioProvider({ children }: PropsWithChildren) {
   const value = useMemo<BooklioContextValue>(() => {
     const getBook = (bookId: string) => books.find((book) => book.id === bookId);
     const getAuthor = (authorId: string) => authors.find((author) => author.id === authorId);
+    const getReadingSession = (sessionId: string) => readingSessions.find((session) => session.id === sessionId);
     const getSessionsForBook = (bookId: string) =>
       readingSessions.filter((session) => session.bookId === bookId).sort((a, b) => b.date.localeCompare(a.date));
     const getBookStats = (bookId: string) => getBookStatsFromSessions(getSessionsForBook(bookId));
 
     const addReadingSession = (input: NewReadingSessionInput) => {
-      const pagesRead = Math.max(0, input.endPage - input.startPage + 1);
-      const pagesPerHour = input.minutesRead > 0 ? Number(((pagesRead / input.minutesRead) * 60).toFixed(1)) : 0;
-      const session: ReadingSession = {
-        ...input,
-        id: `rs-${Date.now()}`,
-        pagesRead,
-        pagesPerHour
-      };
+      const session = toSessionRecord(input);
+      const nextBookSessions = [...readingSessions.filter((current) => current.bookId === input.bookId), session];
 
-        setReadingSessions((current) => [session, ...current]);
+      setReadingSessions((current) => [session, ...current]);
       setBooks((current) =>
         current.map((book) => {
           if (book.id !== input.bookId) {
             return book;
           }
-          const progressPercent = Math.min(100, Math.round((input.endPage / book.pages) * 100));
-          const completed = progressPercent >= 100;
+
+          const syncedBook = syncBookWithSessions(book, nextBookSessions);
+          if (syncedBook.userStatus.status !== "read") {
+            return syncedBook;
+          }
+
           const readCount = book.userStatus.readCount ?? (book.userStatus.status === "read" ? 1 : 0);
-          const nextReadCount = completed ? readCount + 1 : readCount;
-          return {
-            ...book,
+          const nextReadCount = readCount + 1;
+
+          return normalizeReadState({
+            ...syncedBook,
             userStatus: {
-              ...book.userStatus,
-              status: completed ? "read" : "reading",
+              ...syncedBook.userStatus,
               readCount: nextReadCount,
-              currentReadNumber: completed ? nextReadCount : Math.max(1, book.userStatus.currentReadNumber ?? readCount + 1),
-              isRereading: completed ? false : book.userStatus.isRereading,
-              progressPercent,
-              startDate: book.userStatus.startDate ?? input.date,
-              finishDate: completed ? input.date : book.userStatus.finishDate
+              currentReadNumber: nextReadCount,
+              isRereading: false
             }
-          };
+          });
         })
       );
 
       return session;
+    };
+
+    const updateReadingSession = (sessionId: string, input: NewReadingSessionInput) => {
+      const existingSession = getReadingSession(sessionId);
+      if (!existingSession) {
+        return undefined;
+      }
+
+      const updatedSession = buildUpdatedSession(sessionId, input);
+      const nextSessions = readingSessions.map((session) => (session.id === sessionId ? updatedSession : session));
+      const touchedBookIds = Array.from(new Set([existingSession.bookId, updatedSession.bookId]));
+
+      setReadingSessions(nextSessions);
+      setBooks((current) =>
+        current.map((book) => {
+          if (!touchedBookIds.includes(book.id)) {
+            return book;
+          }
+
+          const sessionsForBook = nextSessions.filter((session) => session.bookId === book.id);
+          return syncBookWithSessions(book, sessionsForBook);
+        })
+      );
+
+      return updatedSession;
+    };
+
+    const deleteReadingSession = (sessionId: string) => {
+      const existingSession = getReadingSession(sessionId);
+      if (!existingSession) {
+        return;
+      }
+
+      const nextSessions = readingSessions.filter((session) => session.id !== sessionId);
+      setReadingSessions(nextSessions);
+      setBooks((current) =>
+        current.map((book) => {
+          if (book.id !== existingSession.bookId) {
+            return book;
+          }
+
+          const sessionsForBook = nextSessions.filter((session) => session.bookId === book.id);
+          return syncBookWithSessions(book, sessionsForBook);
+        })
+      );
     };
 
     const addBook = (input: NewBookInput) => {
@@ -471,7 +612,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         publisher: input.publisher ?? "Publisher pending confirmation",
         language: input.language ?? "English",
         isbn: input.isbn ?? "ISBN pending",
-        format: "physical",
+        format: input.format ?? "physical",
         coverGradient: [colorsFromSource(input.source).start, colorsFromSource(input.source).end],
         coverImageUri: input.coverImageUri,
           userStatus: {
@@ -490,47 +631,44 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       return book;
     };
 
-    const startReread = (bookId: string) => {
-      const today = new Date().toISOString().slice(0, 10);
-      setBooks((current) =>
-        current.map((book) => {
-          if (book.id !== bookId) return book;
-          const readCount = Math.max(1, book.userStatus.readCount ?? (book.userStatus.status === "read" ? 1 : 0));
-          return {
-            ...book,
-            userStatus: {
-              ...book.userStatus,
-              status: "reading",
-              readCount,
-              currentReadNumber: readCount + 1,
-              isRereading: true,
-              progressPercent: 0,
-              startDate: today,
-              finishDate: undefined
-            }
-          };
-        })
-      );
-    };
-
     const updateBookStatus = (bookId: string, newStatus: CoreTrackingStatus, rating?: number) => {
       const today = new Date().toISOString().slice(0, 10);
       setBooks((current) =>
         current.map((book) => {
           if (book.id !== bookId) return book;
+          const readCount = book.userStatus.readCount ?? (book.userStatus.status === "read" ? 1 : 0);
+          const shouldStartReread =
+            newStatus === "reading" &&
+            book.userStatus.status !== "reading" &&
+            readCount > 0;
+          const completedReadCount = book.userStatus.isRereading
+            ? Math.max(readCount + 1, book.userStatus.currentReadNumber ?? readCount + 1)
+            : Math.max(1, readCount);
           return {
             ...book,
             userStatus: {
               ...book.userStatus,
               status: newStatus,
               ...(rating !== undefined ? { rating } : {}),
-              ...(newStatus === "reading" && !book.userStatus.startDate ? { startDate: today } : {}),
+              ...(newStatus === "reading"
+                ? shouldStartReread
+                  ? {
+                      startDate: today,
+                      finishDate: undefined,
+                      progressPercent: 0,
+                      currentReadNumber: readCount + 1,
+                      isRereading: true
+                    }
+                  : !book.userStatus.startDate
+                    ? { startDate: today }
+                    : {}
+                : {}),
               ...(newStatus === "read"
                 ? {
                     progressPercent: 100,
                     finishDate: book.userStatus.finishDate ?? today,
-                    readCount: Math.max(1, book.userStatus.readCount ?? 0),
-                    currentReadNumber: Math.max(1, book.userStatus.readCount ?? 1),
+                    readCount: completedReadCount,
+                    currentReadNumber: completedReadCount,
                     isRereading: false
                   }
                 : {})
@@ -575,6 +713,9 @@ export function BooklioProvider({ children }: PropsWithChildren) {
             coverImageUri: input.coverImageUri?.trim() || undefined,
             seriesName: input.seriesName?.trim() || undefined,
             seriesNumber: input.seriesNumber,
+            isBestseller: input.isBestseller,
+            isSequel: input.seriesNumber !== undefined ? input.seriesNumber > 1 : input.isSequel,
+            tags: input.tags,
             userStatus: {
               ...book.userStatus,
               status: input.status,
@@ -615,12 +756,14 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       userProfile: enrichProfileAchievements(profile, books, readingSessions),
       addBook,
       addReadingSession,
-      startReread,
+      updateReadingSession,
+      deleteReadingSession,
       updateBook,
       updateBookStatus,
       updateUserProfile,
       getAuthor,
       getBook,
+      getReadingSession,
       getBookStats,
       getSessionsForBook,
       overallStats: buildOverallStats(books, readingSessions, authors)

@@ -9,8 +9,9 @@ import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
 import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { formatStatusLabel } from "../utils/statusLabels";
 
-const filters = ["All", "Read", "Reading", "Wishlist", "Want to Buy", "Owned", "Series", "DNF"];
+const filters = ["All", "Read", "Reading", "Wishlist", "Want to Buy", "Owned", "Series", "Unfinished"];
 const sortOptions = ["Personal rank", "Rating", "Date read", "Author", "Series order", "Release date", "Most recently logged"];
 
 export function LibraryScreen() {
@@ -46,7 +47,7 @@ export function LibraryScreen() {
         if (filter === "Want to Buy") return book.userStatus.wantToBuy;
         if (filter === "Owned") return book.userStatus.ownership === "owned";
         if (filter === "Series") return Boolean(book.seriesId);
-        if (filter === "DNF") return book.userStatus.status === "dnf";
+        if (filter === "Unfinished") return book.userStatus.status === "dnf";
         return true;
       })
       .filter((book) => {
@@ -168,22 +169,18 @@ export function LibraryScreen() {
         <View style={styles.grid}>
           {filteredBooks.map((book) => {
             const author = getAuthor(book.authorId);
-            const bookMeta = book.userStatus.isRereading
-              ? book.userStatus.currentReadNumber === 2 ? "second read" : `read #${book.userStatus.currentReadNumber}`
-              : (book.userStatus.readCount ?? 0) > 1
-                ? `${book.userStatus.readCount} reads`
-                : book.userStatus.rating
-                  ? `${book.userStatus.rating} stars`
-                  : book.userStatus.status.replaceAll("-", " ");
+            const bookMeta = book.userStatus.rating
+              ? `${book.userStatus.rating} stars`
+              : formatStatusLabel(book.userStatus.status);
             return (
               <Pressable
                 key={book.id}
                 style={styles.bookTile}
                 onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
               >
-                <BookCover book={book} size="md" />
+                <BookCover book={book} size="md" style={styles.tileCover} />
                 <Text numberOfLines={2} style={styles.bookTitle}>{book.title}</Text>
-                <Text numberOfLines={1} style={styles.bookAuthor}>{author?.name}</Text>
+                <Text numberOfLines={1} style={styles.bookAuthor}>By {author?.name}</Text>
                 <Text style={styles.bookMeta}>{bookMeta}</Text>
               </Pressable>
             );
@@ -345,32 +342,37 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.md
+    gap: spacing.lg
   },
   bookTile: {
     width: "46%"
   },
+  tileCover: {
+    height: 250,
+    width: "100%"
+  },
   bookTitle: {
-    color: colors.ink,
+    color: colors.navy,
     fontFamily: fonts.display,
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "800",
-    lineHeight: 20,
-    marginTop: spacing.sm
+    lineHeight: 22,
+    marginTop: spacing.md
   },
   bookAuthor: {
     color: colors.muted,
-    fontFamily: fonts.body,
-    fontSize: 12,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 13,
     fontWeight: "700",
     marginTop: 3
   },
   bookMeta: {
     color: colors.gold,
     fontFamily: fonts.body,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "900",
-    marginTop: 3,
+    letterSpacing: 0.8,
+    marginTop: 6,
     textTransform: "uppercase"
   },
   emptyState: {
