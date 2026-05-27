@@ -117,7 +117,7 @@ type BooklioContextValue = {
 
 const BooklioContext = createContext<BooklioContextValue | null>(null);
 
-const rereadAchievement = {
+const rereadAchievement: Achievement = {
   id: "ach-rereader",
   title: "Old Favorite",
   description: "Reread a book.",
@@ -193,37 +193,170 @@ const normalizeReadState = (book: Book): Book => {
   };
 };
 
-const enrichProfileAchievements = (profile: UserProfile, books: Book[], sessions: ReadingSession[]): UserProfile => {
+const normalizeLocation = (value?: string) => value?.trim().toLowerCase() ?? "";
+
+const enrichProfileAchievements = (
+  profile: UserProfile,
+  books: Book[],
+  sessions: ReadingSession[],
+  reviews: Review[]
+): UserProfile => {
+  const today = new Date().toISOString().slice(0, 10);
+  const completedBooks = books.filter((book) => book.userStatus.status === "read");
+  const completedReadInstances = completedBooks.reduce(
+    (sum, book) => sum + Math.max(1, book.userStatus.readCount ?? 1),
+    0
+  );
+  const totalPagesCompleted = completedBooks.reduce(
+    (sum, book) => sum + book.pages * Math.max(1, book.userStatus.readCount ?? 1),
+    0
+  );
+  const totalPagesRead = Math.max(
+    sessions.reduce((sum, session) => sum + session.pagesRead, 0),
+    totalPagesCompleted
+  );
   const rereadProgress = books.filter((book) => (book.userStatus.readCount ?? 0) > 1 || book.userStatus.isRereading).length;
+  const distinctGenresRead = new Set(
+    completedBooks.flatMap((book) => normalizeBookGenres(book.genre).map((genre) => genre.toLowerCase()))
+  );
+  const fantasyCount = completedBooks.filter((book) => normalizeBookGenres(book.genre).some((genre) => genre.toLowerCase().includes("fantasy"))).length;
+  const scifiCount = completedBooks.filter((book) => normalizeBookGenres(book.genre).some((genre) => {
+    const lowered = genre.toLowerCase();
+    return lowered.includes("science fiction") || lowered.includes("sci-fi");
+  })).length;
+  const romanceCount = completedBooks.filter((book) => normalizeBookGenres(book.genre).some((genre) => genre.toLowerCase().includes("romance"))).length;
+  const mysteryCount = completedBooks.filter((book) => normalizeBookGenres(book.genre).some((genre) => {
+    const lowered = genre.toLowerCase();
+    return lowered.includes("mystery") || lowered.includes("thriller") || lowered.includes("crime");
+  })).length;
+  const completedSeriesMap = completedBooks.reduce<Record<string, number>>((acc, book) => {
+    if (!book.seriesId) return acc;
+    acc[book.seriesId] = (acc[book.seriesId] ?? 0) + 1;
+    return acc;
+  }, {});
+  const trackedSeriesMap = books.reduce<Record<string, number>>((acc, book) => {
+    if (!book.seriesId) return acc;
+    acc[book.seriesId] = (acc[book.seriesId] ?? 0) + 1;
+    return acc;
+  }, {});
+  const completedSeriesCount = Object.keys(trackedSeriesMap).filter((seriesId) => {
+    const trackedCount = trackedSeriesMap[seriesId] ?? 0;
+    const completedCount = completedSeriesMap[seriesId] ?? 0;
+    return trackedCount > 0 && trackedCount === completedCount;
+  }).length;
+  const quoteCount =
+    books.reduce((sum, book) => sum + book.userStatus.favoriteQuotes.length, 0) +
+    sessions.filter((session) => session.favoriteQuote?.trim()).length;
+  const noteCount =
+    books.filter((book) => book.userStatus.notes.trim()).length +
+    sessions.filter((session) => session.notes.trim()).length;
+  const wishlistCount = books.filter((book) => book.userStatus.wishlist).length;
+  const audiobookCount = completedBooks.filter((book) => book.format === "audiobook").length;
+  const digitalCount = completedBooks.filter((book) => book.format === "kindle").length;
+  const bigBookCount = completedBooks.filter((book) => book.pages >= 700).length;
+  const whaleCount = completedBooks.filter((book) => book.pages >= 1000).length;
+  const uniqueLocations = new Set(
+    sessions
+      .map((session) => normalizeLocation(session.location))
+      .filter(Boolean)
+  );
+  const hasTravelLocation = Array.from(uniqueLocations).some((location) =>
+    ["travel", "airport", "plane", "flight", "train", "commute", "hotel"].some((token) => location.includes(token))
+  );
+  const hasCoffeeLocation = Array.from(uniqueLocations).some((location) =>
+    ["cafe", "coffee", "coffee shop"].some((token) => location.includes(token))
+  );
+  const hasHomeLocation = Array.from(uniqueLocations).some((location) =>
+    ["home", "bedroom", "bed", "sofa", "couch"].some((token) => location.includes(token))
+  );
+  const hasParkLocation = Array.from(uniqueLocations).some((location) =>
+    ["park", "outside", "garden", "beach"].some((token) => location.includes(token))
+  );
+  const { currentStreak, longestStreak } = calculateStreaks(sessions);
+  const longestSingleDayMinutes = Object.values(
+    sessions.reduce<Record<string, number>>((acc, session) => {
+      acc[session.date] = (acc[session.date] ?? 0) + session.minutesRead;
+      return acc;
+    }, {})
+  ).reduce((max, minutes) => Math.max(max, minutes), 0);
+  const averagePagesPerHour =
+    sessions.length > 0
+      ? Math.round(
+          sessions.reduce((sum, session) => sum + session.pagesPerHour, 0) / sessions.length
+        )
+      : 0;
+  const booksReadThisYear = completedBooks.filter(
+    (book) => book.userStatus.finishDate && sameYear(book.userStatus.finishDate, new Date().getFullYear())
+  ).length;
+
+  const progressById: Record<string, number> = {
+    "ach-1-book": completedReadInstances,
+    "ach-10-books": completedReadInstances,
+    "ach-50-books": completedReadInstances,
+    "ach-100-books": completedReadInstances,
+    "ach-1k-pages": totalPagesRead,
+    "ach-saga-1": completedSeriesCount,
+    "ach-fantasy": fantasyCount,
+    "ach-scifi": scifiCount,
+    "ach-romance": romanceCount,
+    "ach-mystery": mysteryCount,
+    "ach-around-world": 0,
+    "ach-genre-5": distinctGenresRead.size,
+    "ach-first-review": reviews.length,
+    "ach-quote-collector": quoteCount,
+    "ach-deep-thinker": noteCount,
+    "ach-goal-hit": booksReadThisYear,
+    "ach-epic-saga-master": completedSeriesCount,
+    "ach-daily": currentStreak,
+    "ach-streak-30": longestStreak,
+    "ach-marathon": longestSingleDayMinutes,
+    "ach-cozy-reader": sessions.some((session) => {
+      const mood = session.mood.toLowerCase();
+      const location = normalizeLocation(session.location);
+      return mood.includes("cozy") || mood.includes("rain") || location.includes("bed") || location.includes("sofa");
+    }) ? 1 : 0,
+    "ach-midnight": 0,
+    "ach-night-reading": 0,
+    "ach-early-bird": 0,
+    "ach-speed-55": averagePagesPerHour,
+    "ach-collector": books.length,
+    "ach-book-hunter": wishlistCount,
+    "ach-audiobook": audiobookCount,
+    "ach-digital": digitalCount,
+    "ach-big-book": bigBookCount,
+    "ach-night-owl": 0,
+    "ach-whale-reader": whaleCount,
+    "ach-library-builder": books.length,
+    "ach-legend-reader": completedReadInstances,
+    "ach-reading-places": uniqueLocations.size,
+    "ach-traveller-reader": hasTravelLocation ? 1 : 0,
+    "ach-coffee-shop": hasCoffeeLocation ? 1 : 0,
+    "ach-home-reader": hasHomeLocation ? 1 : 0,
+    "ach-park-reader": hasParkLocation ? 1 : 0,
+    "ach-sessions-50": sessions.length,
+    "ach-rereader": rereadProgress
+  };
+
   const achievementMap = new Map(
     [...profile.achievements, rereadAchievement].map((achievement) => [achievement.id, achievement])
   );
 
-  achievementMap.set("ach-rereader", {
-    ...(achievementMap.get("ach-rereader") ?? rereadAchievement),
-    progress: rereadProgress,
-    unlocked: rereadProgress >= 1
-  });
-  achievementMap.set("ach-sessions-50", {
-    ...(achievementMap.get("ach-sessions-50") ?? {
-      id: "ach-sessions-50",
-      title: "Fifty Sessions",
-      description: "Log 50 reading sessions.",
-      flavour: "Consistency is a superpower. You have it.",
-      unlocked: false,
-      progress: 0,
-      goal: 50,
-      category: "habit" as const,
-      tier: "silver" as const,
-      icon: "📅"
-    }),
-    progress: sessions.length,
-    unlocked: sessions.length >= 50
+  const achievements = Array.from(achievementMap.values()).map((achievement) => {
+    const progress = progressById[achievement.id] ?? achievement.progress ?? 0;
+    const goal = achievement.id === "ach-goal-hit" ? Math.max(1, profile.yearlyGoal) : achievement.goal;
+    const unlocked = progress >= goal;
+    return {
+      ...achievement,
+      goal,
+      progress,
+      unlocked,
+      unlockedAt: unlocked ? achievement.unlockedAt ?? today : undefined
+    };
   });
 
   return {
     ...profile,
-    achievements: Array.from(achievementMap.values())
+    achievements
   };
 };
 
@@ -521,8 +654,8 @@ export function BooklioProvider({ children }: PropsWithChildren) {
   const [onboardingComplete, setOnboardingComplete] = useState(false);
   const [repositoryStatus, setRepositoryStatus] = useState<RepositoryStatus>(repositoryRef.current.getStatus());
   const resolvedProfile = useMemo(
-    () => enrichProfileAchievements(profile, books, readingSessions),
-    [books, profile, readingSessions]
+    () => enrichProfileAchievements(profile, books, readingSessions, reviews),
+    [books, profile, readingSessions, reviews]
   );
 
   useEffect(() => {

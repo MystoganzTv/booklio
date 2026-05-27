@@ -147,18 +147,17 @@ function LockedRow({ achievement, styles, c }: { achievement: Achievement; style
 function CategorySection({
   category,
   achievements,
+  mode,
   styles,
   c
 }: {
   category: Category;
   achievements: Achievement[];
+  mode: "unlocked" | "locked";
   styles: ReturnType<typeof createStyles>;
   c: AppColors;
 }) {
   const meta = CATEGORY_META[category];
-  const unlocked = achievements.filter((a) => a.unlocked);
-  const locked = achievements.filter((a) => !a.unlocked);
-
   if (!achievements.length) return null;
 
   return (
@@ -168,18 +167,65 @@ function CategorySection({
           <Ionicons name={meta.icon} size={16} color={meta.color} />
         </View>
         <Text style={[styles.categoryLabel, { color: meta.color }]}>{meta.label}</Text>
-        <Text style={styles.categoryCount}>
-          {unlocked.length}/{achievements.length}
-        </Text>
+        <Text style={styles.categoryCount}>{achievements.length}</Text>
       </View>
 
-      {unlocked.map((a) => <UnlockedCard key={a.id} achievement={a} styles={styles} c={c} />)}
-
-      {locked.length > 0 && (
+      {mode === "unlocked" ? (
+        <>
+          {achievements.map((achievement) => (
+            <UnlockedCard key={achievement.id} achievement={achievement} styles={styles} c={c} />
+          ))}
+        </>
+      ) : (
         <View style={styles.lockedList}>
-          {locked.map((a) => <LockedRow key={a.id} achievement={a} styles={styles} c={c} />)}
+          {achievements.map((achievement) => (
+            <LockedRow key={achievement.id} achievement={achievement} styles={styles} c={c} />
+          ))}
         </View>
       )}
+    </View>
+  );
+}
+
+function StatusSection({
+  title,
+  icon,
+  color,
+  byCategory,
+  mode,
+  styles,
+  c
+}: {
+  title: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  byCategory: Record<Category, Achievement[]>;
+  mode: "unlocked" | "locked";
+  styles: ReturnType<typeof createStyles>;
+  c: AppColors;
+}) {
+  const total = CATEGORY_ORDER.reduce((sum, category) => sum + byCategory[category].length, 0);
+  if (!total) return null;
+
+  return (
+    <View style={styles.statusSection}>
+      <View style={styles.statusHeader}>
+        <View style={[styles.statusIconWrap, { backgroundColor: color + "18" }]}>
+          <Ionicons name={icon} size={17} color={color} />
+        </View>
+        <Text style={[styles.statusTitle, { color }]}>{title}</Text>
+        <Text style={styles.statusCount}>{total}</Text>
+      </View>
+      {CATEGORY_ORDER.map((category) => (
+        <CategorySection
+          key={`${title}-${category}`}
+          category={category}
+          achievements={byCategory[category]}
+          mode={mode}
+          styles={styles}
+          c={c}
+        />
+      ))}
     </View>
   );
 }
@@ -193,9 +239,14 @@ export function AchievementsScreen() {
   const unlockedCount = achievements.filter((a) => a.unlocked).length;
   const totalCount = achievements.length;
   const overallPct = Math.round((unlockedCount / totalCount) * 100);
-
-  const byCategory = CATEGORY_ORDER.reduce<Record<Category, Achievement[]>>((acc, cat) => {
-    acc[cat] = achievements.filter((a) => a.category === cat);
+  const unlockedByCategory = CATEGORY_ORDER.reduce<Record<Category, Achievement[]>>((acc, cat) => {
+    acc[cat] = [...achievements]
+      .filter((a) => a.unlocked && a.category === cat)
+      .sort((a, b) => (b.unlockedAt ?? "").localeCompare(a.unlockedAt ?? ""));
+    return acc;
+  }, {} as Record<Category, Achievement[]>);
+  const lockedByCategory = CATEGORY_ORDER.reduce<Record<Category, Achievement[]>>((acc, cat) => {
+    acc[cat] = achievements.filter((a) => !a.unlocked && a.category === cat);
     return acc;
   }, {} as Record<Category, Achievement[]>);
 
@@ -221,12 +272,25 @@ export function AchievementsScreen() {
         </View>
       </View>
 
-      {/* Category sections */}
-      {CATEGORY_ORDER.map((cat) =>
-        byCategory[cat].length > 0 ? (
-          <CategorySection key={cat} category={cat} achievements={byCategory[cat]} styles={styles} c={c} />
-        ) : null
-      )}
+      <StatusSection
+        title="Completed"
+        icon="checkmark-done-circle-outline"
+        color={c.green}
+        byCategory={unlockedByCategory}
+        mode="unlocked"
+        styles={styles}
+        c={c}
+      />
+
+      <StatusSection
+        title="Incomplete"
+        icon="ellipse-outline"
+        color={c.gold}
+        byCategory={lockedByCategory}
+        mode="locked"
+        styles={styles}
+        c={c}
+      />
     </Screen>
   );
 }
@@ -294,6 +358,34 @@ function createStyles(c: AppColors) {
     backgroundColor: c.gold,
     borderRadius: radii.pill,
     height: "100%"
+  },
+  statusSection: {
+    marginBottom: spacing.lg
+  },
+  statusHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.md
+  },
+  statusIconWrap: {
+    alignItems: "center",
+    borderRadius: 10,
+    height: 30,
+    justifyContent: "center",
+    width: 30
+  },
+  statusTitle: {
+    flex: 1,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "900"
+  },
+  statusCount: {
+    color: c.muted,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    fontWeight: "900"
   },
   // ── Category ───────────────────────────────────────────────────────────
   categorySection: {

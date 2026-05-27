@@ -1,20 +1,21 @@
 import { Ionicons } from "@expo/vector-icons";
 import { RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { BookCover } from "../components/BookCover";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
 import { CoreTrackingStatus, OwnershipStatus, ReadingFormat } from "../types/models";
+import { useColors } from "../theme/ThemeContext";
 import {
   canFetchMetadata,
   isPlaceholderGenreList,
   isPlaceholderText,
   resolveBookMetadata
 } from "../utils/bookMetadata";
-import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 
 const statusOptions: { value: CoreTrackingStatus; label: string }[] = [
   { value: "want-to-read", label: "Want" },
@@ -44,6 +45,8 @@ const parseNumber = (value: string) => {
 };
 
 export function EditBookScreen() {
+  const c = useColors();
+  const styles = useMemo(() => createStyles(c), [c]);
   const route = useRoute<RouteProp<RootStackParamList, "EditBook">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { getAuthor, getBook, updateBook, deleteBook } = useBooklio();
@@ -265,8 +268,8 @@ export function EditBookScreen() {
         disabled={isFetching}
       >
         {isFetching
-          ? <ActivityIndicator size="small" color={colors.tealDark} />
-          : <Ionicons name="cloud-download-outline" size={16} color={colors.tealDark} />
+          ? <ActivityIndicator size="small" color={c.teal} />
+          : <Ionicons name="cloud-download-outline" size={16} color={c.teal} />
         }
         <Text style={styles.fetchButtonText}>
           {isFetching ? "Searching Open Library…" : "Fetch missing info from Open Library"}
@@ -318,7 +321,7 @@ export function EditBookScreen() {
             style={[styles.formatChip, format === option.value && styles.formatChipActive]}
             onPress={() => setFormat(option.value)}
           >
-            <Ionicons name={option.icon} size={14} color={format === option.value ? colors.card : colors.muted} />
+            <Ionicons name={option.icon} size={14} color={format === option.value ? c.card : c.muted} />
             <Text style={[styles.formatText, format === option.value && styles.formatTextActive]}>{option.label}</Text>
           </Pressable>
         ))}
@@ -349,7 +352,7 @@ export function EditBookScreen() {
           This removes the book from your library, along with its reading sessions and review.
         </Text>
         <Pressable style={styles.deleteButton} onPress={onDelete}>
-          <Ionicons name="trash-outline" size={16} color={colors.coral} />
+          <Ionicons name="trash-outline" size={16} color={c.coral} />
           <Text style={styles.deleteButtonText}>Delete book & erase its history</Text>
         </Pressable>
       </View>
@@ -358,6 +361,8 @@ export function EditBookScreen() {
 }
 
 function SectionTitle({ title }: { title: string }) {
+  const c = useColors();
+  const styles = useMemo(() => createStyles(c), [c]);
   return <Text style={styles.sectionTitle}>{title}</Text>;
 }
 
@@ -380,6 +385,8 @@ function Field({
   autoCapitalize = "sentences",
   multiline = false
 }: FieldProps) {
+  const c = useColors();
+  const styles = useMemo(() => createStyles(c), [c]);
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -389,7 +396,7 @@ function Field({
         keyboardType={keyboardType}
         multiline={multiline}
         onChangeText={onChangeText}
-        placeholderTextColor={colors.gray}
+        placeholderTextColor={c.gray}
         style={[styles.input, multiline && styles.textArea]}
         value={value}
       />
@@ -398,265 +405,269 @@ function Field({
 }
 
 function Toggle({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  const c = useColors();
+  const styles = useMemo(() => createStyles(c), [c]);
   return (
     <Pressable style={[styles.toggle, active && styles.toggleActive]} onPress={onPress}>
-      <Ionicons name={active ? "checkmark-circle" : "ellipse-outline"} size={15} color={active ? colors.card : colors.muted} />
+      <Ionicons name={active ? "checkmark-circle" : "ellipse-outline"} size={15} color={active ? c.card : c.muted} />
       <Text style={[styles.toggleText, active && styles.toggleTextActive]}>{label}</Text>
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  header: {
-    ...shadows.card,
-    alignItems: "center",
-    backgroundColor: colors.navy,
-    borderRadius: radii.lg,
-    flexDirection: "row",
-    gap: spacing.md,
-    marginBottom: spacing.lg,
-    padding: spacing.md
-  },
-  headerCopy: {
-    flex: 1
-  },
-  eyebrow: {
-    color: colors.gold,
-    fontFamily: fonts.body,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-    textTransform: "uppercase"
-  },
-  title: {
-    color: colors.card,
-    fontFamily: fonts.display,
-    fontSize: 24,
-    fontWeight: "900",
-    lineHeight: 29,
-    marginTop: 4
-  },
-  author: {
-    color: "#D8D2C8",
-    fontFamily: fonts.body,
-    fontSize: 13,
-    marginTop: 5
-  },
-  sectionTitle: {
-    color: colors.navy,
-    fontFamily: fonts.display,
-    fontSize: 22,
-    fontWeight: "900",
-    marginBottom: spacing.sm,
-    marginTop: spacing.sm
-  },
-  field: {
-    marginBottom: spacing.md
-  },
-  fieldLabel: {
-    color: colors.navy,
-    fontFamily: fonts.body,
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 0.8,
-    marginBottom: 4,
-    textTransform: "uppercase"
-  },
-  fieldHint: {
-    color: colors.muted,
-    fontFamily: fonts.bodyRegular,
-    fontSize: 12,
-    marginBottom: 6
-  },
-  input: {
-    ...shadows.card,
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    color: colors.ink,
-    fontFamily: fonts.body,
-    fontSize: 15,
-    fontWeight: "700",
-    minHeight: 50,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 13
-  },
-  textArea: {
-    minHeight: 108,
-    textAlignVertical: "top"
-  },
-  optionGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    marginBottom: spacing.md
-  },
-  option: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10
-  },
-  optionActive: {
-    backgroundColor: colors.navy,
-    borderColor: colors.navy
-  },
-  optionText: {
-    color: colors.muted,
-    fontFamily: fonts.body,
-    fontSize: 12,
-    fontWeight: "900"
-  },
-  optionTextActive: {
-    color: colors.card
-  },
-  formatRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    marginBottom: spacing.md
-  },
-  formatChip: {
-    alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    flex: 1,
-    flexDirection: "row",
-    gap: 6,
-    justifyContent: "center",
-    paddingVertical: 11
-  },
-  formatChipActive: {
-    backgroundColor: colors.tealDark,
-    borderColor: colors.tealDark
-  },
-  formatText: {
-    color: colors.muted,
-    fontFamily: fonts.body,
-    fontSize: 12,
-    fontWeight: "900"
-  },
-  formatTextActive: {
-    color: colors.card
-  },
-  toggleRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    marginBottom: spacing.md
-  },
-  toggle: {
-    alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 6,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10
-  },
-  toggleActive: {
-    backgroundColor: colors.gold,
-    borderColor: colors.gold
-  },
-  toggleText: {
-    color: colors.muted,
-    fontFamily: fonts.body,
-    fontSize: 12,
-    fontWeight: "900"
-  },
-  toggleTextActive: {
-    color: colors.navy
-  },
-  saveButton: {
-    alignItems: "center",
-    backgroundColor: colors.navy,
-    borderRadius: radii.pill,
-    marginTop: spacing.sm,
-    paddingVertical: 15
-  },
-  saveButtonText: {
-    color: colors.card,
-    fontFamily: fonts.body,
-    fontSize: 14,
-    fontWeight: "900"
-  },
-  dangerZone: {
-    borderTopColor: colors.coral + "55",
-    borderTopWidth: 1,
-    marginTop: spacing.xl,
-    paddingBottom: spacing.lg,
-    paddingTop: spacing.lg
-  },
-  dangerEyebrow: {
-    color: colors.coral,
-    fontFamily: fonts.body,
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 1,
-    textTransform: "uppercase"
-  },
-  dangerTitle: {
-    color: colors.navy,
-    fontFamily: fonts.display,
-    fontSize: 26,
-    fontWeight: "900",
-    marginTop: 6
-  },
-  dangerBody: {
-    color: colors.muted,
-    fontFamily: fonts.bodyRegular,
-    fontSize: 14,
-    lineHeight: 22,
-    marginTop: 10
-  },
-  deleteButton: {
-    alignItems: "center",
-    backgroundColor: colors.coral + "10",
-    borderColor: colors.coral + "55",
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.sm,
-    justifyContent: "center",
-    marginTop: spacing.md,
-    paddingVertical: 15
-  },
-  deleteButtonText: {
-    color: colors.coral,
-    fontFamily: fonts.body,
-    fontSize: 14,
-    fontWeight: "900"
-  },
-  emptyText: {
-    color: colors.muted,
-    fontFamily: fonts.body,
-    padding: spacing.lg
-  },
-  fetchButton: {
-    alignItems: "center",
-    backgroundColor: colors.teal + "14",
-    borderColor: colors.teal + "44",
-    borderRadius: radii.md,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.sm,
-    justifyContent: "center",
-    marginBottom: spacing.lg,
-    paddingVertical: 13
-  },
-  fetchButtonBusy: {
-    opacity: 0.7
-  },
-  fetchButtonText: {
-    color: colors.tealDark,
-    fontFamily: fonts.body,
-    fontSize: 13,
-    fontWeight: "900"
-  }
-});
+function createStyles(c: AppColors) {
+  return StyleSheet.create({
+    header: {
+      ...shadows.card,
+      alignItems: "center",
+      backgroundColor: c.navy,
+      borderRadius: radii.lg,
+      flexDirection: "row",
+      gap: spacing.md,
+      marginBottom: spacing.lg,
+      padding: spacing.md
+    },
+    headerCopy: {
+      flex: 1
+    },
+    eyebrow: {
+      color: c.gold,
+      fontFamily: fonts.body,
+      fontSize: 11,
+      fontWeight: "900",
+      letterSpacing: 1.2,
+      textTransform: "uppercase"
+    },
+    title: {
+      color: c.card,
+      fontFamily: fonts.display,
+      fontSize: 24,
+      fontWeight: "900",
+      lineHeight: 29,
+      marginTop: 4
+    },
+    author: {
+      color: c.muted,
+      fontFamily: fonts.body,
+      fontSize: 13,
+      marginTop: 5
+    },
+    sectionTitle: {
+      color: c.ink,
+      fontFamily: fonts.display,
+      fontSize: 22,
+      fontWeight: "900",
+      marginBottom: spacing.sm,
+      marginTop: spacing.sm
+    },
+    field: {
+      marginBottom: spacing.md
+    },
+    fieldLabel: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "900",
+      letterSpacing: 0.8,
+      marginBottom: 4,
+      textTransform: "uppercase"
+    },
+    fieldHint: {
+      color: c.muted,
+      fontFamily: fonts.bodyRegular,
+      fontSize: 12,
+      marginBottom: 6
+    },
+    input: {
+      ...shadows.card,
+      backgroundColor: c.surface,
+      borderColor: c.border,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 15,
+      fontWeight: "700",
+      minHeight: 50,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 13
+    },
+    textArea: {
+      minHeight: 108,
+      textAlignVertical: "top"
+    },
+    optionGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.sm,
+      marginBottom: spacing.md
+    },
+    option: {
+      backgroundColor: c.surface,
+      borderColor: c.border,
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 10
+    },
+    optionActive: {
+      backgroundColor: c.navy,
+      borderColor: c.teal
+    },
+    optionText: {
+      color: c.muted,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "900"
+    },
+    optionTextActive: {
+      color: c.card
+    },
+    formatRow: {
+      flexDirection: "row",
+      gap: spacing.sm,
+      marginBottom: spacing.md
+    },
+    formatChip: {
+      alignItems: "center",
+      backgroundColor: c.surface,
+      borderColor: c.border,
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      flex: 1,
+      flexDirection: "row",
+      gap: 6,
+      justifyContent: "center",
+      paddingVertical: 11
+    },
+    formatChipActive: {
+      backgroundColor: c.tealDark,
+      borderColor: c.tealDark
+    },
+    formatText: {
+      color: c.muted,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "900"
+    },
+    formatTextActive: {
+      color: c.card
+    },
+    toggleRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.sm,
+      marginBottom: spacing.md
+    },
+    toggle: {
+      alignItems: "center",
+      backgroundColor: c.surface,
+      borderColor: c.border,
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 6,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 10
+    },
+    toggleActive: {
+      backgroundColor: c.gold,
+      borderColor: c.gold
+    },
+    toggleText: {
+      color: c.muted,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "900"
+    },
+    toggleTextActive: {
+      color: c.navy
+    },
+    saveButton: {
+      alignItems: "center",
+      backgroundColor: c.gold,
+      borderRadius: radii.pill,
+      marginTop: spacing.sm,
+      paddingVertical: 15
+    },
+    saveButtonText: {
+      color: c.navy,
+      fontFamily: fonts.body,
+      fontSize: 14,
+      fontWeight: "900"
+    },
+    dangerZone: {
+      borderTopColor: c.coral + "55",
+      borderTopWidth: 1,
+      marginTop: spacing.xl,
+      paddingBottom: spacing.lg,
+      paddingTop: spacing.lg
+    },
+    dangerEyebrow: {
+      color: c.coral,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "900",
+      letterSpacing: 1,
+      textTransform: "uppercase"
+    },
+    dangerTitle: {
+      color: c.ink,
+      fontFamily: fonts.display,
+      fontSize: 26,
+      fontWeight: "900",
+      marginTop: 6
+    },
+    dangerBody: {
+      color: c.muted,
+      fontFamily: fonts.bodyRegular,
+      fontSize: 14,
+      lineHeight: 22,
+      marginTop: 10
+    },
+    deleteButton: {
+      alignItems: "center",
+      backgroundColor: c.coral + "10",
+      borderColor: c.coral + "55",
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.sm,
+      justifyContent: "center",
+      marginTop: spacing.md,
+      paddingVertical: 15
+    },
+    deleteButtonText: {
+      color: c.coral,
+      fontFamily: fonts.body,
+      fontSize: 14,
+      fontWeight: "900"
+    },
+    emptyText: {
+      color: c.muted,
+      fontFamily: fonts.body,
+      padding: spacing.lg
+    },
+    fetchButton: {
+      alignItems: "center",
+      backgroundColor: c.teal + "14",
+      borderColor: c.teal + "44",
+      borderRadius: radii.md,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.sm,
+      justifyContent: "center",
+      marginBottom: spacing.lg,
+      paddingVertical: 13
+    },
+    fetchButtonBusy: {
+      opacity: 0.7
+    },
+    fetchButtonText: {
+      color: c.teal,
+      fontFamily: fonts.body,
+      fontSize: 13,
+      fontWeight: "900"
+    }
+  });
+}
