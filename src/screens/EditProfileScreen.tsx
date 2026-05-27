@@ -1,12 +1,14 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { GoogleConnectionCard } from "../components/GoogleConnectionCard";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
+import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
-import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { useColors } from "../theme/ThemeContext";
 
 const splitList = (value: string) =>
   value
@@ -14,7 +16,12 @@ const splitList = (value: string) =>
     .map((item) => item.trim())
     .filter(Boolean);
 
+type EditProfileStyles = ReturnType<typeof createStyles>;
+
 export function EditProfileScreen() {
+  const c = useColors();
+  const styles = useMemo(() => createStyles(c), [c]);
+  const { t } = useI18n();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { updateUserProfile, userProfile } = useBooklio();
   const [name, setName] = useState(userProfile.name);
@@ -33,71 +40,73 @@ export function EditProfileScreen() {
       favoriteAuthors: splitList(favoriteAuthors),
       favoriteGenres: splitList(favoriteGenres)
     });
-    Alert.alert("Saved", "Your profile has been updated.");
+    Alert.alert(t("editProfile.savedTitle"), t("editProfile.savedBody"));
     navigation.goBack();
   };
 
   return (
     <Screen>
       <View style={styles.pageHeader}>
-        <Text style={styles.pageEyebrow}>Edit profile</Text>
-        <Text style={styles.pageTitle}>Make it yours.</Text>
+        <Text style={styles.pageEyebrow}>{t("editProfile.eyebrow")}</Text>
+        <Text style={styles.pageTitle}>{t("editProfile.title")}</Text>
       </View>
 
-      <View style={styles.accountSection}>
-        <Text style={styles.accountEyebrow}>Account</Text>
-        <Text style={styles.accountTitle}>Identity</Text>
-        <Text style={styles.accountBody}>
-          Choose how Booklio recognizes you before anything else.
-        </Text>
-      </View>
-
-      <GoogleConnectionCard />
-
-      <Field label="Name" value={name} onChangeText={setName} />
+      <Field styles={styles} colors={c} label={t("editProfile.name")} value={name} onChangeText={setName} />
       <Field
-        label="Initials"
+        styles={styles}
+        colors={c}
+        label={t("editProfile.initials")}
         value={avatarInitials}
         onChangeText={setAvatarInitials}
         autoCapitalize="characters"
-        hint="2–3 characters shown on your avatar"
+        hint={t("editProfile.initialsHint")}
       />
       <Field
-        label="Reading level"
+        styles={styles}
+        colors={c}
+        label={t("editProfile.readingLevel")}
         value={readingLevel}
         onChangeText={setReadingLevel}
-        hint="Give it your own label — e.g. Casual, Voracious, Saga Cartographer"
+        hint={t("editProfile.readingLevelHint")}
       />
       <Field
-        label="Yearly goal"
+        styles={styles}
+        colors={c}
+        label={t("editProfile.yearlyGoal")}
         value={yearlyGoal}
         onChangeText={setYearlyGoal}
         keyboardType="number-pad"
-        hint="Number of books you want to read this year"
+        hint={t("editProfile.yearlyGoalHint")}
       />
       <Field
-        label="Favorite authors"
+        styles={styles}
+        colors={c}
+        label={t("editProfile.favoriteAuthors")}
         value={favoriteAuthors}
         onChangeText={setFavoriteAuthors}
         multiline
-        hint="Separate names with commas"
+        hint={t("editProfile.favoriteAuthorsHint")}
       />
       <Field
-        label="Favorite genres"
+        styles={styles}
+        colors={c}
+        label={t("editProfile.favoriteGenres")}
         value={favoriteGenres}
         onChangeText={setFavoriteGenres}
         multiline
-        hint="Separate genres with commas"
+        hint={t("editProfile.favoriteGenresHint")}
       />
 
       <Pressable style={styles.saveButton} onPress={onSave}>
-        <Text style={styles.saveButtonText}>Save profile</Text>
+        <Text style={styles.saveButtonText}>{t("editProfile.save")}</Text>
       </Pressable>
     </Screen>
   );
 }
 
 type FieldProps = {
+  styles: EditProfileStyles;
+  colors: AppColors;
   label: string;
   value: string;
   onChangeText: (value: string) => void;
@@ -108,6 +117,8 @@ type FieldProps = {
 };
 
 function Field({
+  styles,
+  colors: c,
   label,
   value,
   onChangeText,
@@ -125,7 +136,7 @@ function Field({
         keyboardType={keyboardType}
         multiline={multiline}
         onChangeText={onChangeText}
-        placeholderTextColor={colors.gray}
+        placeholderTextColor={c.gray}
         style={[styles.input, multiline && styles.textArea]}
         value={value}
       />
@@ -133,98 +144,74 @@ function Field({
   );
 }
 
-const styles = StyleSheet.create({
-  pageHeader: {
-    marginBottom: spacing.lg
-  },
-  pageEyebrow: {
-    color: colors.tealDark,
-    fontFamily: fonts.body,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1.3,
-    textTransform: "uppercase"
-  },
-  pageTitle: {
-    color: colors.navy,
-    fontFamily: fonts.display,
-    fontSize: 26,
-    fontWeight: "900",
-    marginTop: 2
-  },
-  field: {
-    marginBottom: spacing.md
-  },
-  fieldLabel: {
-    color: colors.navy,
-    fontFamily: fonts.body,
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 0.8,
-    marginBottom: 4,
-    textTransform: "uppercase"
-  },
-  fieldHint: {
-    color: colors.muted,
-    fontFamily: fonts.bodyRegular,
-    fontSize: 12,
-    marginBottom: 6
-  },
-  input: {
-    ...shadows.card,
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    color: colors.ink,
-    fontFamily: fonts.body,
-    fontSize: 15,
-    fontWeight: "700",
-    minHeight: 50,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 13
-  },
-  textArea: {
-    minHeight: 90,
-    textAlignVertical: "top"
-  },
-  saveButton: {
-    alignItems: "center",
-    backgroundColor: colors.navy,
-    borderRadius: radii.pill,
-    marginTop: spacing.sm,
-    paddingVertical: 15
-  },
-  accountSection: {
-    marginBottom: spacing.sm,
-    marginTop: spacing.md
-  },
-  accountEyebrow: {
-    color: colors.tealDark,
-    fontFamily: fonts.body,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1.3,
-    textTransform: "uppercase"
-  },
-  accountTitle: {
-    color: colors.navy,
-    fontFamily: fonts.display,
-    fontSize: 24,
-    fontWeight: "900",
-    marginTop: 2
-  },
-  accountBody: {
-    color: colors.muted,
-    fontFamily: fonts.bodyRegular,
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 6
-  },
-  saveButtonText: {
-    color: colors.card,
-    fontFamily: fonts.body,
-    fontSize: 14,
-    fontWeight: "900"
-  }
-});
+function createStyles(c: AppColors) {
+  return StyleSheet.create({
+    pageHeader: {
+      marginBottom: spacing.lg
+    },
+    pageEyebrow: {
+      color: c.tealDark,
+      fontFamily: fonts.body,
+      fontSize: 11,
+      fontWeight: "900",
+      letterSpacing: 1.3,
+      textTransform: "uppercase"
+    },
+    pageTitle: {
+      color: c.ink,
+      fontFamily: fonts.display,
+      fontSize: 26,
+      fontWeight: "900",
+      marginTop: 2
+    },
+    field: {
+      marginBottom: spacing.md
+    },
+    fieldLabel: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "900",
+      letterSpacing: 0.8,
+      marginBottom: 4,
+      textTransform: "uppercase"
+    },
+    fieldHint: {
+      color: c.muted,
+      fontFamily: fonts.bodyRegular,
+      fontSize: 12,
+      marginBottom: 6
+    },
+    input: {
+      ...shadows.card,
+      backgroundColor: c.surface,
+      borderColor: c.border,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 15,
+      fontWeight: "700",
+      minHeight: 50,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 13
+    },
+    textArea: {
+      minHeight: 90,
+      textAlignVertical: "top"
+    },
+    saveButton: {
+      alignItems: "center",
+      backgroundColor: c.navy,
+      borderRadius: radii.pill,
+      marginTop: spacing.sm,
+      paddingVertical: 15
+    },
+    saveButtonText: {
+      color: "#FFFFFF",
+      fontFamily: fonts.body,
+      fontSize: 14,
+      fontWeight: "900"
+    }
+  });
+}

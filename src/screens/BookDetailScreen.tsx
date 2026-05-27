@@ -18,10 +18,11 @@ import { formatStatusLabel } from "../utils/statusLabels";
 export function BookDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, "BookDetail">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { getAuthor, getBook, getBookStats, getRecommendationsForBook, updateBookStatus } = useBooklio();
+  const { getAuthor, getBook, getBookStats, getRecommendationsForBook, updateBookStatus, getReviewForBook } = useBooklio();
   const book = getBook(route.params.bookId);
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
   const [statusSheetOpen, setStatusSheetOpen] = useState(false);
+  const review = getReviewForBook(route.params.bookId);
 
   if (!book) {
     return (
@@ -33,6 +34,7 @@ export function BookDetailScreen() {
 
   const author = getAuthor(book.authorId);
   const stats = getBookStats(book.id);
+  const bestsellerSpecificTag = book.tags?.some((tag) => /bestseller/i.test(tag));
 
   const statusLabel = formatStatusLabel(book.userStatus.status);
   const isReading = book.userStatus.status === "reading";
@@ -76,6 +78,15 @@ export function BookDetailScreen() {
           <Ionicons name="pencil" size={15} color={colors.card} style={{ marginRight: 6 }} />
           <Text style={styles.primaryActionText}>Log Session</Text>
         </Pressable>
+        {(isDone || review) ? (
+          <Pressable
+            style={styles.reviewAction}
+            onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}
+          >
+            <Ionicons name={review ? "create-outline" : "star-outline"} size={15} color={colors.navy} style={{ marginRight: 6 }} />
+            <Text style={styles.reviewActionText}>{review ? "Edit Review" : "Write Review"}</Text>
+          </Pressable>
+        ) : null}
         <Pressable
           style={styles.secondaryAction}
           onPress={() => navigation.navigate("ReadingLog", { bookId: book.id })}
@@ -174,7 +185,7 @@ export function BookDetailScreen() {
       {/* Metadata badges: bestseller / sequel / tags */}
       {(book.isBestseller || book.isSequel || (book.tags && book.tags.length > 0)) && (
         <View style={styles.tagWrap}>
-          {book.isBestseller && (
+          {book.isBestseller && !bestsellerSpecificTag && (
             <View style={[styles.tagPill, styles.tagBestseller]}>
               <Ionicons name="star" size={11} color={colors.navy} style={{ marginRight: 4 }} />
               <Text style={styles.tagPillText}>Bestseller</Text>
@@ -227,6 +238,40 @@ export function BookDetailScreen() {
           ))}
         </>
       ) : null}
+
+      {/* Review section */}
+      <SectionHeader
+        title="Your Review"
+        actionLabel={review ? "Edit" : "Write"}
+        onAction={() => navigation.navigate("WriteReview", { bookId: book.id })}
+      />
+      {review ? (
+        <View style={styles.reviewCard}>
+          <View style={styles.reviewStars}>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <Ionicons
+                key={n}
+                name={n <= review.rating ? "star" : "star-outline"}
+                size={16}
+                color={n <= review.rating ? colors.gold : colors.border}
+              />
+            ))}
+            <Text style={styles.reviewDate}>{review.createdAt}</Text>
+          </View>
+          <Text style={styles.reviewTitle}>{review.title}</Text>
+          {review.body ? (
+            <Text style={styles.reviewBody} numberOfLines={4}>{review.body}</Text>
+          ) : null}
+        </View>
+      ) : (
+        <Pressable
+          style={styles.reviewEmpty}
+          onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}
+        >
+          <Ionicons name="create-outline" size={18} color={colors.muted} />
+          <Text style={styles.reviewEmptyText}>No review yet — tap to write one</Text>
+        </Pressable>
+      )}
 
       {relatedRecommendations.length > 0 ? (
         <>
@@ -315,6 +360,22 @@ const styles = StyleSheet.create({
   },
   primaryActionText: {
     color: colors.card,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  reviewAction: {
+    alignItems: "center",
+    backgroundColor: colors.gold,
+    borderRadius: radii.pill,
+    flexDirection: "row",
+    justifyContent: "center",
+    minWidth: 150,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 13
+  },
+  reviewActionText: {
+    color: colors.navy,
     fontFamily: fonts.body,
     fontSize: 14,
     fontWeight: "900"
@@ -520,5 +581,57 @@ const styles = StyleSheet.create({
   },
   recommendationStack: {
     marginBottom: spacing.sm
+  },
+  reviewCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+    padding: spacing.md
+  },
+  reviewStars: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 3,
+    marginBottom: spacing.xs
+  },
+  reviewDate: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 11,
+    marginLeft: "auto"
+  },
+  reviewTitle: {
+    color: colors.navy,
+    fontFamily: fonts.display,
+    fontSize: 16,
+    fontWeight: "900",
+    marginBottom: 4
+  },
+  reviewBody: {
+    color: colors.ink,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 13,
+    lineHeight: 20
+  },
+  reviewEmpty: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderStyle: "dashed",
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    marginBottom: spacing.md,
+    paddingVertical: spacing.md
+  },
+  reviewEmptyText: {
+    color: colors.muted,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "800"
   }
 });

@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { colors, fonts, radii, spacing } from "../theme/theme";
+import { AppColors, fonts, radii, spacing } from "../theme/theme";
+import { useColors } from "../theme/ThemeContext";
 
 type BarChartProps = {
   data: { label: string; value: number }[];
@@ -7,6 +9,8 @@ type BarChartProps = {
 };
 
 export function BarChart({ data, max }: BarChartProps) {
+  const c = useColors();
+  const styles = useMemo(() => createStyles(c), [c]);
   const peak = max ?? Math.max(1, ...data.map((item) => item.value));
 
   return (
@@ -26,40 +30,42 @@ export function BarChart({ data, max }: BarChartProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: {
-    gap: spacing.sm
-  },
-  row: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.sm
-  },
-  label: {
-    color: colors.muted,
-    fontFamily: fonts.body,
-    fontSize: 12,
-    fontWeight: "800",
-    width: 74
-  },
-  track: {
-    backgroundColor: "#EEE7DB",
-    borderRadius: radii.pill,
-    flex: 1,
-    height: 10,
-    overflow: "hidden"
-  },
-  fill: {
-    backgroundColor: colors.gold,
-    borderRadius: radii.pill,
-    height: "100%"
-  },
-  value: {
-    color: colors.navy,
-    fontFamily: fonts.body,
-    fontSize: 12,
-    fontWeight: "900",
-    textAlign: "right",
-    width: 34
-  }
-});
+function createStyles(c: AppColors) {
+  return StyleSheet.create({
+    wrap: {
+      gap: spacing.sm
+    },
+    row: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: spacing.sm
+    },
+    label: {
+      color: c.muted,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "800",
+      width: 74
+    },
+    track: {
+      backgroundColor: c.border,
+      borderRadius: radii.pill,
+      flex: 1,
+      height: 10,
+      overflow: "hidden"
+    },
+    fill: {
+      backgroundColor: c.gold,
+      borderRadius: radii.pill,
+      height: "100%"
+    },
+    value: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "900",
+      textAlign: "right",
+      width: 34
+    }
+  });
+}

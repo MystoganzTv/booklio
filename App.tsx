@@ -9,7 +9,19 @@ import {
   Nunito_900Black
 } from "@expo-google-fonts/nunito";
 import { BooklioProvider } from "./src/data/BooklioContext";
+import { ThemeProvider, useTheme } from "./src/theme/ThemeContext";
 import { AppNavigator } from "./src/navigation/AppNavigator";
+import { LocalizationProvider } from "./src/i18n/LocalizationContext";
+
+function Root() {
+  const { isDark } = useTheme();
+  return (
+    <>
+      <StatusBar style={isDark ? "light" : "dark"} />
+      <AppNavigator />
+    </>
+  );
+}
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -21,14 +33,15 @@ export default function App() {
     Nunito_900Black
   });
 
-  if (!fontsLoaded) {
-    return null;
-  }
+  if (!fontsLoaded) return null;
 
   return (
-    <BooklioProvider>
-      <StatusBar style="light" />
-      <AppNavigator />
-    </BooklioProvider>
+    <LocalizationProvider>
+      <ThemeProvider>
+        <BooklioProvider>
+          <Root />
+        </BooklioProvider>
+      </ThemeProvider>
+    </LocalizationProvider>
   );
 }

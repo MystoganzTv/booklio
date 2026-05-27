@@ -143,6 +143,13 @@ export function EditBookScreen() {
     if (meta.authorName && isBlank(authorName)) {
       setAuthorName(meta.authorName); filled.push("author name");
     }
+    if (meta.tags?.length) {
+      if (isBlank(tags)) { setTags(meta.tags.join(", ")); filled.push("awards & badges"); }
+      else skipped.push("awards & badges (already set)");
+    }
+    if (meta.isBestseller && !isBestseller) {
+      setIsBestseller(true); filled.push("bestseller signal");
+    }
 
     if (filled.length === 0) {
       Alert.alert(

@@ -1,4 +1,5 @@
 import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authors as authorSeed, books as bookSeed, readingSessions as sessionSeed, series, userProfile } from "./mockData";
 import {
   BooklioRepository,
@@ -16,12 +17,14 @@ import {
   NewReadingSessionInput,
   Recommendation,
   ReadingSession,
+  Review,
   UpdateBookInput,
   UpdateUserProfileInput,
   UserProfile
 } from "../types/models";
 import { buildInitials, clearPersistedConnectedAccount, ConnectedAccount, persistConnectedAccount, readPersistedConnectedAccount } from "../utils/googleAuth";
 import { buildBookSpecificRecommendations, buildGlobalRecommendations } from "../utils/recommendationEngine";
+import { supabase } from "../lib/supabase";
 
 type MonthBucket = {
   label: string;
@@ -80,10 +83,14 @@ type BooklioContextValue = {
   authors: Author[];
   books: Book[];
   readingSessions: ReadingSession[];
+  reviews: Review[];
   recommendations: Recommendation[];
   series: typeof series;
   userProfile: UserProfile;
   repositoryStatus: RepositoryStatus;
+  onboardingComplete: boolean;
+  completeOnboarding: (name: string, genres: string[]) => Promise<void>;
+  resetApp: () => Promise<void>;
   connectIdentityAccount: (account: ConnectedAccount) => Promise<void>;
   disconnectIdentityAccount: () => Promise<void>;
   addBook: (input: NewBookInput) => Book;
@@ -96,6 +103,10 @@ type BooklioContextValue = {
   getAuthor: (authorId: string) => Author | undefined;
   getBook: (bookId: string) => Book | undefined;
   getReadingSession: (sessionId: string) => ReadingSession | undefined;
+  getReviewForBook: (bookId: string) => Review | undefined;
+  addReview: (review: Omit<Review, "id" | "createdAt">) => Review;
+  updateReview: (reviewId: string, review: Omit<Review, "id" | "createdAt">) => void;
+  deleteReview: (reviewId: string) => void;
   getBookStats: (bookId: string) => BookStats;
   getSessionsForBook: (bookId: string) => ReadingSession[];
   getRecommendationsForBook: (bookId: string, limit?: number) => Recommendation[];
@@ -294,6 +305,10 @@ const slugify = (value: string) =>
     .replace(/(^-|-$)/g, "");
 
 const buildAuthorId = (name: string) => `a-${slugify(name)}-${Date.now()}`;
+
+const normalizeIsbn = (value?: string) => value?.replace(/[^0-9X]/gi, "").toUpperCase() ?? "";
+const normalizeTitle = (value?: string) => value?.trim().toLowerCase() ?? "";
+const normalizeAuthorName = (value?: string) => value?.trim().toLowerCase() ?? "";
 
 const colorsFromSource = (source: NewBookInput["source"]) => {
   if (source === "isbn") return { start: "#0F172A", end: "#14B8A6" };
@@ -498,7 +513,9 @@ export function BooklioProvider({ children }: PropsWithChildren) {
   const [books, setBooks] = useState<Book[]>(() => bookSeed.map(normalizeReadState));
   const [readingSessions, setReadingSessions] = useState<ReadingSession[]>(sessionSeed);
   const [profile, setProfile] = useState<UserProfile>(userProfile);
+  const [reviews, setReviews] = useState<Review[]>([]);
   const [hydrated, setHydrated] = useState(false);
+  const [onboardingComplete, setOnboardingComplete] = useState(false);
   const [repositoryStatus, setRepositoryStatus] = useState<RepositoryStatus>(repositoryRef.current.getStatus());
   const resolvedProfile = useMemo(
     () => enrichProfileAchievements(profile, books, readingSessions),
@@ -520,9 +537,20 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         }
 
         const parsed = snapshot as PersistedBooklioState;
-        setAuthors(parsed.authors?.length ? parsed.authors : authorSeed);
-        setBooks(parsed.books?.length ? mergeSeedBookMetadata(parsed.books) : bookSeed.map(normalizeReadState));
-        setReadingSessions(parsed.readingSessions?.length ? parsed.readingSessions : sessionSeed);
+        // ?? only falls back when the field is null/undefined (missing from old snapshots).
+        // An intentionally-empty [] after a reset is preserved as-is, preventing
+        // mock seed data from reappearing on the next launch.
+        setAuthors(parsed.authors ?? authorSeed);
+        setBooks(
+          parsed.books !== undefined
+            ? (parsed.books.length ? mergeSeedBookMetadata(parsed.books) : [])
+            : bookSeed.map(normalizeReadState)
+        );
+        setReadingSessions(parsed.readingSessions ?? sessionSeed);
+        const anyParsed = parsed as Record<string, unknown>;
+        if (Array.isArray(anyParsed["reviews"])) {
+          setReviews(anyParsed["reviews"] as Review[]);
+        }
         if (parsed.userProfile?.id) {
           const persistedAccount = await readPersistedConnectedAccount();
           const migratedAchievements = migrateAchievements(
@@ -546,6 +574,11 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         } else {
           setProfile(userProfile);
         }
+        // Onboarding flag (stored separately from the main library snapshot)
+        const onboardingFlag = await AsyncStorage.getItem("@booklio/onboardingComplete");
+        if (mounted && onboardingFlag === "true") {
+          setOnboardingComplete(true);
+        }
       } catch (error) {
         console.warn("Booklio could not hydrate local library", error);
       } finally {
@@ -563,12 +596,74 @@ export function BooklioProvider({ children }: PropsWithChildren) {
   }, []);
 
   useEffect(() => {
+    if (!hydrated || !supabase) {
+      return;
+    }
+
+    const subscription = supabase.auth.onAuthStateChange(async (event) => {
+      if (!["SIGNED_IN", "SIGNED_OUT", "INITIAL_SESSION", "TOKEN_REFRESHED"].includes(event)) {
+        return;
+      }
+
+      try {
+        const snapshot = await repositoryRef.current.load();
+        setRepositoryStatus(repositoryRef.current.getStatus());
+
+        if (!snapshot) {
+          return;
+        }
+
+        const parsed = snapshot as PersistedBooklioState;
+        // ?? only falls back when the field is null/undefined (missing from old snapshots).
+        // An intentionally-empty [] after a reset is preserved as-is, preventing
+        // mock seed data from reappearing on the next launch.
+        setAuthors(parsed.authors ?? authorSeed);
+        setBooks(
+          parsed.books !== undefined
+            ? (parsed.books.length ? mergeSeedBookMetadata(parsed.books) : [])
+            : bookSeed.map(normalizeReadState)
+        );
+        setReadingSessions(parsed.readingSessions ?? sessionSeed);
+
+        if (parsed.userProfile?.id) {
+          const persistedAccount = await readPersistedConnectedAccount();
+          const migratedAchievements = migrateAchievements(
+            (parsed.userProfile.achievements as unknown as Record<string, unknown>[]) ?? [],
+            userProfile.achievements
+          );
+          setProfile({
+            ...userProfile,
+            ...parsed.userProfile,
+            ...(persistedAccount
+              ? {
+                  name: persistedAccount.name,
+                  avatarInitials: buildInitials(persistedAccount.name, persistedAccount.email),
+                  avatarUri: persistedAccount.picture,
+                  email: persistedAccount.email,
+                  authProvider: persistedAccount.provider
+                }
+              : {}),
+            achievements: migratedAchievements
+          });
+        }
+      } catch (error) {
+        console.warn("Booklio could not refresh after auth change", error);
+        setRepositoryStatus(repositoryRef.current.getStatus());
+      }
+    });
+
+    return () => {
+      subscription.data.subscription.unsubscribe();
+    };
+  }, [hydrated]);
+
+  useEffect(() => {
     if (!hydrated) {
       return;
     }
 
     const persist = async () => {
-      const state: PersistedBooklioState = { authors, books, readingSessions, userProfile: resolvedProfile };
+      const state: PersistedBooklioState & { reviews: Review[] } = { authors, books, readingSessions, reviews, userProfile: resolvedProfile };
       try {
         await repositoryRef.current.save(createBooklioSnapshot(state));
         setRepositoryStatus(repositoryRef.current.getStatus());
@@ -579,7 +674,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
     };
 
     persist();
-  }, [authors, books, hydrated, readingSessions, resolvedProfile]);
+  }, [authors, books, hydrated, readingSessions, resolvedProfile, reviews]);
 
   const value = useMemo<BooklioContextValue>(() => {
     const getBook = (bookId: string) => books.find((book) => book.id === bookId);
@@ -678,6 +773,19 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       const authorName = input.authorName.trim() || "Author to identify";
       const existingAuthor = authors.find((author) => author.name.toLowerCase() === authorName.toLowerCase());
       const authorId = existingAuthor?.id ?? buildAuthorId(authorName);
+      const normalizedIncomingIsbn = normalizeIsbn(input.isbn);
+      const normalizedIncomingTitle = normalizeTitle(input.title);
+      const normalizedIncomingAuthor = normalizeAuthorName(authorName);
+
+      const existingBook = books.find((candidate) => {
+        const candidateAuthor = authors.find((author) => author.id === candidate.authorId)?.name ?? "";
+        const sameIsbn = normalizedIncomingIsbn && normalizeIsbn(candidate.isbn) === normalizedIncomingIsbn;
+        const sameTitleAndAuthor =
+          normalizedIncomingTitle &&
+          normalizeTitle(candidate.title) === normalizedIncomingTitle &&
+          normalizeAuthorName(candidateAuthor) === normalizedIncomingAuthor;
+        return sameIsbn || sameTitleAndAuthor;
+      });
 
       if (!existingAuthor) {
         setAuthors((current) => [
@@ -689,6 +797,37 @@ export function BooklioProvider({ children }: PropsWithChildren) {
             favoriteGenres: input.genre ?? ["Uncategorized"]
           }
         ]);
+      }
+
+      if (existingBook) {
+        const mergedBook: Book = normalizeReadState({
+          ...existingBook,
+          title: input.title.trim() || existingBook.title,
+          authorId,
+          synopsis: input.synopsis?.trim() || existingBook.synopsis,
+          genre: input.genre?.length ? input.genre : existingBook.genre,
+          pages: input.pages ?? existingBook.pages,
+          publishedDate: input.publishedDate ?? existingBook.publishedDate,
+          publisher: input.publisher ?? existingBook.publisher,
+          language: input.language ?? existingBook.language,
+          isbn: input.isbn ?? existingBook.isbn,
+          format: input.format ?? existingBook.format,
+          coverImageUri: input.coverImageUri ?? existingBook.coverImageUri,
+          coverGradient: existingBook.coverGradient,
+          isBestseller: input.isBestseller ?? existingBook.isBestseller,
+          tags: Array.from(new Set([...(existingBook.tags ?? []), ...(input.tags ?? [])])),
+          userStatus: {
+            ...existingBook.userStatus,
+            ownership: input.ownership ?? existingBook.userStatus.ownership,
+            wishlist: input.wishlist ?? existingBook.userStatus.wishlist,
+            wantToBuy: input.wantToBuy ?? existingBook.userStatus.wantToBuy,
+          }
+        });
+
+        setBooks((current) =>
+          current.map((book) => (book.id === existingBook.id ? mergedBook : book))
+        );
+        return mergedBook;
       }
 
       const book: Book = {
@@ -707,6 +846,8 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         format: input.format ?? "physical",
         coverGradient: [colorsFromSource(input.source).start, colorsFromSource(input.source).end],
         coverImageUri: input.coverImageUri,
+        isBestseller: input.isBestseller,
+        tags: input.tags ?? [],
           userStatus: {
             status: "want-to-read",
             ownership: input.ownership ?? "owned",
@@ -842,6 +983,67 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       }));
     };
 
+    const getReviewForBook = (bookId: string) => reviews.find((r) => r.bookId === bookId);
+
+    const addReview = (input: Omit<Review, "id" | "createdAt">): Review => {
+      const review: Review = {
+        ...input,
+        id: `rev-${Date.now()}`,
+        createdAt: new Date().toISOString().slice(0, 10)
+      };
+      setReviews((prev) => [review, ...prev.filter((r) => r.bookId !== input.bookId)]);
+      return review;
+    };
+
+    const updateReview = (reviewId: string, input: Omit<Review, "id" | "createdAt">) => {
+      setReviews((prev) =>
+        prev.map((r) => r.id === reviewId ? { ...r, ...input } : r)
+      );
+    };
+
+    const deleteReview = (reviewId: string) => {
+      setReviews((prev) => prev.filter((r) => r.id !== reviewId));
+    };
+
+    const completeOnboarding = async (name: string, genres: string[]) => {
+      const trimmedName = name.trim() || "Reader";
+      const initials = buildInitials(trimmedName, undefined);
+      setProfile((prev) => ({
+        ...prev,
+        name: trimmedName,
+        avatarInitials: initials,
+        favoriteGenres: genres.length ? genres : prev.favoriteGenres
+      }));
+      await AsyncStorage.setItem("@booklio/onboardingComplete", "true");
+      setOnboardingComplete(true);
+    };
+
+    const resetApp = async () => {
+      // 1. Prevent the persist effect from re-saving while we wipe
+      setHydrated(false);
+      // 2. Reset all React state FIRST so the persist snapshot is empty
+      setAuthors([]);
+      setBooks([]);
+      setReadingSessions([]);
+      setReviews([]);
+      setProfile(userProfile);
+      setOnboardingComplete(false);
+      // 3. Wipe AsyncStorage
+      await AsyncStorage.multiRemove([
+        "booklio:v2",
+        "@booklio/onboardingComplete",
+        "booklio_connected_account",
+        "booklio_google_account"
+      ]);
+      // 4. Sign out from Supabase if active
+      try {
+        const { supabase: sb } = await import("../lib/supabase");
+        if (sb) await sb.auth.signOut();
+      } catch (_) { /* ignore */ }
+      // 5. Re-enable persistence (with clean state)
+      setHydrated(true);
+    };
+
     const connectIdentityAccount = async (account: ConnectedAccount) => {
       await persistConnectedAccount(account);
       setProfile((current) => ({
@@ -868,10 +1070,14 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       authors,
       books,
       readingSessions: [...readingSessions].sort((a, b) => b.date.localeCompare(a.date)),
+      reviews,
       recommendations: recommendationList,
       series,
       userProfile: resolvedProfile,
       repositoryStatus,
+      onboardingComplete,
+      completeOnboarding,
+      resetApp,
       connectIdentityAccount,
       disconnectIdentityAccount,
       addBook,
@@ -884,12 +1090,16 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       getAuthor,
       getBook,
       getReadingSession,
+      getReviewForBook,
+      addReview,
+      updateReview,
+      deleteReview,
       getBookStats,
       getSessionsForBook,
       getRecommendationsForBook,
       overallStats: buildOverallStats(books, readingSessions, authors)
     };
-  }, [authors, books, readingSessions, repositoryStatus, resolvedProfile]);
+  }, [authors, books, onboardingComplete, readingSessions, repositoryStatus, resolvedProfile, reviews]);
 
   if (!hydrated) return null;
 

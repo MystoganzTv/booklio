@@ -3,19 +3,24 @@ import { CameraView, BarcodeScanningResult, useCameraPermissions } from "expo-ca
 import * as ImagePicker from "expo-image-picker";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ActivityIndicator, Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { BooklioDialog } from "../components/BooklioDialog";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
+import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
-import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { AppColors, colors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { useColors, useTheme } from "../theme/ThemeContext";
 import { NewBookInput, ReadingFormat } from "../types/models";
 import { analyzeBookPhoto, getBookPhotoSupportSummary } from "../utils/bookPhotoIntake";
 import {
+  applyEditionOptionToBookInput,
   canFetchMetadata,
   enrichBookInput,
+  fetchBookMetadataByEditionKey,
   fetchBookMetadataByIsbn,
+  fetchEditionOptionsByWorkKey,
   metadataToBookInput,
   OPEN_LIBRARY_PAGE_SIZE,
   searchBookMetadata,
@@ -136,6 +141,10 @@ const sourceLabel: Record<NewBookInput["source"], string> = {
 };
 
 export function BookIntakeScreen() {
+  const c = useColors();
+  const { isDark } = useTheme();
+  const { t } = useI18n();
+  const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { addBook } = useBooklio();
   const [permission, requestPermission] = useCameraPermissions();
@@ -154,6 +163,7 @@ export function BookIntakeScreen() {
   const [dialog, setDialog] = useState<{ title: string; body: string } | null>(null);
   const [isRefreshingMetadata, setIsRefreshingMetadata] = useState(false);
   const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [manual, setManual] = useState({
     title: "",
     authorName: "",
@@ -347,15 +357,79 @@ export function BookIntakeScreen() {
     }
   };
 
-  const confirmReviewBook = () => {
+  const selectReviewLanguage = async (language: string) => {
     if (!reviewBook) return;
-    confirmAndOpen({
-      ...reviewBook,
-      title: reviewBook.title.trim() || "Untitled Book",
-      authorName: reviewBook.authorName.trim() || "Author to identify",
-      genre: reviewBook.genre?.length ? reviewBook.genre : ["Uncategorized"],
-      pages: reviewBook.pages && reviewBook.pages > 0 ? reviewBook.pages : 320
-    });
+
+    const draftWithLanguage = { ...reviewBook, language };
+    setReviewBook(draftWithLanguage);
+
+    if (!reviewBook.workKey) {
+      setReviewInsight(`Language changed to ${language}. ISBN and publisher stay as-is until a matching edition is found.`);
+      return;
+    }
+
+    setIsRefreshingMetadata(true);
+    try {
+      const options = await fetchEditionOptionsByWorkKey(reviewBook.workKey, 30);
+      const exactMatch = options.find((option) => option.language?.toLowerCase() === language.toLowerCase());
+
+      if (!exactMatch) {
+        setReviewInsight(`Language changed to ${language}. Booklio could not find a matching edition, so ISBN and publisher were kept from the current version.`);
+        return;
+      }
+
+      let nextDraft = applyEditionOptionToBookInput(draftWithLanguage, exactMatch);
+      const detailedMetadata = exactMatch.isbn
+        ? await fetchBookMetadataByIsbn(exactMatch.isbn)
+        : await fetchBookMetadataByEditionKey(exactMatch.editionKey);
+
+      if (detailedMetadata) {
+        nextDraft = {
+          ...nextDraft,
+          title: detailedMetadata.title ?? nextDraft.title,
+          authorName: detailedMetadata.authorName ?? nextDraft.authorName,
+          isbn: detailedMetadata.isbn ?? nextDraft.isbn,
+          pages: detailedMetadata.pages ?? nextDraft.pages,
+          genre: detailedMetadata.genre?.length ? detailedMetadata.genre : nextDraft.genre,
+          publisher: detailedMetadata.publisher ?? nextDraft.publisher,
+          publishedDate: detailedMetadata.publishedDate ?? nextDraft.publishedDate,
+          language: detailedMetadata.language ?? language,
+          synopsis: detailedMetadata.synopsis ?? nextDraft.synopsis,
+          coverImageUri: detailedMetadata.coverImageUri ?? nextDraft.coverImageUri,
+          format: detailedMetadata.format ?? nextDraft.format,
+          workKey: detailedMetadata.workKey ?? nextDraft.workKey,
+          editionKey: detailedMetadata.editionKey ?? nextDraft.editionKey,
+          editionCount: detailedMetadata.editionCount ?? nextDraft.editionCount,
+          isBestseller: detailedMetadata.isBestseller ?? nextDraft.isBestseller,
+          tags: detailedMetadata.tags?.length
+            ? Array.from(new Set([...(nextDraft.tags ?? []), ...detailedMetadata.tags]))
+            : nextDraft.tags
+        };
+      }
+
+      setReviewBook(nextDraft);
+      setReviewInsight(`Matched a ${language} edition. ISBN, publisher, and edition details were updated where Open Library had them.`);
+    } catch {
+      setReviewInsight(`Language changed to ${language}. Booklio could not refresh the edition metadata right now.`);
+    } finally {
+      setIsRefreshingMetadata(false);
+    }
+  };
+
+  const confirmReviewBook = () => {
+    if (!reviewBook || isSubmittingReview) return;
+    setIsSubmittingReview(true);
+    try {
+      confirmAndOpen({
+        ...reviewBook,
+        title: reviewBook.title.trim() || "Untitled Book",
+        authorName: reviewBook.authorName.trim() || "Author to identify",
+        genre: reviewBook.genre?.length ? reviewBook.genre : ["Uncategorized"],
+        pages: reviewBook.pages && reviewBook.pages > 0 ? reviewBook.pages : 320
+      });
+    } finally {
+      setTimeout(() => setIsSubmittingReview(false), 500);
+    }
   };
 
   const processPhotoAsset = async (asset?: ImagePicker.ImagePickerAsset) => {
@@ -397,7 +471,7 @@ export function BookIntakeScreen() {
             <Image source={{ uri: reviewBook.coverImageUri }} style={styles.reviewCover} />
           ) : (
             <View style={styles.reviewCoverFallback}>
-              <Ionicons name="book-outline" size={28} color={colors.gold} />
+              <Ionicons name="book-outline" size={28} color={c.gold} />
             </View>
           )}
         <View style={styles.reviewHeaderCopy}>
@@ -405,7 +479,7 @@ export function BookIntakeScreen() {
           <Text style={styles.reviewTitle} numberOfLines={3}>{reviewBook.title}</Text>
           <Text style={styles.reviewAuthor} numberOfLines={1}>{reviewBook.authorName}</Text>
           <View style={styles.reviewSourcePill}>
-            <Ionicons name="sparkles-outline" size={14} color={colors.gold} />
+            <Ionicons name="sparkles-outline" size={14} color={c.gold} />
             <Text style={styles.reviewSourceText}>{sourceLabel[reviewBook.source]}</Text>
           </View>
         </View>
@@ -413,7 +487,7 @@ export function BookIntakeScreen() {
 
       {reviewInsight ? (
         <View style={styles.reviewInsightCard}>
-          <Ionicons name="sparkles-outline" size={16} color={colors.tealDark} />
+          <Ionicons name="sparkles-outline" size={16} color={c.tealDark} />
           <Text style={styles.reviewInsightText}>{reviewInsight}</Text>
         </View>
       ) : null}
@@ -441,8 +515,8 @@ export function BookIntakeScreen() {
           disabled={isRefreshingMetadata}
         >
           {isRefreshingMetadata
-            ? <ActivityIndicator size="small" color={colors.tealDark} />
-            : <Ionicons name="sparkles-outline" size={16} color={colors.tealDark} />
+            ? <ActivityIndicator size="small" color={c.tealDark} />
+            : <Ionicons name="sparkles-outline" size={16} color={c.tealDark} />
           }
           <Text style={styles.fetchMetaButtonText}>
             {isRefreshingMetadata ? "Refreshing metadata..." : "Refresh metadata"}
@@ -469,7 +543,7 @@ export function BookIntakeScreen() {
         <Text style={styles.reviewSectionTitle}>Preferences</Text>
         <LanguagePicker
           selected={reviewBook.language ?? "English"}
-          onSelect={(language) => updateReviewBook({ language })}
+          onSelect={selectReviewLanguage}
         />
 
         <Text style={styles.reviewSectionTitle}>Format</Text>
@@ -508,12 +582,20 @@ export function BookIntakeScreen() {
         </View>
 
         <View style={styles.reviewActions}>
-          <Pressable style={styles.primaryReviewButton} onPress={confirmReviewBook}>
-            <Ionicons name="library-outline" size={18} color={colors.card} />
-            <Text style={styles.primaryReviewButtonText}>Add to library</Text>
+          <Pressable
+            style={[styles.primaryReviewButton, isSubmittingReview && styles.primaryReviewButtonBusy]}
+            onPress={confirmReviewBook}
+            disabled={isSubmittingReview}
+          >
+            {isSubmittingReview ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Ionicons name="library-outline" size={18} color="#FFFFFF" />
+            )}
+            <Text style={styles.primaryReviewButtonText}>{isSubmittingReview ? "Saving..." : "Add to library"}</Text>
           </Pressable>
           <Pressable style={styles.secondaryReviewButton} onPress={() => setMode("menu")}>
-            <Ionicons name="close-outline" size={18} color={colors.muted} />
+            <Ionicons name="close-outline" size={18} color={c.muted} />
             <Text style={styles.secondaryReviewButtonText}>Cancel this draft</Text>
           </Pressable>
         </View>
@@ -526,8 +608,8 @@ export function BookIntakeScreen() {
       <Screen>
         {dialogNode}
         <View style={styles.pageHeader}>
-          <Text style={styles.pageEyebrow}>Scan ISBN</Text>
-          <Text style={styles.pageTitle}>Point at the barcode.</Text>
+          <Text style={styles.pageEyebrow}>{t("addBook.scanIsbn")}</Text>
+          <Text style={styles.pageTitle}>{t("addBook.scanIsbn")}</Text>
         </View>
 
         {!permission?.granted ? (
@@ -555,7 +637,7 @@ export function BookIntakeScreen() {
           <TextInput
             keyboardType="number-pad"
             placeholder="9780756404741"
-            placeholderTextColor={colors.gray}
+            placeholderTextColor={c.gray}
             style={styles.input}
             value={manual.isbn}
             onChangeText={(isbn) => setManual((current) => ({ ...current, isbn }))}
@@ -578,8 +660,8 @@ export function BookIntakeScreen() {
       <Screen>
         {dialogNode}
         <View style={styles.pageHeader}>
-          <Text style={styles.pageEyebrow}>Manual entry</Text>
-          <Text style={styles.pageTitle}>Add a book by hand.</Text>
+          <Text style={styles.pageEyebrow}>{t("addBook.manual")}</Text>
+          <Text style={styles.pageTitle}>{t("addBook.manual")}</Text>
         </View>
 
         <Field label="Title" value={manual.title} onChangeText={(v) => setManual((c) => ({ ...c, title: v }))} />
@@ -605,8 +687,8 @@ export function BookIntakeScreen() {
       <Screen>
         {dialogNode}
         <View style={styles.pageHeader}>
-          <Text style={styles.pageEyebrow}>Search</Text>
-          <Text style={styles.pageTitle}>Find your book.</Text>
+          <Text style={styles.pageEyebrow}>{t("addBook.search")}</Text>
+          <Text style={styles.pageTitle}>{t("addBook.search")}</Text>
         </View>
 
         {/* Mode toggle */}
@@ -620,7 +702,7 @@ export function BookIntakeScreen() {
               <Ionicons
                 name={m === "author" ? "person-outline" : "search-outline"}
                 size={13}
-                color={searchMode === m ? colors.card : colors.muted}
+                color={searchMode === m ? "#FFFFFF" : c.muted}
               />
               <Text style={[styles.searchModeText, searchMode === m && styles.searchModeTextActive]}>
                 {m === "author" ? "By author" : "Title / keyword"}
@@ -633,7 +715,7 @@ export function BookIntakeScreen() {
           <TextInput
             autoFocus
             placeholder={searchMode === "author" ? "David Baldacci, J.K. Rowling…" : "Dune, Memory Man, ISBN…"}
-            placeholderTextColor={colors.gray}
+            placeholderTextColor={c.gray}
             style={styles.searchInput}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -641,13 +723,13 @@ export function BookIntakeScreen() {
             returnKeyType="search"
           />
           <Pressable style={[styles.searchBtn, isBusy && { opacity: 0.6 }]} onPress={runSearch} disabled={isBusy}>
-            <Ionicons name={isBusy ? "hourglass-outline" : "search"} size={18} color={colors.card} />
+            <Ionicons name={isBusy ? "hourglass-outline" : "search"} size={18} color="#FFFFFF" />
           </Pressable>
         </View>
 
         {isBusy ? (
           <View style={styles.busyRow}>
-            <Ionicons name="hourglass-outline" size={18} color={colors.muted} />
+            <Ionicons name="hourglass-outline" size={18} color={c.muted} />
             <Text style={styles.busyText}>Searching Open Library…</Text>
           </View>
         ) : (
@@ -670,7 +752,7 @@ export function BookIntakeScreen() {
               >
                 {book.coverImageUri
                   ? <Image source={{ uri: book.coverImageUri }} style={styles.resultCover} />
-                  : <View style={styles.resultCoverFallback}><Ionicons name="book-outline" size={22} color={colors.card} /></View>}
+                  : <View style={styles.resultCoverFallback}><Ionicons name="book-outline" size={22} color="#FFFFFF" /></View>}
                 <View style={styles.resultCopy}>
                   <Text numberOfLines={2} style={styles.resultTitle}>{book.title}</Text>
                   <Text numberOfLines={1} style={styles.resultAuthor}>{book.authorName}</Text>
@@ -683,7 +765,7 @@ export function BookIntakeScreen() {
                   </Text>
                   {!!book.editionCount && (
                     <View style={styles.resultEditionPill}>
-                      <Ionicons name="layers-outline" size={12} color={colors.tealDark} />
+                      <Ionicons name="layers-outline" size={12} color={c.tealDark} />
                       <Text style={styles.resultEditionText}>
                         {book.editionCount} edition{book.editionCount === 1 ? "" : "s"}
                       </Text>
@@ -691,7 +773,7 @@ export function BookIntakeScreen() {
                   )}
                 </View>
                 <View style={styles.resultAction}>
-                  <Ionicons name="chevron-forward" size={18} color={colors.card} />
+                  <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
                 </View>
               </Pressable>
             ))}
@@ -702,8 +784,8 @@ export function BookIntakeScreen() {
                 disabled={isLoadingMore}
               >
                 {isLoadingMore
-                  ? <Ionicons name="hourglass-outline" size={15} color={colors.tealDark} />
-                  : <Ionicons name="chevron-down-circle-outline" size={15} color={colors.tealDark} />
+                  ? <Ionicons name="hourglass-outline" size={15} color={c.tealDark} />
+                  : <Ionicons name="chevron-down-circle-outline" size={15} color={c.tealDark} />
                 }
                 <Text style={styles.loadMoreText}>
                   {isLoadingMore ? "Loading…" : `Load more (${(searchTotal - searchResults.length).toLocaleString()} remaining)`}
@@ -720,66 +802,66 @@ export function BookIntakeScreen() {
     <Screen>
       {dialogNode}
       <View style={styles.pageHeader}>
-        <Text style={styles.pageEyebrow}>Add book</Text>
-        <Text style={styles.pageTitle}>How do you want to add it?</Text>
+        <Text style={styles.pageEyebrow}>{t("addBook.eyebrow")}</Text>
+        <Text style={styles.pageTitle}>{t("addBook.title")}</Text>
       </View>
 
       <View style={styles.pathGrid}>
         <IntakePath
-          accent={colors.teal}
+          accent={c.teal}
           icon="camera"
-          title="Take Photo"
-          description="Photograph the back cover or inside flap and let Booklio inspect the image."
+          title={t("addBook.takePhoto")}
+          description={t("addBook.takePhotoBody")}
           onPress={takeCoverPhoto}
         />
         <IntakePath
-          accent={colors.gold}
+          accent={c.gold}
           icon="barcode"
-          title="Scan ISBN"
-          description="Scan the barcode to fill in metadata."
+          title={t("addBook.scanIsbn")}
+          description={t("addBook.scanIsbnBody")}
           onPress={() => setMode("isbn")}
         />
         <IntakePath
-          accent={colors.coral}
+          accent={c.coral}
           icon="search"
-          title="Search"
-          description="Search by title, author, or ISBN."
+          title={t("addBook.search")}
+          description={t("addBook.searchBody")}
           onPress={() => setMode("search")}
         />
         <IntakePath
-          accent={colors.navy}
+          accent={isDark ? c.surface : c.navy}
           icon="image"
-          title="Import Photo"
-          description="Import a saved photo and try real ISBN detection from the image."
+          title={t("addBook.importPhoto")}
+          description={t("addBook.importPhotoBody")}
           onPress={pickCoverPhoto}
         />
         <IntakePath
-          accent={colors.green}
+          accent={c.green}
           icon="create"
-          title="Manual"
-          description="No barcode? Enter the details yourself."
+          title={t("addBook.manual")}
+          description={t("addBook.manualBody")}
           onPress={() => setMode("manual")}
         />
       </View>
 
       {isAnalyzingPhoto ? (
         <View style={styles.photoBusyCard}>
-          <ActivityIndicator size="small" color={colors.tealDark} />
+          <ActivityIndicator size="small" color={c.tealDark} />
           <Text style={styles.photoBusyText}>Inspecting photo for ISBN and book clues…</Text>
         </View>
       ) : null}
 
       {!photoSupport.imageBarcodeIsbnSupported || !photoSupport.visionProviderConfigured ? (
         <View style={styles.photoHintCard}>
-          <Text style={styles.photoHintTitle}>Photo intake tips</Text>
+          <Text style={styles.photoHintTitle}>{t("addBook.photoTips")}</Text>
           <Text style={styles.photoHintCopy}>
             {photoSupport.imageBarcodeIsbnSupported
-              ? "Best results come from the back cover, barcode area, or copyright page."
-              : "On iPhone, static photo ISBN detection is limited. For the strongest match, use Scan ISBN or add a title after taking the photo."}
+              ? t("addBook.photoTipsGeneral")
+              : t("addBook.photoTipsIos")}
           </Text>
           {!photoSupport.visionProviderConfigured ? (
             <Text style={styles.photoHintCopy}>
-              Cover OCR can also be connected later through `EXPO_PUBLIC_BOOKLIO_VISION_ENDPOINT` without redesigning this flow.
+              {t("addBook.coverOcrHint")}
             </Text>
           ) : null}
         </View>
@@ -799,10 +881,13 @@ type IntakePathProps = {
 };
 
 function IntakePath({ title, description, icon, accent, onPress }: IntakePathProps) {
+  const c = useColors();
+  const { isDark } = useTheme();
+  const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   return (
     <Pressable style={styles.pathCard} onPress={onPress}>
-      <View style={[styles.pathIcon, { backgroundColor: accent }]}>
-        <Ionicons color={colors.card} name={icon} size={24} />
+      <View style={[styles.pathIcon, { backgroundColor: accent, borderColor: isDark && accent === c.surface ? c.border : "transparent", borderWidth: isDark && accent === c.surface ? 1 : 0 }]}>
+        <Ionicons color={isDark && accent === c.surface ? c.ink : "#FFFFFF"} name={icon} size={24} />
       </View>
       <Text style={styles.pathTitle}>{title}</Text>
       <Text style={styles.pathDescription}>{description}</Text>
@@ -829,6 +914,9 @@ function Field({
   autoCapitalize = "sentences",
   multiline = false
 }: FieldProps) {
+  const c = useColors();
+  const { isDark } = useTheme();
+  const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -837,7 +925,7 @@ function Field({
         autoCapitalize={autoCapitalize}
         keyboardType={keyboardType}
         multiline={multiline}
-        placeholderTextColor={colors.gray}
+        placeholderTextColor={c.gray}
         style={[styles.input, multiline && styles.textArea]}
         value={value}
         onChangeText={onChangeText}
@@ -846,7 +934,10 @@ function Field({
   );
 }
 
-function LanguagePicker({ selected, onSelect }: { selected: string; onSelect: (lang: string) => void }) {
+function LanguagePicker({ selected, onSelect }: { selected: string; onSelect: (lang: string) => void | Promise<void> }) {
+  const c = useColors();
+  const { isDark } = useTheme();
+  const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   const [custom, setCustom] = useState("");
   const [showCustom, setShowCustom] = useState(!COMMON_LANGUAGES.includes(selected));
 
@@ -860,7 +951,7 @@ function LanguagePicker({ selected, onSelect }: { selected: string; onSelect: (l
             <Pressable
               key={lang}
               style={[styles.languageChip, active && styles.languageChipActive]}
-              onPress={() => { onSelect(lang); setShowCustom(false); }}
+              onPress={() => { void onSelect(lang); setShowCustom(false); }}
             >
               <Text style={[styles.languageChipText, active && styles.languageChipTextActive]}>
                 {lang}
@@ -879,10 +970,10 @@ function LanguagePicker({ selected, onSelect }: { selected: string; onSelect: (l
         <TextInput
           autoFocus
           placeholder="Type language…"
-          placeholderTextColor={colors.gray}
+          placeholderTextColor={c.gray}
           style={[styles.input, { marginTop: spacing.sm }]}
           value={custom}
-          onChangeText={(v) => { setCustom(v); onSelect(v); }}
+          onChangeText={(v) => { setCustom(v); void onSelect(v); }}
         />
       )}
     </View>
@@ -907,20 +998,28 @@ function Choice({
   label: string;
   onPress: () => void;
 }) {
+  const c = useColors();
+  const { isDark } = useTheme();
+  const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   return (
     <Pressable style={[styles.choice, active && styles.choiceActive]} onPress={onPress}>
-      <Ionicons name={icon} size={16} color={active ? colors.navy : colors.muted} />
+      <Ionicons name={icon} size={16} color={active ? c.ink : c.muted} />
       <Text style={[styles.choiceText, active && styles.choiceTextActive]}>{label}</Text>
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(c: AppColors, isDark: boolean) {
+  const darkInteractiveFill = "rgba(20,184,166,0.16)";
+  const darkInteractiveBorder = "rgba(20,184,166,0.34)";
+  const darkInteractiveText = c.ink;
+
+  return StyleSheet.create({
   pageHeader: {
     marginBottom: spacing.md
   },
   pageEyebrow: {
-    color: colors.tealDark,
+    color: c.tealDark,
     fontFamily: fonts.body,
     fontSize: 11,
     fontWeight: "900",
@@ -928,7 +1027,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   pageTitle: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 26,
     fontWeight: "900",
@@ -941,8 +1040,8 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg
   },
   pathCard: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surfaceAlt,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     padding: 14,
@@ -959,7 +1058,7 @@ const styles = StyleSheet.create({
   reviewHeader: {
     ...shadows.card,
     alignItems: "center",
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: radii.lg,
     flexDirection: "row",
     gap: spacing.md,
@@ -967,14 +1066,14 @@ const styles = StyleSheet.create({
     padding: spacing.md
   },
   reviewCover: {
-    backgroundColor: colors.cream,
+    backgroundColor: c.surfaceAlt,
     borderRadius: radii.md,
     height: 148,
     width: 98
   },
   reviewCoverFallback: {
     alignItems: "center",
-    backgroundColor: colors.navy2,
+    backgroundColor: c.navy2,
     borderColor: "rgba(255,255,255,0.18)",
     borderRadius: radii.md,
     borderWidth: 1,
@@ -986,7 +1085,7 @@ const styles = StyleSheet.create({
     flex: 1
   },
   reviewTitle: {
-    color: colors.card,
+    color: "#FFFFFF",
     fontFamily: fonts.display,
     fontSize: 25,
     fontWeight: "900",
@@ -994,7 +1093,7 @@ const styles = StyleSheet.create({
     marginTop: 4
   },
   reviewAuthor: {
-    color: "#D8D2C8",
+    color: "rgba(255,255,255,0.74)",
     fontFamily: fonts.body,
     fontSize: 13,
     marginTop: 5
@@ -1013,7 +1112,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7
   },
   reviewSourceText: {
-    color: colors.gold,
+    color: c.gold,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "900"
@@ -1021,8 +1120,8 @@ const styles = StyleSheet.create({
   metadataStrip: {
     ...shadows.card,
     alignItems: "stretch",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     flexDirection: "row",
@@ -1032,8 +1131,8 @@ const styles = StyleSheet.create({
   },
   reviewInsightCard: {
     alignItems: "flex-start",
-    backgroundColor: "#F1FBF8",
-    borderColor: "#CFECE4",
+    backgroundColor: c.teal + "14",
+    borderColor: c.teal + "32",
     borderRadius: radii.lg,
     borderWidth: 1,
     flexDirection: "row",
@@ -1042,7 +1141,7 @@ const styles = StyleSheet.create({
     padding: spacing.md
   },
   reviewInsightText: {
-    color: colors.tealDark,
+    color: c.tealDark,
     flex: 1,
     fontFamily: fonts.bodyRegular,
     fontSize: 13,
@@ -1052,7 +1151,7 @@ const styles = StyleSheet.create({
     flex: 1
   },
   metadataLabel: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 10,
     fontWeight: "900",
@@ -1060,19 +1159,19 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   metadataValue: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 16,
     fontWeight: "900",
     marginTop: 4
   },
   metadataDivider: {
-    backgroundColor: colors.border,
+    backgroundColor: c.border,
     marginHorizontal: spacing.sm,
     width: 1
   },
   reviewSectionTitle: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 22,
     fontWeight: "900",
@@ -1082,8 +1181,8 @@ const styles = StyleSheet.create({
   fetchMetaButton: {
     alignItems: "center",
     alignSelf: "flex-start",
-    backgroundColor: "#F1FBF8",
-    borderColor: "#CFECE4",
+    backgroundColor: c.teal + "14",
+    borderColor: c.teal + "32",
     borderRadius: radii.pill,
     borderWidth: 1,
     flexDirection: "row",
@@ -1096,7 +1195,7 @@ const styles = StyleSheet.create({
     opacity: 0.8
   },
   fetchMetaButtonText: {
-    color: colors.tealDark,
+    color: c.tealDark,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "900"
@@ -1109,8 +1208,8 @@ const styles = StyleSheet.create({
   },
   choice: {
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.pill,
     borderWidth: 1,
     flexDirection: "row",
@@ -1119,17 +1218,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10
   },
   choiceActive: {
-    backgroundColor: colors.gold,
-    borderColor: colors.gold
+    backgroundColor: isDark ? darkInteractiveFill : c.gold,
+    borderColor: isDark ? darkInteractiveBorder : c.gold
   },
   choiceText: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "900"
   },
   choiceTextActive: {
-    color: colors.navy
+    color: c.ink
   },
   reviewActions: {
     gap: spacing.sm,
@@ -1138,15 +1237,18 @@ const styles = StyleSheet.create({
   },
   primaryReviewButton: {
     alignItems: "center",
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: radii.pill,
     flexDirection: "row",
     gap: 8,
     justifyContent: "center",
     paddingVertical: 15
   },
+  primaryReviewButtonBusy: {
+    opacity: 0.8
+  },
   primaryReviewButtonText: {
-    color: colors.card,
+    color: "#FFFFFF",
     fontFamily: fonts.body,
     fontSize: 14,
     fontWeight: "900"
@@ -1160,7 +1262,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6
   },
   secondaryReviewButtonText: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900"
@@ -1171,8 +1273,8 @@ const styles = StyleSheet.create({
   },
   resultCard: {
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     flexDirection: "row",
@@ -1180,13 +1282,13 @@ const styles = StyleSheet.create({
     padding: spacing.md
   },
   resultCover: {
-    backgroundColor: colors.cream,
+    backgroundColor: c.surfaceAlt,
     borderRadius: radii.md,
     height: 104,
     width: 70
   },
   resultCoverFallback: {
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: radii.md,
     height: 104,
     width: 70
@@ -1195,21 +1297,21 @@ const styles = StyleSheet.create({
     flex: 1
   },
   resultTitle: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 22,
     fontWeight: "900",
     lineHeight: 26
   },
   resultAuthor: {
-    color: colors.tealDark,
+    color: c.tealDark,
     fontFamily: fonts.body,
     fontSize: 14,
     fontWeight: "900",
     marginTop: 5
   },
   resultMeta: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.bodyRegular,
     fontSize: 12,
     marginTop: 5
@@ -1217,8 +1319,8 @@ const styles = StyleSheet.create({
   resultEditionPill: {
     alignItems: "center",
     alignSelf: "flex-start",
-    backgroundColor: "#F1FBF8",
-    borderColor: "#CFECE4",
+    backgroundColor: c.teal + "14",
+    borderColor: c.teal + "32",
     borderRadius: radii.pill,
     borderWidth: 1,
     flexDirection: "row",
@@ -1228,27 +1330,27 @@ const styles = StyleSheet.create({
     paddingVertical: 5
   },
   resultEditionText: {
-    color: colors.tealDark,
+    color: c.tealDark,
     fontFamily: fonts.body,
     fontSize: 11,
     fontWeight: "900"
   },
   resultAction: {
     alignItems: "center",
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: 18,
     height: 36,
     justifyContent: "center",
     width: 36
   },
   pathTitle: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 20,
     fontWeight: "900"
   },
   pathDescription: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.bodyRegular,
     fontSize: 12,
     lineHeight: 18,
@@ -1263,8 +1365,8 @@ const styles = StyleSheet.create({
   },
   photoBusyCard: {
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     flexDirection: "row",
@@ -1273,42 +1375,42 @@ const styles = StyleSheet.create({
     padding: spacing.md
   },
   photoBusyText: {
-    color: colors.tealDark,
+    color: c.tealDark,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900"
   },
   photoHintCard: {
-    backgroundColor: "#FFF9EF",
-    borderColor: colors.border,
+    backgroundColor: c.surfaceAlt,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     marginTop: spacing.md,
     padding: spacing.md
   },
   photoHintTitle: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 18,
     fontWeight: "900"
   },
   photoHintCopy: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.bodyRegular,
     fontSize: 13,
     lineHeight: 19,
     marginTop: 6
   },
   sessionCard: {
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: radii.lg,
     gap: spacing.md,
     marginTop: spacing.lg,
     padding: spacing.lg
   },
   backendCard: {
-    backgroundColor: "#FCF0D8",
-    borderColor: colors.border,
+    backgroundColor: c.gold + "18",
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     marginTop: spacing.md,
@@ -1316,13 +1418,13 @@ const styles = StyleSheet.create({
   },
   hero: {
     ...shadows.card,
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: radii.lg,
     marginBottom: spacing.md,
     padding: spacing.lg
   },
   eyebrow: {
-    color: colors.gold,
+    color: c.gold,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "900",
@@ -1330,7 +1432,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   title: {
-    color: colors.card,
+    color: "#FFFFFF",
     fontFamily: fonts.display,
     fontSize: 34,
     fontWeight: "900",
@@ -1338,21 +1440,21 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm
   },
   subtitle: {
-    color: "#F3E9D2",
+    color: "rgba(255,255,255,0.82)",
     fontFamily: fonts.bodyRegular,
     fontSize: 14,
     lineHeight: 21,
     marginTop: spacing.sm
   },
   permissionCard: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     padding: spacing.lg
   },
   scannerCard: {
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: radii.lg,
     height: 360,
     overflow: "hidden"
@@ -1361,7 +1463,7 @@ const styles = StyleSheet.create({
     flex: 1
   },
   scanFrame: {
-    borderColor: colors.gold,
+    borderColor: c.gold,
     borderRadius: radii.lg,
     borderWidth: 3,
     height: 132,
@@ -1371,75 +1473,75 @@ const styles = StyleSheet.create({
     top: 112
   },
   manualIsbnCard: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     marginTop: spacing.lg,
     padding: spacing.md
   },
   cardTitle: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 22,
     fontWeight: "900",
     marginTop: spacing.sm
   },
   cardCopy: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.bodyRegular,
     fontSize: 14,
     lineHeight: 21,
     marginTop: 5
   },
   primaryButton: {
-    backgroundColor: colors.teal,
+    backgroundColor: c.teal,
     borderRadius: radii.pill,
     marginTop: spacing.md,
     paddingVertical: 13
   },
   primaryButtonText: {
-    color: colors.card,
+    color: "#FFFFFF",
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900",
     textAlign: "center"
   },
   secondaryButton: {
-    backgroundColor: colors.gold,
+    backgroundColor: c.gold,
     borderRadius: radii.pill,
     marginTop: spacing.md,
     paddingVertical: 13
   },
   secondaryButtonText: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900",
     textAlign: "center"
   },
   ghostButton: {
-    borderColor: colors.teal,
+    borderColor: c.teal,
     borderRadius: radii.pill,
     borderWidth: 1,
     marginTop: spacing.sm,
     paddingVertical: 12
   },
   ghostButtonText: {
-    color: colors.tealDark,
+    color: c.tealDark,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900",
     textAlign: "center"
   },
   saveButton: {
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: radii.pill,
     marginTop: spacing.lg,
     paddingVertical: 15
   },
   saveButtonText: {
-    color: colors.card,
+    color: "#FFFFFF",
     fontFamily: fonts.body,
     fontSize: 14,
     fontWeight: "900",
@@ -1449,7 +1551,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md
   },
   fieldLabel: {
-    color: colors.tealDark,
+    color: c.tealDark,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "900",
@@ -1458,17 +1560,17 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   fieldHint: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.bodyRegular,
     fontSize: 12,
     marginBottom: 6
   },
   input: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.md,
     borderWidth: 1,
-    color: colors.ink,
+    color: c.ink,
     fontFamily: fonts.body,
     fontSize: 15,
     fontWeight: "700",
@@ -1486,11 +1588,11 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md
   },
   searchInput: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.md,
     borderWidth: 1,
-    color: colors.ink,
+    color: c.ink,
     flex: 1,
     fontFamily: fonts.body,
     fontSize: 15,
@@ -1499,7 +1601,7 @@ const styles = StyleSheet.create({
   },
   searchBtn: {
     alignItems: "center",
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: radii.md,
     height: 50,
     justifyContent: "center",
@@ -1512,7 +1614,8 @@ const styles = StyleSheet.create({
   },
   searchModeChip: {
     alignItems: "center",
-    borderColor: colors.border,
+    backgroundColor: c.surfaceAlt,
+    borderColor: c.border,
     borderRadius: radii.pill,
     borderWidth: 1,
     flexDirection: "row",
@@ -1521,17 +1624,17 @@ const styles = StyleSheet.create({
     paddingVertical: 9
   },
   searchModeChipActive: {
-    backgroundColor: colors.navy,
-    borderColor: colors.navy
+    backgroundColor: isDark ? darkInteractiveFill : c.navy,
+    borderColor: isDark ? darkInteractiveBorder : c.navy
   },
   searchModeText: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900"
   },
   searchModeTextActive: {
-    color: colors.card
+    color: isDark ? darkInteractiveText : "#FFFFFF"
   },
   busyRow: {
     alignItems: "center",
@@ -1541,13 +1644,13 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xl
   },
   busyText: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "800"
   },
   resultCount: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "800",
@@ -1556,8 +1659,8 @@ const styles = StyleSheet.create({
   },
   loadMoreBtn: {
     alignItems: "center",
-    backgroundColor: colors.teal + "12",
-    borderColor: colors.teal + "44",
+    backgroundColor: c.teal + "12",
+    borderColor: c.teal + "44",
     borderRadius: radii.md,
     borderWidth: 1,
     flexDirection: "row",
@@ -1567,13 +1670,13 @@ const styles = StyleSheet.create({
     paddingVertical: 13
   },
   loadMoreText: {
-    color: colors.tealDark,
+    color: c.tealDark,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900"
   },
   resultsHint: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.bodyRegular,
     fontSize: 13,
     marginBottom: spacing.md,
@@ -1585,23 +1688,25 @@ const styles = StyleSheet.create({
     gap: spacing.xs
   },
   languageChip: {
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.pill,
     borderWidth: 1,
     paddingHorizontal: spacing.md,
     paddingVertical: 8
   },
   languageChipActive: {
-    backgroundColor: colors.tealDark,
-    borderColor: colors.tealDark
+    backgroundColor: c.tealDark,
+    borderColor: c.tealDark
   },
   languageChipText: {
-    color: colors.ink,
+    color: c.ink,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "800"
   },
   languageChipTextActive: {
-    color: colors.card
+    color: "#FFFFFF"
   }
-});
+  });
+}

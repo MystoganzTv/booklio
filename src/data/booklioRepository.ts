@@ -23,6 +23,7 @@ export type RepositoryStatus = {
   lastLoadedAt?: string;
   lastError?: string;
   remoteEnabled: boolean;
+  cloudSignedIn: boolean;
 };
 
 export interface BooklioRepository {
@@ -41,7 +42,8 @@ type RemotePayload = {
 const createBaseStatus = (remoteEnabled: boolean): RepositoryStatus => ({
   mode: remoteEnabled ? "remote-cache" : "local-cache",
   syncState: "idle",
-  remoteEnabled
+  remoteEnabled,
+  cloudSignedIn: false
 });
 
 export class LocalFirstBooklioRepository implements BooklioRepository {
@@ -60,6 +62,8 @@ export class LocalFirstBooklioRepository implements BooklioRepository {
 
     try {
       if (supabase) {
+        const userId = await this.getSupabaseUserId();
+        this.status = { ...this.status, cloudSignedIn: Boolean(userId) };
         const supabaseSnapshot = await this.loadSupabase();
         if (supabaseSnapshot) {
           await this.storage.setItem(this.storageKey, JSON.stringify(supabaseSnapshot));
@@ -140,6 +144,8 @@ export class LocalFirstBooklioRepository implements BooklioRepository {
       await this.storage.setItem(this.storageKey, JSON.stringify(normalized));
 
       if (supabase) {
+        const userId = await this.getSupabaseUserId();
+        this.status = { ...this.status, cloudSignedIn: Boolean(userId) };
         await this.saveSupabase(normalized);
       } else if (this.remoteBaseUrl) {
         await this.saveRemote(normalized);
@@ -200,15 +206,10 @@ export class LocalFirstBooklioRepository implements BooklioRepository {
   private async loadSupabase() {
     if (!supabase) return null;
 
-    const {
-      data: { session }
-    } = await supabase.auth.getSession();
-
-    if (!session?.user?.id) {
+    const userId = await this.getSupabaseUserId();
+    if (!userId) {
       return null;
     }
-
-    const userId = session.user.id;
 
     const [{ data: profileRow, error: profileError }, { data: authorRows, error: authorsError }, { data: bookRows, error: booksError }, { data: sessionRows, error: readingSessionsError }] = await Promise.all([
       supabase.from("booklio_profiles").select("*").eq("user_id", userId).maybeSingle(),
@@ -239,15 +240,10 @@ export class LocalFirstBooklioRepository implements BooklioRepository {
   private async saveSupabase(snapshot: BooklioSnapshot) {
     if (!supabase) return;
 
-    const {
-      data: { session }
-    } = await supabase.auth.getSession();
-
-    if (!session?.user?.id) {
+    const userId = await this.getSupabaseUserId();
+    if (!userId) {
       return;
     }
-
-    const userId = session.user.id;
 
     const profilePayload = mapProfileToRow(userId, snapshot.userProfile);
     const authorPayload = snapshot.authors.map((author) => mapAuthorToRow(userId, author));
@@ -294,6 +290,14 @@ export class LocalFirstBooklioRepository implements BooklioRepository {
         throw new Error(`Supabase reading session sync failed: ${error.message}`);
       }
     }
+  }
+
+  private async getSupabaseUserId() {
+    if (!supabase) return null;
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+    return session?.user?.id ?? null;
   }
 }
 

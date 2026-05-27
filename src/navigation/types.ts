@@ -1,4 +1,8 @@
 export type RootStackParamList = {
+  OnboardingWelcome: undefined;
+  OnboardingName: undefined;
+  OnboardingGenres: { name: string };
+  Welcome: undefined;
   MainTabs: undefined;
   BookDetail: { bookId: string };
   ReadingLog: { bookId?: string };
@@ -6,8 +10,10 @@ export type RootStackParamList = {
   BookIntake: undefined;
   SeriesTracker: { seriesId: string };
   EditProfile: undefined;
+  Settings: undefined;
   EditBook: { bookId: string };
   Achievements: undefined;
+  WriteReview: { bookId: string };
 };
 
 export type MainTabParamList = {

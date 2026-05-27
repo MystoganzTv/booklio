@@ -14,10 +14,11 @@ const CATEGORY_META: Record<Category, { label: string; icon: keyof typeof Ionico
   genre:      { label: "Genres",             icon: "compass-outline",      color: colors.gold    },
   collection: { label: "Collection",         icon: "library-outline",      color: colors.green   },
   speed:      { label: "Speed",              icon: "speedometer-outline",  color: "#6366F1"      },
-  social:     { label: "Social",             icon: "people-outline",       color: colors.navy    }
+  social:     { label: "Social",             icon: "people-outline",       color: colors.navy    },
+  location:   { label: "Reading Places",     icon: "location-outline",     color: "#F59E0B"      }
 };
 
-const CATEGORY_ORDER: Category[] = ["habit", "reading", "genre", "collection", "speed", "social"];
+const CATEGORY_ORDER: Category[] = ["habit", "reading", "genre", "collection", "speed", "social", "location"];
 
 const TIER_COLOR: Record<Achievement["tier"], string> = {
   bronze:    "#CD7F32",

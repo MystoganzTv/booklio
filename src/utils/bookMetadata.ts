@@ -85,6 +85,8 @@ export type BookMetadata = {
   editionKey?: string;
   editionCount?: number;
   format?: NewBookInput["format"];
+  isBestseller?: boolean;
+  tags?: string[];
 };
 
 export type BookEditionOption = {
@@ -153,7 +155,113 @@ const mapPhysicalFormat = (value?: string): NewBookInput["format"] | undefined =
 const formatEditionLabel = (parts: Array<string | undefined>) =>
   parts.filter(Boolean).join(" · ");
 
+const editorialSignalMatchers: Array<{ label: string; pattern: RegExp }> = [
+  { label: "#1 New York Times Bestseller", pattern: /#\s*1\s+new york times\s+bestsell(?:er|ing)/i },
+  { label: "New York Times Bestseller", pattern: /\bnew york times\s+bestsell(?:er|ing)\b/i },
+  { label: "USA Today Bestseller", pattern: /\busa today\s+bestsell(?:er|ing)\b/i },
+  { label: "Wall Street Journal Bestseller", pattern: /\bwall street journal\s+bestsell(?:er|ing)\b/i },
+  { label: "Sunday Times Bestseller", pattern: /\bsunday times\s+bestsell(?:er|ing)\b/i },
+  { label: "National Bestseller", pattern: /\bnational bestseller\b/i },
+  { label: "International Bestseller", pattern: /\binternational bestseller\b/i },
+  { label: "Instant Bestseller", pattern: /\binstant bestseller\b/i },
+  { label: "Pulitzer Prize Winner", pattern: /\bpulitzer prize (winner|winning)\b/i },
+  { label: "National Book Award Winner", pattern: /\bnational book award (winner|winning)\b/i },
+  { label: "Booker Prize Winner", pattern: /\b(booker prize|man booker prize) (winner|winning)\b/i },
+  { label: "Women's Prize Winner", pattern: /\bwomen'?s prize (winner|winning)\b/i },
+  { label: "Hugo Award Winner", pattern: /\bhugo award (winner|winning)\b/i },
+  { label: "Nebula Award Winner", pattern: /\bnebula award (winner|winning)\b/i },
+  { label: "Locus Award Winner", pattern: /\blocus award (winner|winning)\b/i },
+  { label: "World Fantasy Award Winner", pattern: /\bworld fantasy award (winner|winning)\b/i },
+  { label: "Edgar Award Winner", pattern: /\bedgar award (winner|winning)\b/i },
+  { label: "Bram Stoker Award Winner", pattern: /\bbram stoker award (winner|winning)\b/i },
+  { label: "Goodreads Choice Award Winner", pattern: /\bgoodreads choice award (winner|winning)\b/i },
+  { label: "Caldecott Medal Winner", pattern: /\bcaldecott medal (winner|winning)\b/i },
+  { label: "Newbery Medal Winner", pattern: /\bnewbery medal (winner|winning)\b/i },
+  { label: "Costa Book Award Winner", pattern: /\bcosta book award (winner|winning)\b/i }
+];
+
+function detectEditorialSignals(parts: Array<string | undefined>) {
+  const haystack = parts.filter(Boolean).join(" \n ");
+  const tags: string[] = [];
+
+  for (const matcher of editorialSignalMatchers) {
+    if (matcher.pattern.test(haystack) && !tags.includes(matcher.label)) {
+      tags.push(matcher.label);
+    }
+  }
+
+  const isBestseller =
+    tags.some((tag) => /bestseller/i.test(tag)) ||
+    /\bbestsell(?:er|ing)\b/i.test(haystack);
+
+  return {
+    isBestseller,
+    tags
+  };
+}
+
 export const normalizeIsbn = (isbn?: string) => isbn?.replace(/[^0-9X]/gi, "") ?? "";
+
+const normalizeSearchText = (value?: string) =>
+  value
+    ?.toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim() ?? "";
+
+const tokenizeSearchText = (value?: string) =>
+  normalizeSearchText(value)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+function scoreAuthorDoc(doc: OpenLibrarySearchDoc, query: string) {
+  const target = normalizeSearchText(query);
+  const authorNames = (doc.author_name ?? []).map((name) => normalizeSearchText(name)).filter(Boolean);
+  const title = normalizeSearchText(doc.title);
+  const tokens = tokenizeSearchText(query);
+
+  if (!target || !authorNames.length) return -1;
+
+  let bestScore = -1;
+  for (const author of authorNames) {
+    let score = 0;
+
+    if (author === target) score += 1000;
+    else if (author.startsWith(target)) score += 700;
+    else if (author.includes(target)) score += 420;
+
+    const matchedTokens = tokens.filter((token) => author.split(" ").includes(token)).length;
+    score += matchedTokens * 90;
+
+    if (tokens.length > 1 && matchedTokens === tokens.length) score += 260;
+    if (title.includes(target)) score -= 140;
+    if (!author.includes(tokens[0] ?? "")) score -= 120;
+
+    bestScore = Math.max(bestScore, score);
+  }
+
+  return bestScore;
+}
+
+function filterAndSortAuthorDocs(docs: OpenLibrarySearchDoc[], query: string) {
+  const ranked = docs
+    .map((doc) => ({ doc, score: scoreAuthorDoc(doc, query) }))
+    .filter((entry) => entry.score >= 180)
+    .sort((a, b) => b.score - a.score || (b.doc.edition_count ?? 0) - (a.doc.edition_count ?? 0));
+
+  if (ranked.length > 0) {
+    return ranked.map((entry) => entry.doc);
+  }
+
+  return docs
+    .map((doc) => ({ doc, score: scoreAuthorDoc(doc, query) }))
+    .sort((a, b) => b.score - a.score || (b.doc.edition_count ?? 0) - (a.doc.edition_count ?? 0))
+    .slice(0, 12)
+    .map((entry) => entry.doc);
+}
 
 export const isPlaceholderText = (value?: string) => {
   const normalized = value?.trim().toLowerCase() ?? "";
@@ -197,17 +305,60 @@ async function fetchWorkMetadata(workKey?: string): Promise<BookMetadata | undef
     const response = await fetch(openLibraryUrl(`${workKey}.json`));
     if (!response.ok) return undefined;
     const data = (await response.json()) as OpenLibraryWorkResponse;
+    const signals = detectEditorialSignals([
+      data.title,
+      readDescription(data.description),
+      ...(data.subjects ?? [])
+    ]);
     return {
       title: data.title,
       synopsis: readDescription(data.description),
       genre: data.subjects?.slice(0, 4),
       publishedDate: data.first_publish_date,
       coverImageUri: coverUrl(data.covers?.[0]),
-      workKey: data.key ?? workKey
+      workKey: data.key ?? workKey,
+      isBestseller: signals.isBestseller,
+      tags: signals.tags
     };
   } catch {
     return undefined;
   }
+}
+
+async function mapEditionRecordToMetadata(
+  data: OpenLibraryIsbnResponse,
+  fallbackIsbn?: string
+): Promise<BookMetadata | undefined> {
+  const authorName = await fetchAuthorName(data.authors?.[0]?.key);
+  const workKey = data.works?.[0]?.key;
+  const workMeta = await fetchWorkMetadata(workKey);
+  const signals = detectEditorialSignals([
+    data.title,
+    data.subtitle,
+    readDescription(data.description),
+    ...(data.subjects ?? [])
+  ]);
+
+  return mergeBookMetadata(
+    {
+      title: data.title,
+      authorName,
+      isbn: data.isbn_13?.[0] ?? data.isbn_10?.[0] ?? fallbackIsbn,
+      pages: data.number_of_pages,
+      genre: data.subjects?.slice(0, 4),
+      publisher: data.publishers?.[0],
+      publishedDate: data.publish_date,
+      language: mapLanguageKey(data.languages?.[0]?.key) ?? "English",
+      synopsis: readDescription(data.description),
+      coverImageUri: coverUrl(data.covers?.[0]),
+      workKey,
+      editionKey: data.key,
+      format: mapPhysicalFormat(data.physical_format),
+      isBestseller: signals.isBestseller,
+      tags: signals.tags
+    },
+    workMeta
+  );
 }
 
 export async function fetchBookMetadataByIsbn(isbn: string): Promise<BookMetadata | undefined> {
@@ -218,28 +369,19 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<BookMetadat
     const response = await fetch(openLibraryUrl(`/isbn/${cleanIsbn}.json`));
     if (!response.ok) return undefined;
     const data = (await response.json()) as OpenLibraryIsbnResponse;
-    const authorName = await fetchAuthorName(data.authors?.[0]?.key);
-    const workKey = data.works?.[0]?.key;
-    const workMeta = await fetchWorkMetadata(workKey);
+    return await mapEditionRecordToMetadata(data, cleanIsbn);
+  } catch {
+    return undefined;
+  }
+}
 
-    return mergeBookMetadata(
-      {
-        title: data.title,
-        authorName,
-        isbn: data.isbn_13?.[0] ?? data.isbn_10?.[0] ?? cleanIsbn,
-        pages: data.number_of_pages,
-        genre: data.subjects?.slice(0, 4),
-        publisher: data.publishers?.[0],
-        publishedDate: data.publish_date,
-        language: mapLanguageKey(data.languages?.[0]?.key) ?? "English",
-        synopsis: readDescription(data.description),
-        coverImageUri: coverUrl(data.covers?.[0]),
-        workKey,
-        editionKey: data.key,
-        format: mapPhysicalFormat(data.physical_format)
-      },
-      workMeta
-    );
+export async function fetchBookMetadataByEditionKey(editionKey?: string): Promise<BookMetadata | undefined> {
+  if (!editionKey) return undefined;
+  try {
+    const response = await fetch(openLibraryUrl(`${editionKey}.json`));
+    if (!response.ok) return undefined;
+    const data = (await response.json()) as OpenLibraryIsbnResponse;
+    return await mapEditionRecordToMetadata(data);
   } catch {
     return undefined;
   }
@@ -260,11 +402,14 @@ export async function searchBookMetadata(
   if (!response.ok) return { results: [], total: 0 };
 
   const data = (await response.json()) as OpenLibrarySearchResponse;
-  const results = (data.docs ?? [])
+  const rankedDocs = mode === "author"
+    ? filterAndSortAuthorDocs(data.docs ?? [], query)
+    : (data.docs ?? []);
+  const results = rankedDocs
     .filter((doc) => doc.title && doc.author_name?.[0])
     .map((doc) => mapSearchDocToBookInput(doc));
 
-  return { results, total: data.numFound ?? results.length };
+  return { results, total: mode === "author" ? results.length : data.numFound ?? results.length };
 }
 
 export async function fetchBookMetadataByTitleAuthor(title: string, authorName = ""): Promise<BookMetadata | undefined> {
@@ -276,6 +421,10 @@ export async function fetchBookMetadataByTitleAuthor(title: string, authorName =
   if (!first) return undefined;
 
   const workMeta = await fetchWorkMetadata(first.workKey);
+  const signals = detectEditorialSignals([
+    first.title,
+    ...(first.genre ?? [])
+  ]);
 
   return mergeBookMetadata(
     {
@@ -290,7 +439,9 @@ export async function fetchBookMetadataByTitleAuthor(title: string, authorName =
       synopsis: first.synopsis,
       coverImageUri: first.coverImageUri,
       workKey: first.workKey,
-      editionCount: first.editionCount
+      editionCount: first.editionCount,
+      isBestseller: signals.isBestseller,
+      tags: signals.tags
     },
     workMeta
   );
@@ -402,6 +553,8 @@ export function metadataToBookInput(
     workKey: metadata.workKey,
     editionKey: metadata.editionKey,
     editionCount: metadata.editionCount,
+    isBestseller: metadata.isBestseller,
+    tags: metadata.tags,
     source,
     ownership: "owned",
     ...overrides
@@ -424,7 +577,9 @@ export function applyMetadataToBookInput(input: NewBookInput, metadata: BookMeta
     format: input.format ?? metadata.format,
     workKey: input.workKey ?? metadata.workKey,
     editionKey: input.editionKey ?? metadata.editionKey,
-    editionCount: input.editionCount ?? metadata.editionCount
+    editionCount: input.editionCount ?? metadata.editionCount,
+    isBestseller: input.isBestseller ?? metadata.isBestseller,
+    tags: mergeUniqueTags(input.tags, metadata.tags)
   };
 }
 
@@ -456,6 +611,8 @@ export function summarizeMetadataChanges(original: NewBookInput, updated: NewBoo
   if (original.language !== updated.language) changes.push("language");
   if (original.synopsis !== updated.synopsis) changes.push("synopsis");
   if (original.coverImageUri !== updated.coverImageUri) changes.push("cover image");
+  if (Boolean(original.isBestseller) !== Boolean(updated.isBestseller)) changes.push("bestseller signal");
+  if ((original.tags ?? []).join("|") !== (updated.tags ?? []).join("|")) changes.push("awards & badges");
   return changes;
 }
 
@@ -478,11 +635,17 @@ export function mergeBookMetadata(
     workKey: primary?.workKey ?? secondary?.workKey,
     editionKey: primary?.editionKey ?? secondary?.editionKey,
     editionCount: primary?.editionCount ?? secondary?.editionCount,
-    format: primary?.format ?? secondary?.format
+    format: primary?.format ?? secondary?.format,
+    isBestseller: primary?.isBestseller ?? secondary?.isBestseller,
+    tags: mergeUniqueTags(primary?.tags, secondary?.tags)
   };
 }
 
 function mapSearchDocToBookInput(doc: OpenLibrarySearchDoc): NewBookInput {
+  const signals = detectEditorialSignals([
+    doc.title,
+    ...(doc.subject ?? [])
+  ]);
   return {
     title: doc.title ?? "Untitled Book",
     authorName: doc.author_name?.[0] ?? "Unknown Author",
@@ -496,9 +659,19 @@ function mapSearchDocToBookInput(doc: OpenLibrarySearchDoc): NewBookInput {
     coverImageUri: coverUrl(doc.cover_i),
     workKey: doc.key?.startsWith("/works/") ? doc.key : undefined,
     editionCount: doc.edition_count,
+    isBestseller: signals.isBestseller,
+    tags: signals.tags,
     source: "search",
     ownership: "owned"
   };
+}
+
+function mergeUniqueTags(primary?: string[], secondary?: string[]) {
+  const merged = [...(primary ?? []), ...(secondary ?? [])]
+    .map((tag) => tag?.trim())
+    .filter((tag): tag is string => Boolean(tag));
+
+  return Array.from(new Set(merged));
 }
 
 function shouldUseMetadataValue(current?: string, incoming?: string) {

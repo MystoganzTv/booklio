@@ -5,17 +5,30 @@ import * as AuthSession from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
 import { GoogleSignin } from "@react-native-google-signin/google-signin";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Image, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useBooklio } from "../data/BooklioContext";
+import { useI18n } from "../i18n/LocalizationContext";
+import { RootStackParamList } from "../navigation/types";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
-import { colors, fonts, radii, spacing } from "../theme/theme";
+import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { useColors } from "../theme/ThemeContext";
 import { buildAppleDisplayName, getGoogleAuthConfig } from "../utils/googleAuth";
 
 WebBrowser.maybeCompleteAuthSession();
 
-export function GoogleConnectionCard() {
+type GoogleConnectionCardProps = {
+  variant?: "settings" | "onboarding";
+};
+
+export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionCardProps) {
+  const c = useColors();
+  const styles = useMemo(() => createStyles(c), [c]);
+  const { t } = useI18n();
   const { connectIdentityAccount, disconnectIdentityAccount, userProfile } = useBooklio();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [activeProvider, setActiveProvider] = useState<"google" | "apple" | null>(null);
   const config = useMemo(() => getGoogleAuthConfig(), []);
   const isNative = Platform.OS === "ios" || Platform.OS === "android";
@@ -53,7 +66,7 @@ export function GoogleConnectionCard() {
 
       const accessToken = response.authentication?.accessToken ?? response.params.access_token;
       if (!accessToken) {
-        Alert.alert("Google sign-in", "Google returned successfully, but Booklio did not receive an access token.");
+        Alert.alert(t("auth.googleFailedTitle"), t("auth.googleFailedBody"));
         return;
       }
 
@@ -97,7 +110,7 @@ export function GoogleConnectionCard() {
         });
 
       } catch {
-        Alert.alert("Google sign-in", "Booklio could not finish syncing your Google profile.");
+        Alert.alert(t("auth.googleFailedTitle"), t("auth.googleFailedBody"));
       } finally {
         setActiveProvider(null);
       }
@@ -119,8 +132,8 @@ export function GoogleConnectionCard() {
 
     if (isExpoGo) {
       Alert.alert(
-        "Development build required",
-        "Google Sign-In for iPhone and Android needs a development build or production build. Expo Go cannot complete this native flow."
+        t("auth.devBuildTitle"),
+        t("auth.devBuildBody")
       );
       return;
     }
@@ -140,13 +153,20 @@ export function GoogleConnectionCard() {
       const tokens = (await GoogleSignin.getTokens()) as { idToken?: string; accessToken?: string };
       const idToken = (result as { data?: { idToken?: string } }).data?.idToken ?? tokens.idToken;
 
+      // Supabase cloud sync — non-fatal on native iOS/Android because the id_token
+      // audience will be the iOS/Android client ID, not the web client ID Supabase
+      // expects. Local profile linking always succeeds regardless.
       if (supabase && idToken) {
         const { error } = await supabase.auth.signInWithIdToken({
           provider: "google",
           token: idToken
         });
         if (error) {
-          throw error;
+          console.warn("Booklio: Supabase cloud sync skipped for native Google sign-in:", error.message);
+          // Do NOT throw — local profile linking works fine without cloud sync.
+          // To enable cloud sync on native, add your iOS/Android client IDs to
+          // the Supabase dashboard → Authentication → Providers → Google →
+          // "Authorized Client IDs".
         }
       }
 
@@ -162,10 +182,7 @@ export function GoogleConnectionCard() {
 
     } catch (error) {
       console.error("Booklio native Google sign-in failed", error);
-      Alert.alert(
-        "Google sign-in",
-        "Booklio could not finish the native Google sign-in flow. Double-check the iOS/Android client IDs and Android SHA-1 setup."
-      );
+      Alert.alert(t("auth.googleFailedTitle"), t("auth.googleFailedBody"));
     } finally {
       setActiveProvider(null);
     }
@@ -173,7 +190,7 @@ export function GoogleConnectionCard() {
 
   const handleAppleSignIn = async () => {
     if (!isAppleAvailable) {
-      Alert.alert("Apple Sign In", "Apple Sign In is only available on Apple devices.");
+      Alert.alert(t("auth.appleUnavailableTitle"), t("auth.appleUnavailableBody"));
       return;
     }
 
@@ -216,7 +233,7 @@ export function GoogleConnectionCard() {
         return;
       }
       console.error("Booklio Apple sign-in failed", error);
-      Alert.alert("Apple Sign In", "Booklio could not finish linking your Apple identity.");
+      Alert.alert(t("auth.appleUnavailableTitle"), t("auth.appleFailedBody"));
     } finally {
       setActiveProvider(null);
     }
@@ -234,6 +251,7 @@ export function GoogleConnectionCard() {
       console.error("Booklio sign-out failed", error);
     } finally {
       await disconnectIdentityAccount();
+      navigation.navigate("Welcome");
     }
   };
 
@@ -241,23 +259,34 @@ export function GoogleConnectionCard() {
   const isGoogleBusy = activeProvider === "google";
   const isAppleBusy = activeProvider === "apple";
   const isGoogleDisabled = isGoogleBusy || activeProvider === "apple" || (Platform.OS === "web" && !request);
-  const providerLabel = userProfile.authProvider === "apple" ? "Apple" : "Google";
+  const providerLabel = userProfile.authProvider === "apple" ? t("auth.providerApple") : t("auth.providerGoogle");
   const providerSupportCopy = userProfile.authProvider === "apple"
-    ? "Best for iPhone-first onboarding."
-    : "Best for cross-device profile continuity.";
+    ? t("auth.providerAppleMeta")
+    : t("auth.providerGoogleMeta");
+  const isOnboarding = variant === "onboarding";
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, isOnboarding && styles.cardOnboarding]}>
       <View style={styles.copy}>
-        <Text style={styles.eyebrow}>{isConnected ? "Identity provider" : "Connected identity"}</Text>
-        <Text style={styles.title}>{isConnected ? providerLabel : "Choose how you enter Booklio"}</Text>
+        <Text style={styles.eyebrow}>
+          {isConnected ? t("auth.connectedEyebrow") : isOnboarding ? t("auth.onboardingEyebrow") : t("auth.settingsEyebrow")}
+        </Text>
+        <Text style={styles.title}>
+          {isConnected
+            ? t("auth.connectedTitle", { provider: providerLabel })
+            : isOnboarding
+              ? t("auth.onboardingTitle")
+              : t("auth.settingsTitle")}
+        </Text>
         <Text style={styles.body}>
           {isConnected
-            ? userProfile.email ?? "Your account is linked and ready."
-            : "Keep account connections here. Your reader dashboard stays focused on books, progress, and what comes next."}
+            ? t("auth.connectedBody", { email: userProfile.email ?? "—" })
+            : isOnboarding
+              ? t("auth.onboardingBody")
+              : t("auth.settingsBody")}
         </Text>
         {!isConnected && isSupabaseConfigured ? (
-          <Text style={styles.cloudHint}>Booklio can also sync this profile to your cloud library.</Text>
+          <Text style={styles.cloudHint}>{t("auth.cloudHint")}</Text>
         ) : null}
       </View>
 
@@ -271,17 +300,17 @@ export function GoogleConnectionCard() {
                 <Ionicons
                   name={userProfile.authProvider === "apple" ? "logo-apple" : "logo-google"}
                   size={18}
-                  color={colors.card}
+                  color={c.surface}
                 />
               </View>
             )}
             <View style={styles.providerCopy}>
-              <Text style={styles.providerName}>Using {providerLabel}</Text>
+              <Text style={styles.providerName}>{t("auth.usingProvider", { provider: providerLabel })}</Text>
               <Text style={styles.providerMeta}>{providerSupportCopy}</Text>
             </View>
           </View>
           <Pressable style={styles.disconnectButton} onPress={() => void handleDisconnect()}>
-            <Text style={styles.disconnectButtonText}>Disconnect</Text>
+            <Text style={styles.disconnectButtonText}>{t("auth.disconnect")}</Text>
           </Pressable>
         </View>
       ) : (
@@ -294,11 +323,11 @@ export function GoogleConnectionCard() {
             }}
           >
             {isGoogleBusy ? (
-              <ActivityIndicator size="small" color={colors.card} />
+              <ActivityIndicator size="small" color={c.surface} />
             ) : (
-              <Ionicons name="logo-google" size={16} color={colors.card} />
+              <Ionicons name="logo-google" size={16} color={c.surface} />
             )}
-            <Text style={styles.connectButtonText}>{isGoogleBusy ? "Connecting..." : "Continue with Google"}</Text>
+            <Text style={styles.connectButtonText}>{isGoogleBusy ? `${t("auth.providerGoogle")}…` : t("auth.googleButton")}</Text>
           </Pressable>
 
           {isAppleAvailable ? (
@@ -313,8 +342,8 @@ export function GoogleConnectionCard() {
             />
           ) : (
             <View style={styles.appleUnavailable}>
-              <Ionicons name="logo-apple" size={16} color={colors.navy} />
-              <Text style={styles.appleUnavailableText}>Apple Sign In appears on iPhone and iPad builds.</Text>
+              <Ionicons name="logo-apple" size={16} color={c.ink} />
+              <Text style={styles.appleUnavailableText}>{t("auth.appleUnavailableBody")}</Text>
             </View>
           )}
         </View>
@@ -323,142 +352,149 @@ export function GoogleConnectionCard() {
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    marginBottom: spacing.md,
-    padding: spacing.md
-  },
-  copy: {
-    marginBottom: spacing.sm
-  },
-  eyebrow: {
-    color: colors.tealDark,
-    fontFamily: fonts.body,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1,
-    textTransform: "uppercase"
-  },
-  title: {
-    color: colors.navy,
-    fontFamily: fonts.display,
-    fontSize: 22,
-    fontWeight: "900",
-    marginTop: 4
-  },
-  body: {
-    color: colors.muted,
-    fontFamily: fonts.bodyRegular,
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 6
-  },
-  cloudHint: {
-    color: colors.tealDark,
-    fontFamily: fonts.body,
-    fontSize: 12,
-    fontWeight: "800",
-    marginTop: 8
-  },
-  connectedWrap: {
-    gap: spacing.md
-  },
-  connectedRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.sm
-  },
-  providerCopy: {
-    flex: 1
-  },
-  providerName: {
-    color: colors.navy,
-    fontFamily: fonts.body,
-    fontSize: 14,
-    fontWeight: "900"
-  },
-  providerMeta: {
-    color: colors.muted,
-    fontFamily: fonts.bodyRegular,
-    fontSize: 12,
-    marginTop: 2
-  },
-  avatar: {
-    borderRadius: 20,
-    height: 40,
-    width: 40
-  },
-  avatarFallback: {
-    alignItems: "center",
-    backgroundColor: colors.tealDark,
-    borderRadius: 20,
-    height: 40,
-    justifyContent: "center",
-    width: 40
-  },
-  avatarFallbackApple: {
-    backgroundColor: colors.navy
-  },
-  disconnectButton: {
-    alignItems: "center",
-    borderColor: colors.border,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    justifyContent: "center",
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10
-  },
-  disconnectButtonText: {
-    color: colors.navy,
-    fontFamily: fonts.body,
-    fontSize: 12,
-    fontWeight: "900"
-  },
-  optionsWrap: {
-    gap: spacing.sm
-  },
-  connectButton: {
-    alignItems: "center",
-    backgroundColor: colors.navy,
-    borderRadius: radii.pill,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    paddingVertical: 13
-  },
-  connectButtonDisabled: {
-    opacity: 0.7
-  },
-  connectButtonText: {
-    color: colors.card,
-    fontFamily: fonts.body,
-    fontSize: 13,
-    fontWeight: "900"
-  },
-  appleButton: {
-    height: 48,
-    width: "100%"
-  },
-  appleUnavailable: {
-    alignItems: "center",
-    backgroundColor: colors.cream,
-    borderColor: colors.border,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    minHeight: 48,
-    paddingHorizontal: spacing.md
-  },
-  appleUnavailableText: {
-    color: colors.navy,
-    fontFamily: fonts.body,
-    fontSize: 12,
-    fontWeight: "700"
-  }
-});
+function createStyles(c: AppColors) {
+  return StyleSheet.create({
+    card: {
+      backgroundColor: c.surface,
+      borderColor: c.border,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      marginBottom: spacing.md,
+      padding: spacing.md
+    },
+    cardOnboarding: {
+      ...shadows.card,
+      borderRadius: 30,
+      padding: spacing.lg
+    },
+    copy: {
+      marginBottom: spacing.sm
+    },
+    eyebrow: {
+      color: c.tealDark,
+      fontFamily: fonts.body,
+      fontSize: 11,
+      fontWeight: "900",
+      letterSpacing: 1,
+      textTransform: "uppercase"
+    },
+    title: {
+      color: c.ink,
+      fontFamily: fonts.display,
+      fontSize: 22,
+      fontWeight: "900",
+      marginTop: 4
+    },
+    body: {
+      color: c.muted,
+      fontFamily: fonts.bodyRegular,
+      fontSize: 13,
+      lineHeight: 19,
+      marginTop: 6
+    },
+    cloudHint: {
+      color: c.tealDark,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "800",
+      marginTop: 8
+    },
+    connectedWrap: {
+      gap: spacing.md
+    },
+    connectedRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: spacing.sm
+    },
+    providerCopy: {
+      flex: 1
+    },
+    providerName: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 14,
+      fontWeight: "900"
+    },
+    providerMeta: {
+      color: c.muted,
+      fontFamily: fonts.bodyRegular,
+      fontSize: 12,
+      marginTop: 2
+    },
+    avatar: {
+      borderRadius: 20,
+      height: 40,
+      width: 40
+    },
+    avatarFallback: {
+      alignItems: "center",
+      backgroundColor: c.tealDark,
+      borderRadius: 20,
+      height: 40,
+      justifyContent: "center",
+      width: 40
+    },
+    avatarFallbackApple: {
+      backgroundColor: c.navy
+    },
+    disconnectButton: {
+      alignItems: "center",
+      borderColor: c.border,
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      justifyContent: "center",
+      paddingHorizontal: spacing.md,
+      paddingVertical: 10
+    },
+    disconnectButtonText: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "900"
+    },
+    optionsWrap: {
+      gap: spacing.sm
+    },
+    connectButton: {
+      alignItems: "center",
+      backgroundColor: c.navy,
+      borderRadius: radii.pill,
+      flexDirection: "row",
+      gap: 8,
+      justifyContent: "center",
+      paddingVertical: 13
+    },
+    connectButtonDisabled: {
+      opacity: 0.7
+    },
+    connectButtonText: {
+      color: c.surface,
+      fontFamily: fonts.body,
+      fontSize: 13,
+      fontWeight: "900"
+    },
+    appleButton: {
+      height: 48,
+      width: "100%"
+    },
+    appleUnavailable: {
+      alignItems: "center",
+      backgroundColor: c.surfaceAlt,
+      borderColor: c.border,
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 8,
+      justifyContent: "center",
+      minHeight: 48,
+      paddingHorizontal: spacing.md
+    },
+    appleUnavailableText: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "700"
+    }
+  });
+}

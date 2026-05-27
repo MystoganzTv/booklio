@@ -1,7 +1,7 @@
 import { ImageSourcePropType } from "react-native";
 import { Achievement } from "../types/models";
 
-const achievementIconSources: Partial<Record<Achievement["id"], ImageSourcePropType>> = {
+const achievementIconSources: Partial<Record<string, ImageSourcePropType>> = {
   "ach-1-book": require("../../assets/achievements/first-book.png"),
   "ach-daily": require("../../assets/achievements/streak-7.png"),
   "ach-night-reading": require("../../assets/achievements/night-reading.png"),
@@ -42,7 +42,8 @@ const achievementIconSources: Partial<Record<Achievement["id"], ImageSourcePropT
   "ach-home-reader": require("../../assets/achievements/library-builder.png"),
   "ach-park-reader": require("../../assets/achievements/reading-places.png"),
   "ach-sessions-50": require("../../assets/achievements/streak-30.png"),
-  "ach-rereader": require("../../assets/achievements/first-book.png")
+  "ach-rereader": require("../../assets/achievements/first-book.png"),
+
 };
 
 export function getAchievementIconSource(achievement: Achievement) {

@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { colors, fonts } from "../theme/theme";
+import { AppColors, fonts } from "../theme/theme";
+import { useColors } from "../theme/ThemeContext";
 
 type ProgressRingProps = {
   progress: number;
@@ -7,6 +9,8 @@ type ProgressRingProps = {
 };
 
 export function ProgressRing({ progress, size = 42 }: ProgressRingProps) {
+  const c = useColors();
+  const styles = useMemo(() => createStyles(c), [c]);
   const clamped = Math.max(0, Math.min(100, progress));
 
   return (
@@ -14,7 +18,7 @@ export function ProgressRing({ progress, size = 42 }: ProgressRingProps) {
       style={[
         styles.ring,
         {
-          borderColor: clamped > 66 ? colors.green : colors.gold,
+          borderColor: clamped > 66 ? c.green : c.gold,
           height: size,
           width: size
         }
@@ -27,23 +31,25 @@ export function ProgressRing({ progress, size = 42 }: ProgressRingProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  ring: {
-    alignItems: "center",
-    backgroundColor: "rgba(15,23,42,0.72)",
-    borderRadius: 999,
-    borderWidth: 4,
-    justifyContent: "center"
-  },
-  inner: {
-    alignItems: "center",
-    borderRadius: 999,
-    justifyContent: "center"
-  },
-  text: {
-    color: colors.card,
-    fontFamily: fonts.body,
-    fontSize: 10,
-    fontWeight: "800"
-  }
-});
+function createStyles(c: AppColors) {
+  return StyleSheet.create({
+    ring: {
+      alignItems: "center",
+      backgroundColor: c.navy + "BB",
+      borderRadius: 999,
+      borderWidth: 4,
+      justifyContent: "center"
+    },
+    inner: {
+      alignItems: "center",
+      borderRadius: 999,
+      justifyContent: "center"
+    },
+    text: {
+      color: "#FFFFFF",
+      fontFamily: fonts.body,
+      fontSize: 10,
+      fontWeight: "800"
+    }
+  });
+}

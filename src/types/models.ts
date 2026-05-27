@@ -111,7 +111,7 @@ export interface Achievement {
   unlockedAt?: string;      // ISO date
   progress: number;
   goal: number;
-  category: "reading" | "collection" | "genre" | "habit" | "speed" | "social";
+  category: "reading" | "collection" | "genre" | "habit" | "speed" | "social" | "location";
   tier: "bronze" | "silver" | "gold" | "legendary";
   icon: string;
 }
@@ -210,6 +210,8 @@ export interface NewBookInput {
   workKey?: string;
   editionKey?: string;
   editionCount?: number;
+  isBestseller?: boolean;
+  tags?: string[];
   source: "photo" | "isbn" | "manual" | "search";
   ownership?: OwnershipStatus;
   wishlist?: boolean;
