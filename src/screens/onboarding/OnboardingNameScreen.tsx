@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -14,6 +15,7 @@ import { RootStackParamList } from "../../navigation/types";
 import { colors, fonts, radii, spacing } from "../../theme/theme";
 
 type Nav = NativeStackNavigationProp<RootStackParamList, "OnboardingName">;
+const onboardingLogo = require("../../../assets/brand/booklio-onboarding-glow.png");
 
 function StepDots({ current }: { current: number }) {
   return (
@@ -50,6 +52,10 @@ export function OnboardingNameScreen() {
           <View style={styles.stepPill}>
             <Text style={styles.stepText}>2 of 3</Text>
           </View>
+        </View>
+
+        <View style={styles.logoWrap}>
+          <Image source={onboardingLogo} style={styles.logo} resizeMode="contain" />
         </View>
 
         {/* Eyebrow */}
@@ -172,7 +178,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: spacing.xl
+    marginBottom: spacing.md
+  },
+  logoWrap: {
+    alignItems: "center",
+    marginBottom: spacing.lg
+  },
+  logo: {
+    height: 118,
+    width: 176
   },
   backBtn: {
     width: 40

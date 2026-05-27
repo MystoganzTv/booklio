@@ -323,11 +323,13 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
             }}
           >
             {isGoogleBusy ? (
-              <ActivityIndicator size="small" color={c.surface} />
+              <ActivityIndicator size="small" color={isGoogleDisabled ? c.ink : "#FFFFFF"} />
             ) : (
-              <Ionicons name="logo-google" size={16} color={c.surface} />
+              <Ionicons name="logo-google" size={16} color={isGoogleDisabled ? c.ink : "#FFFFFF"} />
             )}
-            <Text style={styles.connectButtonText}>{isGoogleBusy ? `${t("auth.providerGoogle")}…` : t("auth.googleButton")}</Text>
+            <Text style={[styles.connectButtonText, isGoogleDisabled && styles.connectButtonTextDisabled]}>
+              {isGoogleBusy ? `${t("auth.providerGoogle")}…` : t("auth.googleButton")}
+            </Text>
           </Pressable>
 
           {isAppleAvailable ? (
@@ -458,7 +460,9 @@ function createStyles(c: AppColors) {
     },
     connectButton: {
       alignItems: "center",
-      backgroundColor: c.navy,
+      backgroundColor: c.tealDark,
+      borderColor: c.tealDark,
+      borderWidth: 1,
       borderRadius: radii.pill,
       flexDirection: "row",
       gap: 8,
@@ -466,13 +470,17 @@ function createStyles(c: AppColors) {
       paddingVertical: 13
     },
     connectButtonDisabled: {
-      opacity: 0.7
+      backgroundColor: c.surfaceAlt,
+      borderColor: c.border
     },
     connectButtonText: {
-      color: c.surface,
+      color: "#FFFFFF",
       fontFamily: fonts.body,
       fontSize: 13,
       fontWeight: "900"
+    },
+    connectButtonTextDisabled: {
+      color: c.ink
     },
     appleButton: {
       height: 48,

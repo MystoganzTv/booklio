@@ -1,20 +1,22 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image, StyleSheet, Text, View } from "react-native";
+import { useMemo } from "react";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { Achievement } from "../types/models";
 import { getAchievementIconSource } from "../utils/achievementIcons";
-import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { AppColors, fonts, palette, radii, shadows, spacing } from "../theme/theme";
+import { useColors } from "../theme/ThemeContext";
 
 type Category = Achievement["category"];
 
 const CATEGORY_META: Record<Category, { label: string; icon: keyof typeof Ionicons.glyphMap; color: string }> = {
-  reading:    { label: "Reading Milestones", icon: "book-outline",         color: colors.teal    },
-  habit:      { label: "Habits",             icon: "flame-outline",        color: colors.coral   },
-  genre:      { label: "Genres",             icon: "compass-outline",      color: colors.gold    },
-  collection: { label: "Collection",         icon: "library-outline",      color: colors.green   },
+  reading:    { label: "Reading Milestones", icon: "book-outline",         color: palette.teal    },
+  habit:      { label: "Habits",             icon: "flame-outline",        color: palette.coral   },
+  genre:      { label: "Genres",             icon: "compass-outline",      color: palette.gold    },
+  collection: { label: "Collection",         icon: "library-outline",      color: palette.green   },
   speed:      { label: "Speed",              icon: "speedometer-outline",  color: "#6366F1"      },
-  social:     { label: "Social",             icon: "people-outline",       color: colors.navy    },
+  social:     { label: "Social",             icon: "people-outline",       color: palette.navy    },
   location:   { label: "Reading Places",     icon: "location-outline",     color: "#F59E0B"      }
 };
 
@@ -34,7 +36,15 @@ const TIER_LABEL: Record<Achievement["tier"], string> = {
   legendary: "Legendary"
 };
 
-function TierPill({ tier, unlocked }: { tier: Achievement["tier"]; unlocked: boolean }) {
+function TierPill({
+  tier,
+  unlocked,
+  styles
+}: {
+  tier: Achievement["tier"];
+  unlocked: boolean;
+  styles: ReturnType<typeof createStyles>;
+}) {
   return (
     <View style={[styles.tierPill, { borderColor: unlocked ? TIER_COLOR[tier] : "#C5BEB4" }]}>
       <Text style={[styles.tierText, { color: unlocked ? TIER_COLOR[tier] : "#A09890" }]}>
@@ -44,7 +54,15 @@ function TierPill({ tier, unlocked }: { tier: Achievement["tier"]; unlocked: boo
   );
 }
 
-function AchievementEmoji({ achievement, locked = false }: { achievement: Achievement; locked?: boolean }) {
+function AchievementEmoji({
+  achievement,
+  locked = false,
+  styles
+}: {
+  achievement: Achievement;
+  locked?: boolean;
+  styles: ReturnType<typeof createStyles>;
+}) {
   const source = getAchievementIconSource(achievement);
   const isCompound = Array.from(achievement.icon).length > 1;
 
@@ -72,23 +90,23 @@ function AchievementEmoji({ achievement, locked = false }: { achievement: Achiev
   );
 }
 
-function UnlockedCard({ achievement }: { achievement: Achievement }) {
+function UnlockedCard({ achievement, styles, c }: { achievement: Achievement; styles: ReturnType<typeof createStyles>; c: AppColors }) {
   return (
     <View style={[styles.unlockedCard, { borderLeftColor: TIER_COLOR[achievement.tier] }]}>
       <View style={styles.unlockedTop}>
         <View style={styles.unlockedEmojiBubble}>
-          <AchievementEmoji achievement={achievement} />
+          <AchievementEmoji achievement={achievement} styles={styles} />
         </View>
         <View style={styles.unlockedCopy}>
           <View style={styles.unlockedTitleRow}>
             <Text style={styles.unlockedTitle}>{achievement.title}</Text>
-            <TierPill tier={achievement.tier} unlocked />
+            <TierPill tier={achievement.tier} unlocked styles={styles} />
           </View>
           <Text style={styles.unlockedFlavour}>{achievement.flavour}</Text>
         </View>
       </View>
       <View style={styles.unlockedFooter}>
-        <Ionicons name="checkmark-circle" size={14} color={colors.green} />
+        <Ionicons name="checkmark-circle" size={14} color={c.green} />
         <Text style={styles.unlockedDate}>
           {achievement.unlockedAt
             ? `Unlocked ${new Date(`${achievement.unlockedAt}T00:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
@@ -99,25 +117,25 @@ function UnlockedCard({ achievement }: { achievement: Achievement }) {
   );
 }
 
-function LockedRow({ achievement }: { achievement: Achievement }) {
+function LockedRow({ achievement, styles, c }: { achievement: Achievement; styles: ReturnType<typeof createStyles>; c: AppColors }) {
   const pct = Math.min(100, Math.round((achievement.progress / achievement.goal) * 100));
   const hot = pct >= 80;
   return (
     <View style={[styles.lockedRow, hot && styles.lockedRowHot]}>
       <View style={styles.lockedIconWrap}>
-        <AchievementEmoji achievement={achievement} locked={!hot} />
+        <AchievementEmoji achievement={achievement} locked={!hot} styles={styles} />
       </View>
       <View style={styles.lockedBody}>
         <View style={styles.lockedTitleRow}>
           <Text style={[styles.lockedTitle, hot && styles.lockedTitleHot]}>{achievement.title}</Text>
-          <TierPill tier={achievement.tier} unlocked={false} />
+          <TierPill tier={achievement.tier} unlocked={false} styles={styles} />
         </View>
         <Text style={styles.lockedDesc}>{achievement.description}</Text>
         <View style={styles.lockedProgressRow}>
           <View style={styles.lockedTrack}>
-            <View style={[styles.lockedFill, { width: `${pct}%`, backgroundColor: hot ? colors.coral : colors.teal }]} />
+            <View style={[styles.lockedFill, { width: `${pct}%`, backgroundColor: hot ? c.coral : c.teal }]} />
           </View>
-          <Text style={[styles.lockedPct, { color: hot ? colors.coral : colors.muted }]}>
+          <Text style={[styles.lockedPct, { color: hot ? c.coral : c.muted }]}>
             {achievement.progress.toLocaleString()} / {achievement.goal.toLocaleString()}
           </Text>
         </View>
@@ -126,7 +144,17 @@ function LockedRow({ achievement }: { achievement: Achievement }) {
   );
 }
 
-function CategorySection({ category, achievements }: { category: Category; achievements: Achievement[] }) {
+function CategorySection({
+  category,
+  achievements,
+  styles,
+  c
+}: {
+  category: Category;
+  achievements: Achievement[];
+  styles: ReturnType<typeof createStyles>;
+  c: AppColors;
+}) {
   const meta = CATEGORY_META[category];
   const unlocked = achievements.filter((a) => a.unlocked);
   const locked = achievements.filter((a) => !a.unlocked);
@@ -145,11 +173,11 @@ function CategorySection({ category, achievements }: { category: Category; achie
         </Text>
       </View>
 
-      {unlocked.map((a) => <UnlockedCard key={a.id} achievement={a} />)}
+      {unlocked.map((a) => <UnlockedCard key={a.id} achievement={a} styles={styles} c={c} />)}
 
       {locked.length > 0 && (
         <View style={styles.lockedList}>
-          {locked.map((a) => <LockedRow key={a.id} achievement={a} />)}
+          {locked.map((a) => <LockedRow key={a.id} achievement={a} styles={styles} c={c} />)}
         </View>
       )}
     </View>
@@ -157,6 +185,8 @@ function CategorySection({ category, achievements }: { category: Category; achie
 }
 
 export function AchievementsScreen() {
+  const c = useColors();
+  const styles = useMemo(() => createStyles(c), [c]);
   const { userProfile } = useBooklio();
   const { achievements } = userProfile;
 
@@ -194,19 +224,20 @@ export function AchievementsScreen() {
       {/* Category sections */}
       {CATEGORY_ORDER.map((cat) =>
         byCategory[cat].length > 0 ? (
-          <CategorySection key={cat} category={cat} achievements={byCategory[cat]} />
+          <CategorySection key={cat} category={cat} achievements={byCategory[cat]} styles={styles} c={c} />
         ) : null
       )}
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(c: AppColors) {
+  return StyleSheet.create({
   header: {
     marginBottom: spacing.md
   },
   eyebrow: {
-    color: colors.tealDark,
+    color: c.tealDark,
     fontFamily: fonts.body,
     fontSize: 11,
     fontWeight: "900",
@@ -214,7 +245,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   title: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 28,
     fontWeight: "900",
@@ -222,8 +253,8 @@ const styles = StyleSheet.create({
   },
   overallCard: {
     ...shadows.card,
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     marginBottom: spacing.lg,
@@ -235,32 +266,32 @@ const styles = StyleSheet.create({
     justifyContent: "space-between"
   },
   overallBig: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 36,
     fontWeight: "900"
   },
   overallSub: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "800"
   },
   overallPct: {
-    color: colors.gold,
+    color: c.gold,
     fontFamily: fonts.display,
     fontSize: 28,
     fontWeight: "900"
   },
   overallTrack: {
-    backgroundColor: "#EEE7DB",
+    backgroundColor: c.border,
     borderRadius: radii.pill,
     height: 10,
     marginTop: spacing.sm,
     overflow: "hidden"
   },
   overallFill: {
-    backgroundColor: colors.gold,
+    backgroundColor: c.gold,
     borderRadius: radii.pill,
     height: "100%"
   },
@@ -290,15 +321,15 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   categoryCount: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "800"
   },
   // ── Unlocked card ──────────────────────────────────────────────────────
   unlockedCard: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderLeftWidth: 4,
     borderRadius: radii.md,
     borderWidth: 1,
@@ -311,8 +342,8 @@ const styles = StyleSheet.create({
   },
   unlockedEmojiBubble: {
     alignItems: "center",
-    backgroundColor: "#FFFDF9",
-    borderColor: "#F1E7D8",
+    backgroundColor: c.surfaceAlt,
+    borderColor: c.border,
     borderWidth: 1,
     borderRadius: radii.md,
     flexShrink: 0,
@@ -349,14 +380,14 @@ const styles = StyleSheet.create({
     gap: spacing.sm
   },
   unlockedTitle: {
-    color: colors.navy,
+    color: c.ink,
     flex: 1,
     fontFamily: fonts.display,
     fontSize: 17,
     fontWeight: "900"
   },
   unlockedFlavour: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.bodyRegular,
     fontSize: 12,
     lineHeight: 18,
@@ -364,7 +395,7 @@ const styles = StyleSheet.create({
   },
   unlockedFooter: {
     alignItems: "center",
-    borderTopColor: colors.border,
+    borderTopColor: c.border,
     borderTopWidth: 1,
     flexDirection: "row",
     gap: 6,
@@ -372,7 +403,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm
   },
   unlockedDate: {
-    color: colors.green,
+    color: c.green,
     fontFamily: fonts.body,
     fontSize: 11,
     fontWeight: "900"
@@ -393,26 +424,27 @@ const styles = StyleSheet.create({
   },
   // ── Locked rows ────────────────────────────────────────────────────────
   lockedList: {
-    backgroundColor: "#F7F4EF",
-    borderColor: "#E5DDD3",
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.md,
     borderWidth: 1,
     overflow: "hidden"
   },
   lockedRow: {
-    borderBottomColor: "#EDE8E2",
+    backgroundColor: c.surface,
+    borderBottomColor: c.border,
     borderBottomWidth: 1,
     flexDirection: "row",
     gap: spacing.sm,
     padding: spacing.md
   },
   lockedRowHot: {
-    backgroundColor: "#FFF8EE"
+    backgroundColor: c.surfaceAlt
   },
   lockedIconWrap: {
     alignItems: "center",
-    backgroundColor: "#FFFDF9",
-    borderColor: "#F1E7D8",
+    backgroundColor: c.surfaceAlt,
+    borderColor: c.border,
     borderWidth: 1,
     borderRadius: 18,
     flexShrink: 0,
@@ -431,17 +463,17 @@ const styles = StyleSheet.create({
     gap: spacing.sm
   },
   lockedTitle: {
-    color: "#7A7268",
+    color: c.ink,
     flex: 1,
     fontFamily: fonts.body,
     fontSize: 14,
     fontWeight: "900"
   },
   lockedTitleHot: {
-    color: colors.coral
+    color: c.coral
   },
   lockedDesc: {
-    color: "#A09890",
+    color: c.muted,
     fontFamily: fonts.bodyRegular,
     fontSize: 12,
     marginTop: 2
@@ -453,7 +485,7 @@ const styles = StyleSheet.create({
     marginTop: 8
   },
   lockedTrack: {
-    backgroundColor: "#E5DDD3",
+    backgroundColor: c.border,
     borderRadius: radii.pill,
     flex: 1,
     height: 5,
@@ -468,4 +500,5 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "900"
   }
-});
+  });
+}

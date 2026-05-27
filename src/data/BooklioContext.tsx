@@ -97,6 +97,7 @@ type BooklioContextValue = {
   addReadingSession: (input: NewReadingSessionInput) => ReadingSession;
   updateReadingSession: (sessionId: string, input: NewReadingSessionInput) => ReadingSession | undefined;
   deleteReadingSession: (sessionId: string) => void;
+  deleteBook: (bookId: string) => void;
   updateBook: (bookId: string, input: UpdateBookInput) => void;
   updateBookStatus: (bookId: string, status: CoreTrackingStatus, rating?: number) => void;
   updateUserProfile: (input: UpdateUserProfileInput) => void;
@@ -769,6 +770,28 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       );
     };
 
+    const deleteBook = (bookId: string) => {
+      const existingBook = getBook(bookId);
+      if (!existingBook) {
+        return;
+      }
+
+      const remainingBooks = books.filter((book) => book.id !== bookId);
+      const remainingAuthorIds = new Set(remainingBooks.map((book) => book.authorId));
+
+      setBooks(remainingBooks);
+      setReadingSessions((current) => current.filter((session) => session.bookId !== bookId));
+      setReviews((current) => current.filter((review) => review.bookId !== bookId));
+      setProfile((current) => ({
+        ...current,
+        topBookIds: current.topBookIds.filter((id) => id !== bookId)
+      }));
+
+      if (!remainingAuthorIds.has(existingBook.authorId)) {
+        setAuthors((current) => current.filter((author) => author.id !== existingBook.authorId));
+      }
+    };
+
     const addBook = (input: NewBookInput) => {
       const authorName = input.authorName.trim() || "Author to identify";
       const existingAuthor = authors.find((author) => author.name.toLowerCase() === authorName.toLowerCase());
@@ -1012,7 +1035,8 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         ...prev,
         name: trimmedName,
         avatarInitials: initials,
-        favoriteGenres: genres.length ? genres : prev.favoriteGenres
+        favoriteGenres: genres.length ? genres : prev.favoriteGenres,
+        readingLevel: ""   // Always start with auto-computed title; no custom override for new accounts
       }));
       await AsyncStorage.setItem("@booklio/onboardingComplete", "true");
       setOnboardingComplete(true);
@@ -1084,6 +1108,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       addReadingSession,
       updateReadingSession,
       deleteReadingSession,
+      deleteBook,
       updateBook,
       updateBookStatus,
       updateUserProfile,

@@ -8,9 +8,10 @@ import { GoogleConnectionCard } from "../components/GoogleConnectionCard";
 import { Screen } from "../components/Screen";
 import { RootStackParamList } from "../navigation/types";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
-import { useColors } from "../theme/ThemeContext";
+import { useColors, useTheme } from "../theme/ThemeContext";
 
-const booklioLogo = require("../../assets/brand/booklio-logo.png");
+const booklioLogoLight = require("../../assets/brand/booklio-logo.png");
+const booklioLogoDark = require("../../assets/brand/booklio-logo-dark.png");
 
 const HERO_TAGS = ["Collector-grade", "Session-rich", "Warm stats", "Saga-aware"];
 
@@ -35,7 +36,9 @@ const FEATURE_TILES = [
 export function WelcomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const c = useColors();
+  const { isDark } = useTheme();
   const styles = useMemo(() => createStyles(c), [c]);
+  const logoSource = isDark ? booklioLogoDark : booklioLogoLight;
 
   return (
     <Screen contentStyle={styles.safe}>
@@ -44,7 +47,7 @@ export function WelcomeScreen() {
         <View style={styles.heroGlowBottom} />
 
         <View style={styles.logoShell}>
-          <Image source={booklioLogo} style={styles.logo} resizeMode="contain" />
+          <Image source={logoSource} style={styles.logo} resizeMode="contain" />
         </View>
 
         <View style={styles.heroCopy}>

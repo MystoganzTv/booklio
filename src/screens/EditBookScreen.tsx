@@ -46,7 +46,7 @@ const parseNumber = (value: string) => {
 export function EditBookScreen() {
   const route = useRoute<RouteProp<RootStackParamList, "EditBook">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { getAuthor, getBook, updateBook } = useBooklio();
+  const { getAuthor, getBook, updateBook, deleteBook } = useBooklio();
   const book = getBook(route.params.bookId);
 
   const [title, setTitle] = useState(book?.title ?? "");
@@ -227,6 +227,27 @@ export function EditBookScreen() {
     navigation.goBack();
   };
 
+  const onDelete = () => {
+    Alert.alert(
+      "Delete this book?",
+      `Booklio will remove ${title || book.title}, its reading sessions, and its review from your library.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete book",
+          style: "destructive",
+          onPress: () => {
+            deleteBook(book.id);
+            navigation.reset({
+              index: 0,
+              routes: [{ name: "MainTabs" }]
+            });
+          }
+        }
+      ]
+    );
+  };
+
   return (
     <Screen>
       <View style={styles.header}>
@@ -320,6 +341,18 @@ export function EditBookScreen() {
       <Pressable style={styles.saveButton} onPress={onSave}>
         <Text style={styles.saveButtonText}>Save book</Text>
       </Pressable>
+
+      <View style={styles.dangerZone}>
+        <Text style={styles.dangerEyebrow}>Danger zone</Text>
+        <Text style={styles.dangerTitle}>Delete this book</Text>
+        <Text style={styles.dangerBody}>
+          This removes the book from your library, along with its reading sessions and review.
+        </Text>
+        <Pressable style={styles.deleteButton} onPress={onDelete}>
+          <Ionicons name="trash-outline" size={16} color={colors.coral} />
+          <Text style={styles.deleteButtonText}>Delete book & erase its history</Text>
+        </Pressable>
+      </View>
     </Screen>
   );
 }
@@ -549,6 +582,53 @@ const styles = StyleSheet.create({
   },
   saveButtonText: {
     color: colors.card,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  dangerZone: {
+    borderTopColor: colors.coral + "55",
+    borderTopWidth: 1,
+    marginTop: spacing.xl,
+    paddingBottom: spacing.lg,
+    paddingTop: spacing.lg
+  },
+  dangerEyebrow: {
+    color: colors.coral,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase"
+  },
+  dangerTitle: {
+    color: colors.navy,
+    fontFamily: fonts.display,
+    fontSize: 26,
+    fontWeight: "900",
+    marginTop: 6
+  },
+  dangerBody: {
+    color: colors.muted,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 14,
+    lineHeight: 22,
+    marginTop: 10
+  },
+  deleteButton: {
+    alignItems: "center",
+    backgroundColor: colors.coral + "10",
+    borderColor: colors.coral + "55",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    marginTop: spacing.md,
+    paddingVertical: 15
+  },
+  deleteButtonText: {
+    color: colors.coral,
     fontFamily: fonts.body,
     fontSize: 14,
     fontWeight: "900"

@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMemo } from "react";
-import { Alert, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { GoogleConnectionCard } from "../components/GoogleConnectionCard";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
@@ -41,12 +41,20 @@ export function SettingsScreen() {
             <Text style={styles.settingTitle}>{themeTitle}</Text>
             <Text style={styles.settingSub}>{themeBody}</Text>
           </View>
-          <Switch
-            value={isDark}
-            onValueChange={toggleTheme}
-            trackColor={{ false: c.border, true: c.teal }}
-            thumbColor={isDark ? c.gold : c.surface}
-          />
+          <Pressable
+            accessibilityRole="switch"
+            accessibilityState={{ checked: isDark }}
+            onPress={toggleTheme}
+            style={[styles.themeToggle, isDark && styles.themeToggleActive]}
+          >
+            <View style={[styles.themeToggleThumb, isDark && styles.themeToggleThumbActive]}>
+              <Ionicons
+                name={isDark ? "moon" : "sunny-outline"}
+                size={14}
+                color={isDark ? c.tealDark : c.navy}
+              />
+            </View>
+          </Pressable>
         </View>
       </View>
 
@@ -206,6 +214,33 @@ function createStyles(c: AppColors) {
       lineHeight: 18,
       marginTop: 4,
     },
+    themeToggle: {
+      backgroundColor: c.border,
+      borderColor: c.border,
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      height: 40,
+      justifyContent: "center",
+      paddingHorizontal: 4,
+      width: 72,
+    },
+    themeToggleActive: {
+      backgroundColor: c.teal + "28",
+      borderColor: c.teal + "55",
+    },
+    themeToggleThumb: {
+      alignItems: "center",
+      backgroundColor: c.surface,
+      borderRadius: radii.pill,
+      height: 30,
+      justifyContent: "center",
+      transform: [{ translateX: 0 }],
+      width: 30,
+    },
+    themeToggleThumbActive: {
+      backgroundColor: c.surface,
+      transform: [{ translateX: 32 }],
+    },
     languageRow: {
       flexDirection: "row",
       gap: spacing.sm,
@@ -299,4 +334,3 @@ function createStyles(c: AppColors) {
     },
   });
 }
-

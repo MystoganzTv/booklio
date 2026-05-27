@@ -47,7 +47,8 @@ function MainTabs() {
         tabBarLabelStyle: {
           fontFamily: fonts.body,
           fontSize: 11,
-          fontWeight: "900"
+          fontWeight: "900",
+          marginTop: 2
         },
         tabBarStyle: {
           backgroundColor: c.surface,
@@ -81,7 +82,7 @@ function MainTabs() {
               <Ionicons
                 color={isAdd && focused ? (isDark ? c.gold : c.navy) : color}
                 name={icons[route.name]}
-                size={isAdd ? size + 2 : size}
+                size={isAdd ? size : size}
               />
             </View>
           );
@@ -160,8 +161,8 @@ const styles = StyleSheet.create({
   },
   addFrame: {
     borderRadius: 18,
-    height: 40,
-    marginTop: -4,
-    width: 48
+    height: 38,
+    marginTop: -2,
+    width: 44
   }
 });

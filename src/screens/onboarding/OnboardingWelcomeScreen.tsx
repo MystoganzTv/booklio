@@ -4,7 +4,7 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../../navigation/types";
 import { colors, fonts, radii, spacing } from "../../theme/theme";
 
-const booklioLogo = require("../../../assets/brand/booklio-logo-dark.png");
+const booklioLogo = require("../../../assets/brand/booklio-onboarding-glow.png");
 
 const BULLETS = [
   { emoji: "📚", text: "Track every book you own or read" },
@@ -39,9 +39,9 @@ export function OnboardingWelcomeScreen() {
       </View>
 
       {/* Copy */}
-      <Text style={styles.tagline}>A library{"\n"}that remembers you.</Text>
+      <Text style={styles.tagline}>Your reading life,{"\n"}beautifully kept.</Text>
       <Text style={styles.sub}>
-        Sessions, moods, places, and quotes — tracked the way you actually read.
+        Books, sessions, moods, places, and milestones kept together in one warm, personal library.
       </Text>
 
       {/* Bullet list */}
@@ -121,8 +121,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg
   },
   logo: {
-    height: 120,
-    width: 230
+    height: 156,
+    width: 234
   },
   tagline: {
     color: colors.card,

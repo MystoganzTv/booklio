@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Image, StyleSheet, Text, View } from "react-native";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
-import { useColors } from "../theme/ThemeContext";
+import { useColors, useTheme } from "../theme/ThemeContext";
 
 type BrandHeaderProps = {
   eyebrow: string;
@@ -9,14 +9,17 @@ type BrandHeaderProps = {
   subtitle: string;
 };
 
-const booklioLogo = require("../../assets/brand/booklio-logo.png");
+const booklioLogoLight = require("../../assets/brand/booklio-logo.png");
+const booklioLogoDark = require("../../assets/brand/booklio-logo-dark.png");
 
 export function BrandHeader({ eyebrow, title, subtitle }: BrandHeaderProps) {
   const c = useColors();
+  const { isDark } = useTheme();
   const styles = useMemo(() => createStyles(c), [c]);
+  const logoSource = isDark ? booklioLogoDark : booklioLogoLight;
   return (
     <View style={styles.card}>
-      <Image source={booklioLogo} style={styles.logo} resizeMode="contain" />
+      <Image source={logoSource} style={styles.logo} resizeMode="contain" />
       <Text style={styles.eyebrow}>{eyebrow}</Text>
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.subtitle}>{subtitle}</Text>

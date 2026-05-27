@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,6 +15,7 @@ import { colors, fonts, radii, spacing } from "../../theme/theme";
 
 type Nav = NativeStackNavigationProp<RootStackParamList, "OnboardingGenres">;
 type Route = RouteProp<RootStackParamList, "OnboardingGenres">;
+const onboardingLogo = require("../../../assets/brand/booklio-onboarding-glow.png");
 
 const GENRES = [
   { label: "Fantasy",            icon: "🐉" },
@@ -81,6 +83,10 @@ export function OnboardingGenresScreen() {
           <View style={styles.stepPill}>
             <Text style={styles.stepText}>3 of 3</Text>
           </View>
+        </View>
+
+        <View style={styles.logoWrap}>
+          <Image source={onboardingLogo} style={styles.logo} resizeMode="contain" />
         </View>
 
         <Text style={styles.eyebrow}>Your taste</Text>
@@ -201,7 +207,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
+    marginBottom: spacing.sm
+  },
+  logoWrap: {
+    alignItems: "center",
     marginBottom: spacing.lg
+  },
+  logo: {
+    height: 112,
+    width: 168
   },
   backBtn: {
     width: 40

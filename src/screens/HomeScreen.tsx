@@ -11,9 +11,10 @@ import { useBooklio } from "../data/BooklioContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { MainTabParamList, RootStackParamList } from "../navigation/types";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
-import { useColors } from "../theme/ThemeContext";
+import { useColors, useTheme } from "../theme/ThemeContext";
 
-const booklioLogo = require("../../assets/brand/booklio-logo.png");
+const booklioLogoLight = require("../../assets/brand/booklio-logo.png");
+const booklioLogoDark = require("../../assets/brand/booklio-logo-dark.png");
 
 function getGreeting(t: (key: string) => string) {
   const hour = new Date().getHours();
@@ -35,9 +36,11 @@ function getStreakMessage(streak: number, c: AppColors, t: (key: string, vars?: 
 export function HomeScreen() {
   const navigation = useNavigation<NavigationProp<RootStackParamList & MainTabParamList>>();
   const c = useColors();
+  const { isDark } = useTheme();
   const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
   const { books, getAuthor, getBook, overallStats, readingSessions, recommendations, userProfile } = useBooklio();
+  const logoSource = isDark ? booklioLogoDark : booklioLogoLight;
 
   const continueBook = books.find((b) => b.userStatus.status === "reading") ?? null;
   const goalPct = Math.min(100, Math.round((overallStats.booksReadThisYear / userProfile.yearlyGoal) * 100));
@@ -53,7 +56,7 @@ export function HomeScreen() {
     <Screen>
       {/* Header */}
       <View style={styles.header}>
-        <Image source={booklioLogo} style={styles.logo} resizeMode="contain" />
+        <Image source={logoSource} style={styles.logo} resizeMode="contain" />
         <View>
           <Text style={styles.greeting}>{getGreeting(t)},</Text>
           <Text style={styles.name}>{userProfile.name}.</Text>

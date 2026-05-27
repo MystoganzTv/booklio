@@ -107,13 +107,12 @@ export function ProfileScreen() {
               </View>
             )}
             <View style={styles.rankMedallion}>
-              <Ionicons name="sparkles" size={12} color={c.ink} />
+              <Ionicons name="sparkles" size={12} color={c.navy} />
             </View>
           </View>
 
           <View style={styles.heroCopy}>
             <Text style={styles.name}>{userProfile.name}</Text>
-            <Text style={styles.levelEyebrow}>{t("profile.currentIdentity")}</Text>
             <Text style={styles.level}>{level.level.title}</Text>
             <Text style={styles.levelNote}>{level.level.note}</Text>
             {userProfile.email ? <Text style={styles.email}>{userProfile.email}</Text> : null}
@@ -278,8 +277,8 @@ export function ProfileScreen() {
           <SectionHeader title={t("profile.favoriteGenres")} />
           <View style={styles.tagWrap}>
             {userProfile.favoriteGenres.map((genre) => (
-              <View key={genre} style={styles.tagPill}>
-                <Text style={styles.tagText}>{genre}</Text>
+              <View key={genre} style={[styles.tagPill, styles.tagPillGenre]}>
+                <Text style={[styles.tagText, styles.tagTextGenre]}>{genre}</Text>
               </View>
             ))}
           </View>
@@ -427,7 +426,7 @@ function createStyles(c: AppColors) {
       width: 76
     },
     avatarText: {
-      color: c.ink,
+      color: c.navy,
       fontFamily: fonts.display,
       fontSize: 28,
       fontWeight: "900"
@@ -833,10 +832,14 @@ function createStyles(c: AppColors) {
       marginBottom: spacing.md
     },
     tagPill: {
-      backgroundColor: c.navy,
       borderRadius: radii.pill,
       paddingHorizontal: spacing.md,
       paddingVertical: 9
+    },
+    tagPillGenre: {
+      backgroundColor: c.surfaceAlt,
+      borderColor: c.border,
+      borderWidth: 1
     },
     tagPillAuthor: {
       backgroundColor: c.surface,
@@ -844,10 +847,12 @@ function createStyles(c: AppColors) {
       borderWidth: 1
     },
     tagText: {
-      color: "#FFFFFF",
       fontFamily: fonts.body,
       fontSize: 12,
       fontWeight: "900"
+    },
+    tagTextGenre: {
+      color: c.tealDark
     },
     tagTextAuthor: {
       color: c.ink
