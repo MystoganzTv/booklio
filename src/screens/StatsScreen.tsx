@@ -215,7 +215,7 @@ export function StatsScreen() {
         )}
 
         <Pressable style={styles.shareBtn} onPress={shareYearInReview}>
-          <Ionicons name="share-outline" size={15} color={c.ink} />
+          <Ionicons name="share-outline" size={15} color={c.navy} />
           <Text style={styles.shareBtnText}>Share my year</Text>
         </Pressable>
       </View>
@@ -604,7 +604,7 @@ function createStyles(c: AppColors) {
       paddingVertical: 13
     },
     shareBtnText: {
-      color: c.ink,
+      color: c.navy,
       fontFamily: fonts.body,
       fontSize: 13,
       fontWeight: "900"

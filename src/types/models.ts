@@ -142,6 +142,7 @@ export interface UserProfile {
   authProvider?: "google" | "apple";
   readingLevel: string;
   yearlyGoal: number;
+  yearlyGoalMode?: "auto" | "custom";
   favoriteAuthors: string[];
   favoriteGenres: string[];
   topBookIds: string[];
@@ -156,6 +157,7 @@ export interface UpdateUserProfileInput {
   authProvider?: "google" | "apple";
   readingLevel: string;
   yearlyGoal: number;
+  yearlyGoalMode?: "auto" | "custom";
   favoriteAuthors: string[];
   favoriteGenres: string[];
 }

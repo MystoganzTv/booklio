@@ -313,7 +313,7 @@ async function fetchWorkMetadata(workKey?: string): Promise<BookMetadata | undef
     return {
       title: data.title,
       synopsis: readDescription(data.description),
-      genre: data.subjects?.slice(0, 4),
+      genre: normalizeBookGenres(data.subjects?.slice(0, 8)),
       publishedDate: data.first_publish_date,
       coverImageUri: coverUrl(data.covers?.[0]),
       workKey: data.key ?? workKey,
@@ -345,7 +345,7 @@ async function mapEditionRecordToMetadata(
       authorName,
       isbn: data.isbn_13?.[0] ?? data.isbn_10?.[0] ?? fallbackIsbn,
       pages: data.number_of_pages,
-      genre: data.subjects?.slice(0, 4),
+      genre: normalizeBookGenres(data.subjects?.slice(0, 8)),
       publisher: data.publishers?.[0],
       publishedDate: data.publish_date,
       language: mapLanguageKey(data.languages?.[0]?.key) ?? "English",
@@ -543,7 +543,7 @@ export function metadataToBookInput(
     authorName: metadata.authorName ?? "Author to identify",
     isbn: metadata.isbn,
     pages: metadata.pages,
-    genre: metadata.genre ?? ["Uncategorized"],
+    genre: normalizeBookGenres(metadata.genre),
     publisher: metadata.publisher,
     publishedDate: metadata.publishedDate,
     language: metadata.language ?? "English",
@@ -651,7 +651,7 @@ function mapSearchDocToBookInput(doc: OpenLibrarySearchDoc): NewBookInput {
     authorName: doc.author_name?.[0] ?? "Unknown Author",
     isbn: doc.isbn?.[0],
     pages: doc.number_of_pages_median,
-    genre: doc.subject?.slice(0, 3) ?? ["Uncategorized"],
+    genre: normalizeBookGenres(doc.subject?.slice(0, 8)),
     publisher: doc.publisher?.[0],
     publishedDate: doc.first_publish_year ? `${doc.first_publish_year}-01-01` : undefined,
     language: mapSearchLanguage(doc.language) ?? "English",
@@ -693,3 +693,4 @@ function shouldUseSynopsis(current?: string, incoming?: string) {
   if (!incoming?.trim()) return false;
   return isPlaceholderText(current) || (current?.trim().length ?? 0) < 40;
 }
+import { normalizeBookGenres } from "./genres";

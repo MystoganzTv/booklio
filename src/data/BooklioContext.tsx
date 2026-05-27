@@ -25,6 +25,7 @@ import {
 import { buildInitials, clearPersistedConnectedAccount, ConnectedAccount, persistConnectedAccount, readPersistedConnectedAccount } from "../utils/googleAuth";
 import { buildBookSpecificRecommendations, buildGlobalRecommendations } from "../utils/recommendationEngine";
 import { supabase } from "../lib/supabase";
+import { normalizeBookGenres } from "../utils/genres";
 
 type MonthBucket = {
   label: string;
@@ -182,6 +183,7 @@ const normalizeReadState = (book: Book): Book => {
 
   return {
     ...book,
+    genre: normalizeBookGenres(book.genre),
     userStatus: {
       ...book.userStatus,
       readCount,
@@ -425,7 +427,7 @@ const buildOverallStats = (books: Book[], sessions: ReadingSession[], authors: A
 
   const genreMap = books
     .filter((book) => book.userStatus.status === "read" || book.userStatus.status === "reading")
-    .flatMap((book) => book.genre)
+    .flatMap((book) => normalizeBookGenres(book.genre))
     .reduce<Record<string, number>>((acc, genre) => {
       acc[genre] = (acc[genre] ?? 0) + 1;
       return acc;
@@ -817,7 +819,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
             id: authorId,
             name: authorName,
             bio: "Author added from Booklio. Ready to be enriched when we connect a live books API.",
-            favoriteGenres: input.genre ?? ["Uncategorized"]
+            favoriteGenres: normalizeBookGenres(input.genre)
           }
         ]);
       }
@@ -828,7 +830,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
           title: input.title.trim() || existingBook.title,
           authorId,
           synopsis: input.synopsis?.trim() || existingBook.synopsis,
-          genre: input.genre?.length ? input.genre : existingBook.genre,
+          genre: input.genre?.length ? normalizeBookGenres(input.genre) : normalizeBookGenres(existingBook.genre),
           pages: input.pages ?? existingBook.pages,
           publishedDate: input.publishedDate ?? existingBook.publishedDate,
           publisher: input.publisher ?? existingBook.publisher,
@@ -860,7 +862,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         synopsis:
           input.synopsis ??
           `Book added from ${input.source === "isbn" ? "ISBN scan" : input.source === "photo" ? "cover photo" : input.source === "search" ? "book search" : "manual entry"}. Metadata is ready for review.`,
-        genre: input.genre?.length ? input.genre : ["Uncategorized"],
+        genre: normalizeBookGenres(input.genre),
         pages: input.pages ?? 320,
         publishedDate: input.publishedDate ?? "2026-01-01",
         publisher: input.publisher ?? "Publisher pending confirmation",
@@ -946,7 +948,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
             id: authorId,
             name: authorName,
             bio: "Author added from Booklio. Ready to be enriched when we connect a live books API.",
-            favoriteGenres: input.genre.length ? input.genre : ["Uncategorized"]
+            favoriteGenres: normalizeBookGenres(input.genre)
           }
         ]);
       }
@@ -959,7 +961,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
             title: input.title.trim() || book.title,
             authorId,
             synopsis: input.synopsis.trim() || "No synopsis yet.",
-            genre: input.genre.length ? input.genre : ["Uncategorized"],
+            genre: normalizeBookGenres(input.genre),
             pages: input.pages > 0 ? input.pages : book.pages,
             publishedDate: input.publishedDate.trim() || book.publishedDate,
             publisher: input.publisher.trim() || "Publisher pending confirmation",

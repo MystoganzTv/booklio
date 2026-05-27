@@ -203,7 +203,13 @@ export function BookIntakeScreen() {
 
   const confirmAndOpen = (input: NewBookInput) => {
     const book = addBook(input);
-    navigation.navigate("BookDetail", { bookId: book.id });
+    navigation.reset({
+      index: 1,
+      routes: [
+        { name: "MainTabs" },
+        { name: "BookDetail", params: { bookId: book.id } }
+      ]
+    });
   };
 
   const addFromIsbn = async (isbn: string) => {
