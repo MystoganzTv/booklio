@@ -1,11 +1,13 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Author, Book, ReadingSession, UserProfile } from "../types/models";
+import { Author, Book, ReadingSession, Review, UserList, UserProfile } from "../types/models";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 export type PersistedBooklioState = {
   authors: Author[];
   books: Book[];
   readingSessions: ReadingSession[];
+  reviews: Review[];
+  userLists: UserList[];
   userProfile: UserProfile;
 };
 
@@ -211,14 +213,16 @@ export class LocalFirstBooklioRepository implements BooklioRepository {
       return null;
     }
 
-    const [{ data: profileRow, error: profileError }, { data: authorRows, error: authorsError }, { data: bookRows, error: booksError }, { data: sessionRows, error: readingSessionsError }] = await Promise.all([
+    const [{ data: profileRow, error: profileError }, { data: authorRows, error: authorsError }, { data: bookRows, error: booksError }, { data: sessionRows, error: readingSessionsError }, { data: reviewRows, error: reviewsError }, { data: listRows, error: listsError }] = await Promise.all([
       supabase.from("booklio_profiles").select("*").eq("user_id", userId).maybeSingle(),
       supabase.from("booklio_authors").select("*").eq("user_id", userId),
       supabase.from("booklio_books").select("*").eq("user_id", userId),
-      supabase.from("booklio_reading_sessions").select("*").eq("user_id", userId)
+      supabase.from("booklio_reading_sessions").select("*").eq("user_id", userId),
+      supabase.from("booklio_reviews").select("*").eq("user_id", userId),
+      supabase.from("booklio_user_lists").select("*").eq("user_id", userId)
     ]);
 
-    const firstError = profileError ?? authorsError ?? booksError ?? readingSessionsError;
+    const firstError = profileError ?? authorsError ?? booksError ?? readingSessionsError ?? reviewsError ?? listsError;
     if (firstError) {
       throw new Error(`Supabase load failed: ${firstError.message}`);
     }
@@ -233,7 +237,9 @@ export class LocalFirstBooklioRepository implements BooklioRepository {
       userProfile: mapProfileRowToProfile(profileRow),
       authors: (authorRows ?? []).map(mapAuthorRowToAuthor),
       books: (bookRows ?? []).map(mapBookRowToBook),
-      readingSessions: (sessionRows ?? []).map(mapSessionRowToReadingSession)
+      readingSessions: (sessionRows ?? []).map(mapSessionRowToReadingSession),
+      reviews: (reviewRows ?? []).map(mapReviewRowToReview),
+      userLists: (listRows ?? []).map(mapListRowToUserList)
     });
   }
 
@@ -248,11 +254,22 @@ export class LocalFirstBooklioRepository implements BooklioRepository {
     const profilePayload = mapProfileToRow(userId, snapshot.userProfile);
     const authorPayload = snapshot.authors.map((author) => mapAuthorToRow(userId, author));
     const bookPayload = snapshot.books.map((book) => mapBookToRow(userId, book));
-    const sessionPayload = snapshot.readingSessions.map((readingSession) => mapReadingSessionToRow(userId, readingSession));
+    const sessionPayload = snapshot.readingSessions.map((session) => mapReadingSessionToRow(userId, session));
+    const reviewPayload = (snapshot.reviews ?? []).map((review) => mapReviewToRow(userId, review));
+    const listPayload = (snapshot.userLists ?? []).map((list) => mapUserListToRow(userId, list));
 
     const { error: profileError } = await supabase.from("booklio_profiles").upsert(profilePayload);
     if (profileError) {
       throw new Error(`Supabase profile sync failed: ${profileError.message}`);
+    }
+
+    // Delete + re-insert strategy (same pattern as sessions/books)
+    const { error: deleteListsError } = await supabase.from("booklio_user_lists").delete().eq("user_id", userId);
+    if (deleteListsError) throw new Error(`Supabase list cleanup failed: ${deleteListsError.message}`);
+
+    const { error: deleteReviewsError } = await supabase.from("booklio_reviews").delete().eq("user_id", userId);
+    if (deleteReviewsError) {
+      throw new Error(`Supabase review cleanup failed: ${deleteReviewsError.message}`);
     }
 
     const { error: deleteSessionsError } = await supabase.from("booklio_reading_sessions").delete().eq("user_id", userId);
@@ -272,23 +289,27 @@ export class LocalFirstBooklioRepository implements BooklioRepository {
 
     if (authorPayload.length) {
       const { error } = await supabase.from("booklio_authors").insert(authorPayload);
-      if (error) {
-        throw new Error(`Supabase author sync failed: ${error.message}`);
-      }
+      if (error) throw new Error(`Supabase author sync failed: ${error.message}`);
     }
 
     if (bookPayload.length) {
       const { error } = await supabase.from("booklio_books").insert(bookPayload);
-      if (error) {
-        throw new Error(`Supabase book sync failed: ${error.message}`);
-      }
+      if (error) throw new Error(`Supabase book sync failed: ${error.message}`);
     }
 
     if (sessionPayload.length) {
       const { error } = await supabase.from("booklio_reading_sessions").insert(sessionPayload);
-      if (error) {
-        throw new Error(`Supabase reading session sync failed: ${error.message}`);
-      }
+      if (error) throw new Error(`Supabase reading session sync failed: ${error.message}`);
+    }
+
+    if (reviewPayload.length) {
+      const { error } = await supabase.from("booklio_reviews").insert(reviewPayload);
+      if (error) throw new Error(`Supabase review sync failed: ${error.message}`);
+    }
+
+    if (listPayload.length) {
+      const { error } = await supabase.from("booklio_user_lists").insert(listPayload);
+      if (error) throw new Error(`Supabase user list sync failed: ${error.message}`);
     }
   }
 
@@ -317,6 +338,8 @@ function normalizeSnapshot(snapshot?: Partial<BooklioSnapshot> | PersistedBookli
     authors: snapshot.authors,
     books: snapshot.books,
     readingSessions: snapshot.readingSessions,
+    reviews: Array.isArray((snapshot as any).reviews) ? (snapshot as any).reviews : [],
+    userLists: Array.isArray((snapshot as any).userLists) ? (snapshot as any).userLists : [],
     userProfile: snapshot.userProfile,
     version: "version" in snapshot && typeof snapshot.version === "number" ? snapshot.version : SNAPSHOT_VERSION,
     updatedAt:
@@ -545,5 +568,71 @@ function mapSessionRowToReadingSession(row: ReadingSessionRow): ReadingSession {
     difficulty: row.difficulty,
     enjoymentRating: row.enjoyment_rating,
     pagesPerHour: row.pages_per_hour
+  };
+}
+
+type ReviewRow = {
+  user_id: string;
+  id: string;
+  book_id: string;
+  rating: number;
+  title: string;
+  body: string;
+  created_at: string;
+};
+
+function mapReviewToRow(userId: string, review: Review): ReviewRow {
+  return {
+    user_id: userId,
+    id: review.id,
+    book_id: review.bookId,
+    rating: review.rating,
+    title: review.title,
+    body: review.body,
+    created_at: review.createdAt
+  };
+}
+
+function mapReviewRowToReview(row: ReviewRow): Review {
+  return {
+    id: row.id,
+    bookId: row.book_id,
+    rating: row.rating,
+    title: row.title,
+    body: row.body,
+    createdAt: row.created_at
+  };
+}
+
+type UserListRow = {
+  user_id: string;
+  id: string;
+  name: string;
+  emoji?: string | null;
+  book_ids: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+function mapUserListToRow(userId: string, list: UserList): UserListRow {
+  return {
+    user_id: userId,
+    id: list.id,
+    name: list.name,
+    emoji: list.emoji,
+    book_ids: list.bookIds,
+    created_at: list.createdAt,
+    updated_at: list.updatedAt
+  };
+}
+
+function mapListRowToUserList(row: UserListRow): UserList {
+  return {
+    id: row.id,
+    name: row.name,
+    emoji: row.emoji ?? undefined,
+    bookIds: row.book_ids ?? [],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
   };
 }

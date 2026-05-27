@@ -149,6 +149,16 @@ export interface UserProfile {
   achievements: Achievement[];
 }
 
+/** A user-created named collection of books */
+export interface UserList {
+  id: string;
+  name: string;
+  emoji?: string;       // optional icon e.g. "⭐", "🌙", "📚"
+  bookIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface UpdateUserProfileInput {
   name: string;
   avatarInitials: string;

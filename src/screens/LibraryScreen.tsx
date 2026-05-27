@@ -14,6 +14,8 @@ import { Book } from "../types/models";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors, useTheme } from "../theme/ThemeContext";
 import { formatStatusLabel } from "../utils/statusLabels";
+import { normalizeBookGenres } from "../utils/genres";
+import { CreateListSheet } from "../components/CreateListSheet";
 
 const filters = ["all", "read", "reading", "wishlist", "wantToBuy", "owned", "series", "unfinished"] as const;
 const sortOptions = ["personalRank", "rating", "dateRead", "author", "seriesOrder", "releaseDate", "mostRecentlyLogged"] as const;
@@ -29,12 +31,17 @@ export function LibraryScreen() {
   const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   const activeControlTextColor = isDark ? c.ink : "#FFFFFF";
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { books, getAuthor, readingSessions } = useBooklio();
+  const { books, getAuthor, readingSessions, userLists, createUserList, deleteUserList, renameUserList } = useBooklio();
   const [filter, setFilter] = useState<LibraryFilter>("all");
   const [sortBy, setSortBy] = useState<LibrarySort>("personalRank");
   const [query, setQuery] = useState("");
   const [sortOpen, setSortOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [genreFilter, setGenreFilter] = useState<string | null>(null);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [listFilter, setListFilter] = useState<string | null>(null);
+  const [createListOpen, setCreateListOpen] = useState(false);
+  const [renamingList, setRenamingList] = useState<{ id: string; name: string; emoji?: string } | null>(null);
   const deferredQuery = useDeferredValue(query);
 
   const ownedCount = books.filter((b) => b.userStatus.ownership === "owned").length;
@@ -55,6 +62,27 @@ export function LibraryScreen() {
     [readingSessions]
   );
 
+  // Collect all clean genres and tags available in the library
+  const availableGenres = useMemo(() => {
+    const set = new Set<string>();
+    for (const book of books) {
+      for (const g of normalizeBookGenres(book.genre)) {
+        if (g !== "Uncategorized") set.add(g);
+      }
+    }
+    return Array.from(set).sort();
+  }, [books]);
+
+  const availableTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const book of books) {
+      for (const tag of book.tags ?? []) {
+        if (tag.trim()) set.add(tag.trim());
+      }
+    }
+    return Array.from(set).sort();
+  }, [books]);
+
   const filteredBooks = useMemo(() => {
     const normalized = deferredQuery.trim().toLowerCase();
     return books
@@ -67,6 +95,19 @@ export function LibraryScreen() {
         if (filter === "series") return Boolean(book.seriesId);
         if (filter === "unfinished") return book.userStatus.status === "dnf";
         return true;
+      })
+      .filter((book) => {
+        if (!genreFilter) return true;
+        return normalizeBookGenres(book.genre).includes(genreFilter);
+      })
+      .filter((book) => {
+        if (!tagFilter) return true;
+        return (book.tags ?? []).includes(tagFilter);
+      })
+      .filter((book) => {
+        if (!listFilter) return true;
+        const list = userLists.find((l) => l.id === listFilter);
+        return list ? list.bookIds.includes(book.id) : true;
       })
       .filter((book) => {
         if (!normalized) return true;
@@ -94,7 +135,7 @@ export function LibraryScreen() {
         if (sortBy === "mostRecentlyLogged") return (latestLogByBook[b.id] ?? "").localeCompare(latestLogByBook[a.id] ?? "");
         return (a.userStatus.personalRanking ?? 999) - (b.userStatus.personalRanking ?? 999);
       });
-  }, [books, deferredQuery, filter, getAuthor, latestLogByBook, sortBy]);
+  }, [books, deferredQuery, filter, genreFilter, tagFilter, listFilter, userLists, getAuthor, latestLogByBook, sortBy]);
 
   const collectorShelves = [
     {
@@ -148,6 +189,49 @@ export function LibraryScreen() {
         ))}
       </ScrollView>
 
+      {/* Custom lists rail */}
+      {userLists.length > 0 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.listsRail} contentContainerStyle={styles.listsRailContent}>
+          {/* "All books" clear-filter card */}
+          <Pressable
+            style={[styles.listCard, !listFilter && styles.listCardActive]}
+            onPress={() => setListFilter(null)}
+          >
+            <Text style={styles.listCardEmoji}>📖</Text>
+            <Text style={[styles.listCardName, !listFilter && styles.listCardNameActive]} numberOfLines={1}>All</Text>
+            <Text style={[styles.listCardCount, !listFilter && styles.listCardCountActive]}>{books.length}</Text>
+          </Pressable>
+
+          {userLists.map((list) => {
+            const active = listFilter === list.id;
+            return (
+              <Pressable
+                key={list.id}
+                style={[styles.listCard, active && styles.listCardActive]}
+                onPress={() => setListFilter(active ? null : list.id)}
+                onLongPress={() => setRenamingList({ id: list.id, name: list.name, emoji: list.emoji })}
+              >
+                <Text style={styles.listCardEmoji}>{list.emoji ?? "📚"}</Text>
+                <Text style={[styles.listCardName, active && styles.listCardNameActive]} numberOfLines={1}>{list.name}</Text>
+                <Text style={[styles.listCardCount, active && styles.listCardCountActive]}>{list.bookIds.length}</Text>
+              </Pressable>
+            );
+          })}
+
+          {/* "+" create new list */}
+          <Pressable style={styles.listCardNew} onPress={() => setCreateListOpen(true)}>
+            <Ionicons name="add" size={20} color={c.teal} />
+            <Text style={styles.listCardNewText}>New</Text>
+          </Pressable>
+        </ScrollView>
+      ) : (
+        <Pressable style={styles.listsRailEmpty} onPress={() => setCreateListOpen(true)}>
+          <Ionicons name="bookmarks-outline" size={14} color={c.teal} />
+          <Text style={styles.listsRailEmptyText}>Create your first custom list</Text>
+          <Ionicons name="add-circle-outline" size={14} color={c.teal} />
+        </Pressable>
+      )}
+
       <View style={styles.searchRow}>
         <TextInput
           placeholder={t("library.searchPlaceholder")}
@@ -194,6 +278,56 @@ export function LibraryScreen() {
               </Pressable>
             ))}
           </View>
+
+          {availableGenres.length > 0 ? (
+            <>
+              <Text style={[styles.sortPanelLabel, { marginTop: spacing.md }]}>Genre</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -spacing.md }}>
+                <View style={styles.advancedChipRow}>
+                  <Pressable
+                    style={[styles.advancedChip, !genreFilter && styles.advancedChipActive]}
+                    onPress={() => setGenreFilter(null)}
+                  >
+                    <Text style={[styles.advancedChipText, !genreFilter && styles.advancedChipTextActive]}>All</Text>
+                  </Pressable>
+                  {availableGenres.map((g) => (
+                    <Pressable
+                      key={g}
+                      style={[styles.advancedChip, genreFilter === g && styles.advancedChipActive]}
+                      onPress={() => setGenreFilter(genreFilter === g ? null : g)}
+                    >
+                      <Text style={[styles.advancedChipText, genreFilter === g && styles.advancedChipTextActive]}>{g}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </ScrollView>
+            </>
+          ) : null}
+
+          {availableTags.length > 0 ? (
+            <>
+              <Text style={[styles.sortPanelLabel, { marginTop: spacing.md }]}>Tags</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -spacing.md }}>
+                <View style={styles.advancedChipRow}>
+                  <Pressable
+                    style={[styles.advancedChip, !tagFilter && styles.advancedChipActive]}
+                    onPress={() => setTagFilter(null)}
+                  >
+                    <Text style={[styles.advancedChipText, !tagFilter && styles.advancedChipTextActive]}>All</Text>
+                  </Pressable>
+                  {availableTags.map((tag) => (
+                    <Pressable
+                      key={tag}
+                      style={[styles.advancedChip, tagFilter === tag && styles.advancedChipActive]}
+                      onPress={() => setTagFilter(tagFilter === tag ? null : tag)}
+                    >
+                      <Text style={[styles.advancedChipText, tagFilter === tag && styles.advancedChipTextActive]}>{tag}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </ScrollView>
+            </>
+          ) : null}
         </View>
       ) : null}
 
@@ -206,6 +340,9 @@ export function LibraryScreen() {
       <View style={styles.resultsMeta}>
         <Text style={styles.resultsCount}>{t("library.booksOnShelf", { count: filteredBooks.length })}</Text>
         <Text style={styles.activeSort}>· {t(`library.sorts.${sortBy}`)}</Text>
+        {listFilter ? <Text style={styles.activeSort}>· {userLists.find((l) => l.id === listFilter)?.emoji} {userLists.find((l) => l.id === listFilter)?.name}</Text> : null}
+        {genreFilter ? <Text style={styles.activeSort}>· {genreFilter}</Text> : null}
+        {tagFilter ? <Text style={styles.activeSort}>· #{tagFilter}</Text> : null}
         <Text style={styles.activeSort}>· {viewMode === "grid" ? t("library.coverWall") : t("library.spineList")}</Text>
       </View>
 
@@ -257,6 +394,32 @@ export function LibraryScreen() {
           ))}
         </View>
       )}
+      {/* Create list sheet */}
+      <CreateListSheet
+        open={createListOpen}
+        mode="create"
+        onSave={(name, emoji) => {
+          createUserList(name, emoji);
+          setCreateListOpen(false);
+        }}
+        onClose={() => setCreateListOpen(false)}
+      />
+
+      {/* Rename list sheet */}
+      <CreateListSheet
+        open={Boolean(renamingList)}
+        mode="rename"
+        initialName={renamingList?.name ?? ""}
+        initialEmoji={renamingList?.emoji ?? "📚"}
+        onSave={(name, emoji) => {
+          if (renamingList) {
+            renameUserList(renamingList.id, name, emoji);
+            // If we were filtering by this list keep the filter active
+          }
+          setRenamingList(null);
+        }}
+        onClose={() => setRenamingList(null)}
+      />
     </Screen>
   );
 }
@@ -440,6 +603,90 @@ function createStyles(c: AppColors, isDark: boolean) {
       lineHeight: 17,
       marginTop: 6
     },
+    listsRail: {
+      marginBottom: spacing.sm
+    },
+    listsRailContent: {
+      gap: spacing.sm,
+      paddingRight: spacing.sm
+    },
+    listCard: {
+      alignItems: "center",
+      backgroundColor: c.surfaceAlt,
+      borderColor: c.border,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      minWidth: 72,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.sm
+    },
+    listCardActive: {
+      backgroundColor: c.navy,
+      borderColor: c.navy
+    },
+    listCardEmoji: {
+      fontSize: 22,
+      marginBottom: 4
+    },
+    listCardName: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 11,
+      fontWeight: "900",
+      textAlign: "center"
+    },
+    listCardNameActive: {
+      color: "#FFFFFF"
+    },
+    listCardCount: {
+      color: c.muted,
+      fontFamily: fonts.bodyRegular,
+      fontSize: 11,
+      marginTop: 2,
+      textAlign: "center"
+    },
+    listCardCountActive: {
+      color: "rgba(255,255,255,0.65)"
+    },
+    listCardNew: {
+      alignItems: "center",
+      backgroundColor: c.teal + "12",
+      borderColor: c.teal,
+      borderRadius: radii.lg,
+      borderStyle: "dashed",
+      borderWidth: 1.5,
+      justifyContent: "center",
+      minWidth: 58,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.sm
+    },
+    listCardNewText: {
+      color: c.teal,
+      fontFamily: fonts.body,
+      fontSize: 11,
+      fontWeight: "900",
+      marginTop: 2
+    },
+    listsRailEmpty: {
+      alignItems: "center",
+      backgroundColor: c.teal + "10",
+      borderColor: c.teal,
+      borderRadius: radii.pill,
+      borderStyle: "dashed",
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.xs,
+      justifyContent: "center",
+      marginBottom: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 10
+    },
+    listsRailEmptyText: {
+      color: c.teal,
+      fontFamily: fonts.body,
+      fontSize: 13,
+      fontWeight: "800"
+    },
     searchRow: {
       alignItems: "center",
       flexDirection: "row",
@@ -533,6 +780,32 @@ function createStyles(c: AppColors, isDark: boolean) {
     },
     sortOptionTextActive: {
       color: activeControlText
+    },
+    advancedChipRow: {
+      flexDirection: "row",
+      gap: spacing.xs,
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.xs
+    },
+    advancedChip: {
+      borderColor: c.border,
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      paddingHorizontal: 12,
+      paddingVertical: 6
+    },
+    advancedChipActive: {
+      backgroundColor: c.tealDark,
+      borderColor: c.tealDark
+    },
+    advancedChipText: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "800"
+    },
+    advancedChipTextActive: {
+      color: "#FFFFFF"
     },
     chipRail: {
       marginTop: spacing.sm

@@ -7,8 +7,9 @@ import { BookCover } from "../components/BookCover";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
+import { useColors } from "../theme/ThemeContext";
 import { NewReadingSessionInput, ReadingFormat } from "../types/models";
-import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 
 const FORMAT_OPTIONS: { value: ReadingFormat; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { value: "physical",  label: "Physical",  icon: "book-outline" },
@@ -21,6 +22,8 @@ const LOCATION_PRESETS = ["Home", "Cafe", "Library"];
 const MAX_VISIBLE_LOCATION_CHIPS = 6;
 
 export function AddReadingSessionScreen() {
+  const c = useColors();
+  const styles = useMemo(() => createStyles(c), [c]);
   const route = useRoute<RouteProp<RootStackParamList, "AddReadingSession">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { addReadingSession, books, deleteReadingSession, getBook, getAuthor, getReadingSession, readingSessions, updateReadingSession } = useBooklio();
@@ -282,7 +285,7 @@ export function AddReadingSessionScreen() {
             <Ionicons
               name={opt.icon}
               size={15}
-              color={format === opt.value ? colors.card : colors.muted}
+              color={format === opt.value ? c.card : c.muted}
             />
             <Text style={[styles.formatChipText, format === opt.value && styles.formatChipTextActive]}>
               {opt.label}
@@ -300,14 +303,14 @@ export function AddReadingSessionScreen() {
               <Text style={styles.stepBtnText}>−5%</Text>
             </Pressable>
             <Pressable style={styles.stepBtnSm} onPress={() => nudgePct(-1)}>
-              <Ionicons name="remove" size={18} color={colors.navy} />
+              <Ionicons name="remove" size={18} color={c.navy} />
             </Pressable>
             <View style={styles.pageDisplay}>
               <Text style={styles.pageNumber}>{currentPct}%</Text>
               <Text style={styles.pageOf}>of the book</Text>
             </View>
             <Pressable style={styles.stepBtnSm} onPress={() => nudgePct(1)}>
-              <Ionicons name="add" size={18} color={colors.navy} />
+              <Ionicons name="add" size={18} color={c.navy} />
             </Pressable>
             <Pressable style={styles.stepBtn} onPress={() => nudgePct(5)}>
               <Text style={styles.stepBtnText}>+5%</Text>
@@ -326,14 +329,14 @@ export function AddReadingSessionScreen() {
               <Text style={styles.stepBtnText}>−10</Text>
             </Pressable>
             <Pressable style={styles.stepBtnSm} onPress={() => nudgePage(-1)}>
-              <Ionicons name="remove" size={18} color={colors.navy} />
+              <Ionicons name="remove" size={18} color={c.navy} />
             </Pressable>
             <View style={styles.pageDisplay}>
               <Text style={styles.pageNumber}>{currentPage}</Text>
               <Text style={styles.pageOf}>/ {totalPages}</Text>
             </View>
             <Pressable style={styles.stepBtnSm} onPress={() => nudgePage(1)}>
-              <Ionicons name="add" size={18} color={colors.navy} />
+              <Ionicons name="add" size={18} color={c.navy} />
             </Pressable>
             <Pressable style={styles.stepBtn} onPress={() => nudgePage(10)}>
               <Text style={styles.stepBtnText}>+10</Text>
@@ -351,7 +354,7 @@ export function AddReadingSessionScreen() {
         <TextInput
           autoCapitalize="none"
           placeholder="2026-05-25"
-          placeholderTextColor={colors.gray}
+          placeholderTextColor={c.gray}
           style={[styles.customInput, styles.dateInput]}
           value={date}
           onChangeText={setDate}
@@ -388,7 +391,7 @@ export function AddReadingSessionScreen() {
             autoFocus
             keyboardType="number-pad"
             placeholder="Minutes..."
-            placeholderTextColor={colors.gray}
+            placeholderTextColor={c.gray}
             style={styles.customInput}
             value={customMinutes}
             onChangeText={setCustomMinutes}
@@ -418,7 +421,7 @@ export function AddReadingSessionScreen() {
                 <Ionicons
                   name="location-outline"
                   size={14}
-                  color={active ? colors.card : colors.muted}
+                  color={active ? c.card : c.muted}
                 />
                 <Text style={[styles.locationChipText, active && styles.locationChipTextActive]}>
                   {location}
@@ -433,7 +436,7 @@ export function AddReadingSessionScreen() {
             <Ionicons
               name="add-circle-outline"
               size={14}
-              color={useCustomLocation ? colors.card : colors.muted}
+              color={useCustomLocation ? c.card : c.muted}
             />
             <Text style={[styles.locationChipText, useCustomLocation && styles.locationChipTextActive]}>
               Custom
@@ -444,7 +447,7 @@ export function AddReadingSessionScreen() {
           <TextInput
             autoFocus
             placeholder="Add a location..."
-            placeholderTextColor={colors.gray}
+            placeholderTextColor={c.gray}
             style={styles.customInput}
             value={customLocation}
             onChangeText={setCustomLocation}
@@ -456,7 +459,7 @@ export function AddReadingSessionScreen() {
 
       {/* Optional note */}
       <Pressable style={styles.noteToggle} onPress={() => setNoteOpen((v) => !v)}>
-        <Ionicons name={noteOpen ? "chatbubble" : "chatbubble-outline"} size={15} color={noteOpen ? colors.tealDark : colors.muted} />
+        <Ionicons name={noteOpen ? "chatbubble" : "chatbubble-outline"} size={15} color={noteOpen ? c.teal : c.muted} />
         <Text style={[styles.noteToggleText, noteOpen && styles.noteToggleTextActive]}>
           {noteOpen ? "Note" : "Add a note"}
         </Text>
@@ -469,7 +472,7 @@ export function AddReadingSessionScreen() {
           autoFocus
           multiline
           placeholder="Thoughts, a quote, a moment worth remembering..."
-          placeholderTextColor={colors.gray}
+          placeholderTextColor={c.gray}
           style={styles.noteInput}
           value={note}
           onChangeText={setNote}
@@ -487,7 +490,7 @@ export function AddReadingSessionScreen() {
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
-                <Text style={[styles.statVal, { color: colors.green }]}>{currentPct}%</Text>
+                <Text style={[styles.statVal, { color: c.green }]}>{currentPct}%</Text>
                 <Text style={styles.statLbl}>progress</Text>
               </View>
             </>
@@ -504,7 +507,7 @@ export function AddReadingSessionScreen() {
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
-                <Text style={[styles.statVal, { color: colors.green }]}>{progressPct}%</Text>
+                <Text style={[styles.statVal, { color: c.green }]}>{progressPct}%</Text>
                 <Text style={styles.statLbl}>progress</Text>
               </View>
             </>
@@ -531,12 +534,13 @@ export function AddReadingSessionScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(c: AppColors) {
+  return StyleSheet.create({
   pageHeader: {
     marginBottom: spacing.md
   },
   pageEyebrow: {
-    color: colors.tealDark,
+    color: c.tealDark,
     fontFamily: fonts.body,
     fontSize: 11,
     fontWeight: "900",
@@ -544,7 +548,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   pageTitle: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 26,
     fontWeight: "900",
@@ -554,7 +558,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md
   },
   bookChip: {
-    borderColor: colors.border,
+    borderColor: c.border,
     borderRadius: radii.pill,
     borderWidth: 1,
     marginRight: spacing.sm,
@@ -563,23 +567,23 @@ const styles = StyleSheet.create({
     paddingVertical: 8
   },
   bookChipActive: {
-    backgroundColor: colors.navy,
-    borderColor: colors.navy
+    backgroundColor: c.navy,
+    borderColor: c.navy
   },
   bookChipText: {
-    color: colors.ink,
+    color: c.ink,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "800"
   },
   bookChipTextActive: {
-    color: colors.card
+    color: c.card
   },
   bookHero: {
     ...shadows.card,
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     flexDirection: "row",
@@ -591,26 +595,26 @@ const styles = StyleSheet.create({
     flex: 1
   },
   bookTitle: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 17,
     fontWeight: "900",
     lineHeight: 21
   },
   bookAuthor: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 13,
     marginTop: 3
   },
   bookMeta: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 11,
     marginTop: 2
   },
   progressBar: {
-    backgroundColor: "#EEE7DB",
+    backgroundColor: c.border,
     borderRadius: radii.pill,
     height: 8,
     marginTop: spacing.sm,
@@ -618,18 +622,18 @@ const styles = StyleSheet.create({
     position: "relative"
   },
   progressFill: {
-    backgroundColor: "#D5CCBE",
+    backgroundColor: c.surfaceAlt,
     borderRadius: radii.pill,
     height: "100%",
     position: "absolute"
   },
   progressNew: {
-    backgroundColor: colors.teal,
+    backgroundColor: c.teal,
     height: "100%",
     position: "absolute"
   },
   progressLabel: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 11,
     fontWeight: "800",
@@ -638,8 +642,8 @@ const styles = StyleSheet.create({
   stepperCard: {
     ...shadows.card,
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     marginBottom: spacing.md,
@@ -647,7 +651,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg
   },
   stepperLabel: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "800",
@@ -662,8 +666,8 @@ const styles = StyleSheet.create({
   },
   stepBtn: {
     alignItems: "center",
-    backgroundColor: colors.cream,
-    borderColor: colors.border,
+    backgroundColor: c.surfaceAlt,
+    borderColor: c.border,
     borderRadius: radii.md,
     borderWidth: 1,
     justifyContent: "center",
@@ -671,15 +675,15 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm
   },
   stepBtnText: {
-    color: colors.navy,
+    color: c.navy,
     fontFamily: fonts.body,
     fontSize: 14,
     fontWeight: "900"
   },
   stepBtnSm: {
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.md,
     borderWidth: 1,
     height: 40,
@@ -691,22 +695,22 @@ const styles = StyleSheet.create({
     minWidth: 90
   },
   pageNumber: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 52,
     fontWeight: "900",
     lineHeight: 56
   },
   pageOf: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "800"
   },
   pagesReadPill: {
-    backgroundColor: colors.teal + "22",
+    backgroundColor: c.teal + "22",
     borderRadius: radii.pill,
-    color: colors.tealDark,
+    color: c.teal,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "900",
@@ -715,15 +719,15 @@ const styles = StyleSheet.create({
     paddingVertical: 6
   },
   minutesCard: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     marginBottom: spacing.md,
     padding: spacing.md
   },
   minutesLabel: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 11,
     fontWeight: "900",
@@ -737,31 +741,31 @@ const styles = StyleSheet.create({
     gap: spacing.xs
   },
   minuteChip: {
-    borderColor: colors.border,
+    borderColor: c.border,
     borderRadius: radii.pill,
     borderWidth: 1,
     paddingHorizontal: spacing.md,
     paddingVertical: 9
   },
   minuteChipActive: {
-    backgroundColor: colors.navy,
-    borderColor: colors.navy
+    backgroundColor: c.navy,
+    borderColor: c.navy
   },
   minuteChipText: {
-    color: colors.ink,
+    color: c.ink,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900"
   },
   minuteChipTextActive: {
-    color: colors.card
+    color: c.card
   },
   customInput: {
-    backgroundColor: "#F7F4EF",
-    borderColor: colors.border,
+    backgroundColor: c.surfaceAlt,
+    borderColor: c.border,
     borderRadius: radii.md,
     borderWidth: 1,
-    color: colors.ink,
+    color: c.ink,
     fontFamily: fonts.body,
     fontSize: 16,
     fontWeight: "800",
@@ -777,7 +781,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between"
   },
   helperLabel: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 11,
     fontWeight: "800"
@@ -789,7 +793,7 @@ const styles = StyleSheet.create({
   },
   formatChip: {
     alignItems: "center",
-    borderColor: colors.border,
+    borderColor: c.border,
     borderRadius: radii.pill,
     borderWidth: 1,
     flex: 1,
@@ -799,21 +803,21 @@ const styles = StyleSheet.create({
     paddingVertical: 10
   },
   formatChipActive: {
-    backgroundColor: colors.navy,
-    borderColor: colors.navy
+    backgroundColor: c.navy,
+    borderColor: c.navy
   },
   formatChipText: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "900"
   },
   formatChipTextActive: {
-    color: colors.card
+    color: c.card
   },
   locationCard: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     marginBottom: spacing.md,
@@ -826,7 +830,7 @@ const styles = StyleSheet.create({
   },
   locationChip: {
     alignItems: "center",
-    borderColor: colors.border,
+    borderColor: c.border,
     borderRadius: radii.pill,
     borderWidth: 1,
     flexDirection: "row",
@@ -835,20 +839,20 @@ const styles = StyleSheet.create({
     paddingVertical: 9
   },
   locationChipActive: {
-    backgroundColor: colors.tealDark,
-    borderColor: colors.tealDark
+    backgroundColor: c.tealDark,
+    borderColor: c.tealDark
   },
   locationChipText: {
-    color: colors.ink,
+    color: c.ink,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900"
   },
   locationChipTextActive: {
-    color: colors.card
+    color: c.card
   },
   locationSummary: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 12,
     marginTop: spacing.sm
@@ -862,26 +866,26 @@ const styles = StyleSheet.create({
     paddingVertical: 4
   },
   noteToggleText: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900"
   },
   noteToggleTextActive: {
-    color: colors.tealDark
+    color: c.teal
   },
   noteDot: {
-    backgroundColor: colors.teal,
+    backgroundColor: c.teal,
     borderRadius: 4,
     height: 6,
     width: 6
   },
   noteInput: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.md,
     borderWidth: 1,
-    color: colors.ink,
+    color: c.ink,
     fontFamily: fonts.body,
     fontSize: 14,
     marginBottom: spacing.md,
@@ -892,7 +896,7 @@ const styles = StyleSheet.create({
   statsRow: {
     ...shadows.card,
     alignItems: "center",
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: radii.lg,
     flexDirection: "row",
     marginBottom: spacing.md,
@@ -904,7 +908,7 @@ const styles = StyleSheet.create({
     flex: 1
   },
   statVal: {
-    color: colors.card,
+    color: c.card,
     fontFamily: fonts.display,
     fontSize: 26,
     fontWeight: "900"
@@ -922,33 +926,34 @@ const styles = StyleSheet.create({
     width: 1
   },
   saveButton: {
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: radii.pill,
     paddingVertical: 16
   },
   saveButtonDisabled: {
-    backgroundColor: colors.gray,
+    backgroundColor: c.gray,
     opacity: 0.5
   },
   saveButtonText: {
-    color: colors.card,
+    color: c.card,
     fontFamily: fonts.body,
     fontSize: 15,
     fontWeight: "900",
     textAlign: "center"
   },
   deleteButton: {
-    borderColor: colors.danger,
+    borderColor: c.danger,
     borderRadius: radii.pill,
     borderWidth: 1,
     marginTop: spacing.sm,
     paddingVertical: 15
   },
   deleteButtonText: {
-    color: colors.danger,
+    color: c.danger,
     fontFamily: fonts.body,
     fontSize: 14,
     fontWeight: "900",
     textAlign: "center"
   }
-});
+  });
+}

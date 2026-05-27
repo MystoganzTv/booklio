@@ -10,13 +10,16 @@ import { FilterChip } from "../components/FilterChip";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
+import { useColors } from "../theme/ThemeContext";
 import { Book } from "../types/models";
-import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { formatStatusLabel } from "../utils/statusLabels";
 
 type OrderMode = "Reading order" | "Release order";
 
 export function SeriesTrackerScreen() {
+  const c = useColors();
+  const styles = useMemo(() => createStyles(c), [c]);
   const route = useRoute<RouteProp<RootStackParamList, "SeriesTracker">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { books, getAuthor, series } = useBooklio();
@@ -63,9 +66,9 @@ export function SeriesTrackerScreen() {
         </View>
 
         <View style={styles.statRow}>
-          <StatChip label="Owned" value={String(owned)} accent={colors.teal} />
-          <StatChip label="Unread" value={String(Math.max(sagaBooks.length - completed, 0))} accent={colors.gold} />
-          <StatChip label="Upcoming" value={String(upcoming.length)} accent={colors.coral} />
+          <StatChip label="Owned" value={String(owned)} accent={c.teal} styles={styles} />
+          <StatChip label="Unread" value={String(Math.max(sagaBooks.length - completed, 0))} accent={c.gold} styles={styles} />
+          <StatChip label="Upcoming" value={String(upcoming.length)} accent={c.coral} styles={styles} />
         </View>
       </View>
 
@@ -92,7 +95,7 @@ export function SeriesTrackerScreen() {
         {activeBook ? (
           <View style={styles.activeRow}>
             <View style={styles.activePill}>
-              <Ionicons name="book-outline" size={14} color={colors.card} />
+              <Ionicons name="book-outline" size={14} color={c.card} />
               <Text style={styles.activePillText}>Currently reading</Text>
             </View>
             <Text style={styles.activeTitle}>{activeBook.title}</Text>
@@ -106,7 +109,7 @@ export function SeriesTrackerScreen() {
         ) : nextUnread ? (
           <View style={styles.activeRow}>
             <View style={[styles.activePill, styles.activePillSoft]}>
-              <Ionicons name="sparkles-outline" size={14} color={colors.navy} />
+              <Ionicons name="sparkles-outline" size={14} color={c.navy} />
               <Text style={[styles.activePillText, styles.activePillTextSoft]}>Best next pick</Text>
             </View>
             <Text style={styles.activeTitle}>{nextUnread.title}</Text>
@@ -116,8 +119,8 @@ export function SeriesTrackerScreen() {
           </View>
         ) : (
           <View style={styles.activeRow}>
-            <View style={[styles.activePill, { backgroundColor: colors.green }]}>
-              <Ionicons name="trophy-outline" size={14} color={colors.card} />
+            <View style={[styles.activePill, { backgroundColor: c.green }]}>
+              <Ionicons name="trophy-outline" size={14} color={c.card} />
               <Text style={styles.activePillText}>Saga complete</Text>
             </View>
             <Text style={styles.activeTitle}>You have finished this saga path.</Text>
@@ -141,7 +144,7 @@ export function SeriesTrackerScreen() {
                     {order === "Reading order" ? `Reading order ${book.sagaOrder ?? "—"}` : `Published ${book.publishedDate.slice(0, 4)}`}
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+                <Ionicons name="chevron-forward" size={16} color={c.muted} />
               </Pressable>
             ))}
           </View>
@@ -191,7 +194,7 @@ export function SeriesTrackerScreen() {
                   {getAuthor(book.authorId)?.name} · {book.publisher}
                 </Text>
               </View>
-              <Ionicons name="calendar-outline" size={18} color={colors.gold} />
+              <Ionicons name="calendar-outline" size={18} color={c.gold} />
             </Pressable>
           ))}
         </View>
@@ -200,7 +203,17 @@ export function SeriesTrackerScreen() {
   );
 }
 
-function StatChip({ label, value, accent }: { label: string; value: string; accent: string }) {
+function StatChip({
+  label,
+  value,
+  accent,
+  styles
+}: {
+  label: string;
+  value: string;
+  accent: string;
+  styles: ReturnType<typeof createStyles>;
+}) {
   return (
     <View style={styles.statChip}>
       <Text style={[styles.statValue, { color: accent }]}>{value}</Text>
@@ -220,6 +233,8 @@ function SagaRoadmapRow({
   authorName: string;
   onPress: () => void;
 }) {
+  const c = useColors();
+  const styles = useMemo(() => createStyles(c), [c]);
   const orderValue = order === "Reading order" ? book.sagaOrder : book.releaseOrder;
 
   return (
@@ -253,15 +268,16 @@ function SagaRoadmapRow({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(c: AppColors) {
+  return StyleSheet.create({
   hero: {
     ...shadows.card,
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: radii.lg,
     padding: spacing.lg
   },
   eyebrow: {
-    color: colors.gold,
+    color: c.gold,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "900",
@@ -269,7 +285,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   title: {
-    color: colors.card,
+    color: c.card,
     fontFamily: fonts.display,
     fontSize: 34,
     fontWeight: "900",
@@ -277,7 +293,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm
   },
   subtitle: {
-    color: "#D8D2C8",
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 14,
     lineHeight: 21,
@@ -290,13 +306,13 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg
   },
   progressTitle: {
-    color: colors.card,
+    color: c.card,
     fontFamily: fonts.display,
     fontSize: 20,
     fontWeight: "900"
   },
   progressPct: {
-    color: colors.gold,
+    color: c.gold,
     fontFamily: fonts.display,
     fontSize: 22,
     fontWeight: "900"
@@ -309,7 +325,7 @@ const styles = StyleSheet.create({
     overflow: "hidden"
   },
   completionFill: {
-    backgroundColor: colors.gold,
+    backgroundColor: c.gold,
     borderRadius: radii.pill,
     height: "100%"
   },
@@ -333,7 +349,7 @@ const styles = StyleSheet.create({
     fontWeight: "900"
   },
   statLabel: {
-    color: "#D8D2C8",
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 11,
     fontWeight: "800",
@@ -342,8 +358,8 @@ const styles = StyleSheet.create({
   },
   shelfCard: {
     ...shadows.card,
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     marginTop: spacing.md,
@@ -356,13 +372,13 @@ const styles = StyleSheet.create({
     gap: spacing.md
   },
   sectionTitle: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 22,
     fontWeight: "900"
   },
   sectionMeta: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "900"
@@ -378,8 +394,8 @@ const styles = StyleSheet.create({
   },
   pathCard: {
     ...shadows.card,
-    backgroundColor: "#FBF6EC",
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     marginTop: spacing.md,
@@ -391,7 +407,7 @@ const styles = StyleSheet.create({
   activePill: {
     alignItems: "center",
     alignSelf: "flex-start",
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: radii.pill,
     flexDirection: "row",
     gap: 6,
@@ -399,19 +415,19 @@ const styles = StyleSheet.create({
     paddingVertical: 7
   },
   activePillSoft: {
-    backgroundColor: colors.gold
+    backgroundColor: c.gold
   },
   activePillText: {
-    color: colors.card,
+    color: c.card,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "900"
   },
   activePillTextSoft: {
-    color: colors.navy
+    color: c.navy
   },
   activeTitle: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 28,
     fontWeight: "900",
@@ -419,7 +435,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm
   },
   activeMeta: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "700",
@@ -427,14 +443,14 @@ const styles = StyleSheet.create({
     marginTop: 4
   },
   activeTrack: {
-    backgroundColor: "#EAE1D4",
+    backgroundColor: c.border,
     borderRadius: radii.pill,
     height: 8,
     marginTop: spacing.sm,
     overflow: "hidden"
   },
   activeFill: {
-    backgroundColor: colors.teal,
+    backgroundColor: c.teal,
     borderRadius: radii.pill,
     height: "100%"
   },
@@ -442,7 +458,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.md
   },
   queueLabel: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 11,
     fontWeight: "900",
@@ -451,8 +467,8 @@ const styles = StyleSheet.create({
   },
   queueRow: {
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surfaceAlt,
+    borderColor: c.border,
     borderRadius: radii.md,
     borderWidth: 1,
     flexDirection: "row",
@@ -462,7 +478,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12
   },
   queueIndex: {
-    color: colors.gold,
+    color: c.gold,
     fontFamily: fonts.display,
     fontSize: 18,
     fontWeight: "900",
@@ -472,13 +488,13 @@ const styles = StyleSheet.create({
     flex: 1
   },
   queueTitle: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.body,
     fontSize: 14,
     fontWeight: "900"
   },
   queueMeta: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.bodyRegular,
     fontSize: 12,
     marginTop: 2
@@ -492,8 +508,8 @@ const styles = StyleSheet.create({
     marginTop: spacing.md
   },
   roadmapRow: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     flexDirection: "row",
@@ -514,25 +530,25 @@ const styles = StyleSheet.create({
     gap: 6
   },
   orderBadge: {
-    backgroundColor: "#FFF6E5",
+    backgroundColor: c.gold + "22",
     borderRadius: radii.pill,
     paddingHorizontal: 8,
     paddingVertical: 4
   },
   orderBadgeAlt: {
-    backgroundColor: "#EDF7F6"
+    backgroundColor: c.teal + "18"
   },
   orderBadgeText: {
-    color: colors.gold,
+    color: c.gold,
     fontFamily: fonts.body,
     fontSize: 10,
     fontWeight: "900"
   },
   orderBadgeTextAlt: {
-    color: colors.tealDark
+    color: c.teal,
   },
   bookTitle: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 21,
     fontWeight: "900",
@@ -540,7 +556,7 @@ const styles = StyleSheet.create({
     marginTop: 6
   },
   bookMeta: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "700",
@@ -553,21 +569,21 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm
   },
   rowProgressTrack: {
-    backgroundColor: "#EEE7DB",
+    backgroundColor: c.border,
     borderRadius: radii.pill,
     height: 7,
     marginTop: spacing.sm,
     overflow: "hidden"
   },
   rowProgressFill: {
-    backgroundColor: colors.teal,
+    backgroundColor: c.teal,
     borderRadius: radii.pill,
     height: "100%"
   },
   upcomingCard: {
     ...shadows.card,
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     marginTop: spacing.lg,
@@ -581,14 +597,14 @@ const styles = StyleSheet.create({
   },
   upcomingDateChip: {
     alignItems: "center",
-    backgroundColor: "#FFF6E5",
+    backgroundColor: c.gold + "22",
     borderRadius: radii.md,
     justifyContent: "center",
     minHeight: 46,
     paddingHorizontal: spacing.sm
   },
   upcomingDateText: {
-    color: colors.gold,
+    color: c.gold,
     fontFamily: fonts.display,
     fontSize: 18,
     fontWeight: "900"
@@ -597,15 +613,16 @@ const styles = StyleSheet.create({
     flex: 1
   },
   upcomingTitle: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.body,
     fontSize: 14,
     fontWeight: "900"
   },
   upcomingMeta: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.bodyRegular,
     fontSize: 12,
     marginTop: 2
   }
-});
+  });
+}

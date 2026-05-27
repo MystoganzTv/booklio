@@ -7,6 +7,7 @@ import { Badge } from "../components/Badge";
 import { BookCover } from "../components/BookCover";
 import { RecommendationCard } from "../components/RecommendationCard";
 import { BookStatusSheet } from "../components/BookStatusSheet";
+import { BookListSheet } from "../components/BookListSheet";
 import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
 import { SessionRow } from "../components/SessionRow";
@@ -35,6 +36,7 @@ export function BookDetailScreen() {
   const book = getBook(route.params.bookId);
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
   const [statusSheetOpen, setStatusSheetOpen] = useState(false);
+  const [listSheetOpen, setListSheetOpen] = useState(false);
   const review = getReviewForBook(route.params.bookId);
 
   if (!book) {
@@ -120,6 +122,12 @@ export function BookDetailScreen() {
           onPress={() => navigation.navigate("EditBook", { bookId: book.id })}
         >
           <Ionicons name="create-outline" size={15} color={c.ink} />
+        </Pressable>
+        <Pressable
+          style={styles.secondaryAction}
+          onPress={() => setListSheetOpen(true)}
+        >
+          <Ionicons name="bookmarks-outline" size={15} color={c.ink} />
         </Pressable>
       </View>
 
@@ -311,6 +319,11 @@ export function BookDetailScreen() {
         currentRating={book.userStatus.rating}
         onSave={(status, rating) => updateBookStatus(book.id, status, rating)}
         onClose={() => setStatusSheetOpen(false)}
+      />
+      <BookListSheet
+        open={listSheetOpen}
+        bookId={book.id}
+        onClose={() => setListSheetOpen(false)}
       />
     </Screen>
   );

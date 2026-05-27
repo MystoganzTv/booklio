@@ -1,14 +1,18 @@
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
 import { SessionRow } from "../components/SessionRow";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
-import { colors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { useColors } from "../theme/ThemeContext";
+import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 
 export function ReadingLogScreen() {
+  const c = useColors();
+  const styles = useMemo(() => createStyles(c), [c]);
   const route = useRoute<RouteProp<RootStackParamList, "ReadingLog">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { getBook, getBookStats, overallStats, readingSessions } = useBooklio();
@@ -121,7 +125,8 @@ export function ReadingLogScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(c: AppColors) {
+  return StyleSheet.create({
   header: {
     alignItems: "flex-start",
     flexDirection: "row",
@@ -129,7 +134,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md
   },
   eyebrow: {
-    color: colors.tealDark,
+    color: c.tealDark,
     fontFamily: fonts.body,
     fontSize: 11,
     fontWeight: "900",
@@ -137,7 +142,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   title: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 24,
     fontWeight: "900",
@@ -146,13 +151,13 @@ const styles = StyleSheet.create({
     maxWidth: 240
   },
   logButton: {
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: radii.pill,
     paddingHorizontal: spacing.md,
     paddingVertical: 10
   },
   logButtonText: {
-    color: colors.card,
+    color: c.card,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900"
@@ -160,8 +165,8 @@ const styles = StyleSheet.create({
   statsStrip: {
     ...shadows.card,
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     flexDirection: "row",
@@ -174,13 +179,13 @@ const styles = StyleSheet.create({
     flex: 1
   },
   statVal: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 20,
     fontWeight: "900"
   },
   statLbl: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 10,
     fontWeight: "800",
@@ -188,20 +193,20 @@ const styles = StyleSheet.create({
     textAlign: "center"
   },
   statDivider: {
-    backgroundColor: colors.border,
+    backgroundColor: c.border,
     height: 28,
     width: 1
   },
   calendarCard: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderWidth: 1,
     marginBottom: spacing.md,
     padding: spacing.md
   },
   calendarTitle: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900",
@@ -214,28 +219,28 @@ const styles = StyleSheet.create({
   },
   dayDot: {
     alignItems: "center",
-    backgroundColor: "#EEE7DB",
+    backgroundColor: c.surfaceAlt,
     borderRadius: 999,
     height: 32,
     justifyContent: "center",
     width: 32
   },
   dayDotActive: {
-    backgroundColor: colors.teal
+    backgroundColor: c.teal
   },
   dayText: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 11,
     fontWeight: "800"
   },
   dayTextActive: {
-    color: colors.card
+    color: c.card
   },
   emptyCard: {
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.lg,
     borderStyle: "dashed",
     borderWidth: 1,
@@ -243,20 +248,21 @@ const styles = StyleSheet.create({
     padding: spacing.xl
   },
   emptyText: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 14
   },
   emptyButton: {
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: radii.pill,
     paddingHorizontal: spacing.lg,
     paddingVertical: 10
   },
   emptyButtonText: {
-    color: colors.card,
+    color: c.card,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900"
   }
-});
+  });
+}

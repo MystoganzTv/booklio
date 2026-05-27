@@ -20,6 +20,7 @@ import {
   Review,
   UpdateBookInput,
   UpdateUserProfileInput,
+  UserList,
   UserProfile
 } from "../types/models";
 import { buildInitials, clearPersistedConnectedAccount, ConnectedAccount, persistConnectedAccount, readPersistedConnectedAccount } from "../utils/googleAuth";
@@ -85,6 +86,7 @@ type BooklioContextValue = {
   books: Book[];
   readingSessions: ReadingSession[];
   reviews: Review[];
+  userLists: UserList[];
   recommendations: Recommendation[];
   series: typeof series;
   userProfile: UserProfile;
@@ -109,6 +111,11 @@ type BooklioContextValue = {
   addReview: (review: Omit<Review, "id" | "createdAt">) => Review;
   updateReview: (reviewId: string, review: Omit<Review, "id" | "createdAt">) => void;
   deleteReview: (reviewId: string) => void;
+  createUserList: (name: string, emoji?: string) => UserList;
+  renameUserList: (listId: string, name: string, emoji?: string) => void;
+  deleteUserList: (listId: string) => void;
+  addBookToList: (listId: string, bookId: string) => void;
+  removeBookFromList: (listId: string, bookId: string) => void;
   getBookStats: (bookId: string) => BookStats;
   getSessionsForBook: (bookId: string) => ReadingSession[];
   getRecommendationsForBook: (bookId: string, limit?: number) => Recommendation[];
@@ -650,6 +657,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
   const [readingSessions, setReadingSessions] = useState<ReadingSession[]>(sessionSeed);
   const [profile, setProfile] = useState<UserProfile>(userProfile);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [userLists, setUserLists] = useState<UserList[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [onboardingComplete, setOnboardingComplete] = useState(false);
   const [repositoryStatus, setRepositoryStatus] = useState<RepositoryStatus>(repositoryRef.current.getStatus());
@@ -683,9 +691,11 @@ export function BooklioProvider({ children }: PropsWithChildren) {
             : bookSeed.map(normalizeReadState)
         );
         setReadingSessions(parsed.readingSessions ?? sessionSeed);
-        const anyParsed = parsed as Record<string, unknown>;
-        if (Array.isArray(anyParsed["reviews"])) {
-          setReviews(anyParsed["reviews"] as Review[]);
+        if (Array.isArray(parsed.reviews)) {
+          setReviews(parsed.reviews);
+        }
+        if (Array.isArray(parsed.userLists)) {
+          setUserLists(parsed.userLists);
         }
         if (parsed.userProfile?.id) {
           const persistedAccount = await readPersistedConnectedAccount();
@@ -799,7 +809,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
     }
 
     const persist = async () => {
-      const state: PersistedBooklioState & { reviews: Review[] } = { authors, books, readingSessions, reviews, userProfile: resolvedProfile };
+      const state: PersistedBooklioState = { authors, books, readingSessions, reviews, userLists, userProfile: resolvedProfile };
       try {
         await repositoryRef.current.save(createBooklioSnapshot(state));
         setRepositoryStatus(repositoryRef.current.getStatus());
@@ -1163,6 +1173,43 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       setReviews((prev) => prev.filter((r) => r.id !== reviewId));
     };
 
+    const createUserList = (name: string, emoji?: string): UserList => {
+      const now = new Date().toISOString();
+      const list: UserList = { id: `list-${Date.now()}`, name: name.trim(), emoji, bookIds: [], createdAt: now, updatedAt: now };
+      setUserLists((prev) => [...prev, list]);
+      return list;
+    };
+
+    const renameUserList = (listId: string, name: string, emoji?: string) => {
+      setUserLists((prev) =>
+        prev.map((l) => l.id === listId ? { ...l, name: name.trim(), emoji, updatedAt: new Date().toISOString() } : l)
+      );
+    };
+
+    const deleteUserList = (listId: string) => {
+      setUserLists((prev) => prev.filter((l) => l.id !== listId));
+    };
+
+    const addBookToList = (listId: string, bookId: string) => {
+      setUserLists((prev) =>
+        prev.map((l) =>
+          l.id === listId && !l.bookIds.includes(bookId)
+            ? { ...l, bookIds: [...l.bookIds, bookId], updatedAt: new Date().toISOString() }
+            : l
+        )
+      );
+    };
+
+    const removeBookFromList = (listId: string, bookId: string) => {
+      setUserLists((prev) =>
+        prev.map((l) =>
+          l.id === listId
+            ? { ...l, bookIds: l.bookIds.filter((id) => id !== bookId), updatedAt: new Date().toISOString() }
+            : l
+        )
+      );
+    };
+
     const completeOnboarding = async (name: string, genres: string[]) => {
       const trimmedName = name.trim() || "Reader";
       const initials = buildInitials(trimmedName, undefined);
@@ -1185,6 +1232,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       setBooks([]);
       setReadingSessions([]);
       setReviews([]);
+      setUserLists([]);
       setProfile(userProfile);
       setOnboardingComplete(false);
       // 3. Wipe AsyncStorage
@@ -1230,6 +1278,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       books,
       readingSessions: [...readingSessions].sort((a, b) => b.date.localeCompare(a.date)),
       reviews,
+      userLists,
       recommendations: recommendationList,
       series,
       userProfile: resolvedProfile,
@@ -1254,12 +1303,17 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       addReview,
       updateReview,
       deleteReview,
+      createUserList,
+      renameUserList,
+      deleteUserList,
+      addBookToList,
+      removeBookFromList,
       getBookStats,
       getSessionsForBook,
       getRecommendationsForBook,
       overallStats: buildOverallStats(books, readingSessions, authors)
     };
-  }, [authors, books, onboardingComplete, readingSessions, repositoryStatus, resolvedProfile, reviews]);
+  }, [authors, books, onboardingComplete, readingSessions, repositoryStatus, resolvedProfile, reviews, userLists]);
 
   if (!hydrated) return null;
 

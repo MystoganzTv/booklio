@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -12,11 +12,14 @@ import {
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
-import { colors, fonts, radii, spacing } from "../theme/theme";
+import { useColors } from "../theme/ThemeContext";
+import { AppColors, fonts, radii, spacing } from "../theme/theme";
 
 type RouteP = RouteProp<RootStackParamList, "WriteReview">;
 
 function StarRow({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const c = useColors();
+  const stars = useMemo(() => createStars(), []);
   return (
     <View style={stars.row}>
       {[1, 2, 3, 4, 5].map((n) => (
@@ -24,7 +27,7 @@ function StarRow({ value, onChange }: { value: number; onChange: (v: number) => 
           <Ionicons
             name={n <= value ? "star" : "star-outline"}
             size={36}
-            color={n <= value ? colors.gold : colors.border}
+            color={n <= value ? c.gold : c.border}
           />
         </Pressable>
       ))}
@@ -33,6 +36,8 @@ function StarRow({ value, onChange }: { value: number; onChange: (v: number) => 
 }
 
 export function WriteReviewScreen() {
+  const c = useColors();
+  const styles = useMemo(() => createStyles(c), [c]);
   const route = useRoute<RouteP>();
   const navigation = useNavigation();
   const { getBook, getReviewForBook, addReview, updateReview, deleteReview } = useBooklio();
@@ -88,7 +93,7 @@ export function WriteReviewScreen() {
           ) : null}
           {existing ? (
             <Pressable onPress={handleDelete} hitSlop={12}>
-              <Ionicons name="trash-outline" size={20} color={colors.danger ?? "#EF4444"} />
+              <Ionicons name="trash-outline" size={20} color={c.danger} />
             </Pressable>
           ) : undefined}
         </View>
@@ -119,7 +124,7 @@ export function WriteReviewScreen() {
         <TextInput
           style={styles.input}
           placeholder="Give your review a headline…"
-          placeholderTextColor={colors.muted}
+          placeholderTextColor={c.gray}
           value={title}
           onChangeText={setTitle}
           maxLength={120}
@@ -133,7 +138,7 @@ export function WriteReviewScreen() {
         <TextInput
           style={[styles.input, styles.inputMultiline]}
           placeholder="What did you think? What stayed with you?"
-          placeholderTextColor={colors.muted}
+          placeholderTextColor={c.gray}
           value={body}
           onChangeText={setBody}
           multiline
@@ -149,7 +154,7 @@ export function WriteReviewScreen() {
         onPress={handleSave}
         disabled={!canSave}
       >
-        <Ionicons name="checkmark-circle-outline" size={18} color={canSave ? colors.navy : colors.muted} style={{ marginRight: 8 }} />
+        <Ionicons name="checkmark-circle-outline" size={18} color={canSave ? c.navy : c.muted} style={{ marginRight: 8 }} />
         <Text style={[styles.saveButtonText, !canSave && styles.saveButtonTextDisabled]}>
           {existing ? "Update Review" : "Save Review"}
         </Text>
@@ -158,41 +163,44 @@ export function WriteReviewScreen() {
   );
 }
 
-const stars = StyleSheet.create({
-  row: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: spacing.sm
-  }
-});
+function createStars() {
+  return StyleSheet.create({
+    row: {
+      flexDirection: "row",
+      gap: 8,
+      marginTop: spacing.sm
+    }
+  });
+}
 
-const styles = StyleSheet.create({
+function createStyles(c: AppColors) {
+  return StyleSheet.create({
   headerActions: {
     alignItems: "center",
     flexDirection: "row",
     gap: spacing.sm,
   },
   headerSaveButton: {
-    backgroundColor: colors.gold,
+    backgroundColor: c.gold,
     borderRadius: radii.pill,
     paddingHorizontal: spacing.md,
     paddingVertical: 8,
   },
   headerSaveButtonText: {
-    color: colors.navy,
+    color: c.navy,
     fontFamily: fonts.body,
     fontSize: 12,
     fontWeight: "900",
   },
   bookHint: {
-    backgroundColor: colors.navy,
+    backgroundColor: c.navy,
     borderRadius: radii.lg,
     marginBottom: spacing.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm
   },
   bookHintLabel: {
-    color: colors.gold,
+    color: c.gold,
     fontFamily: fonts.body,
     fontSize: 10,
     fontWeight: "900",
@@ -200,7 +208,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   bookHintTitle: {
-    color: colors.card,
+    color: c.card,
     fontFamily: fonts.display,
     fontSize: 18,
     fontWeight: "900",
@@ -210,7 +218,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md
   },
   sectionLabel: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 11,
     fontWeight: "900",
@@ -219,18 +227,18 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   ratingHint: {
-    color: colors.tealDark,
+    color: c.teal,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "800",
     marginTop: spacing.xs
   },
   input: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
     borderRadius: radii.md,
     borderWidth: 1,
-    color: colors.ink,
+    color: c.ink,
     fontFamily: fonts.body,
     fontSize: 15,
     paddingHorizontal: spacing.md,
@@ -241,7 +249,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm
   },
   charCount: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 11,
     marginTop: 4,
@@ -249,7 +257,7 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     alignItems: "center",
-    backgroundColor: colors.gold,
+    backgroundColor: c.gold,
     borderRadius: radii.pill,
     flexDirection: "row",
     justifyContent: "center",
@@ -257,16 +265,17 @@ const styles = StyleSheet.create({
     paddingVertical: 16
   },
   saveButtonDisabled: {
-    backgroundColor: colors.border,
+    backgroundColor: c.border,
     opacity: 0.7
   },
   saveButtonText: {
-    color: colors.navy,
+    color: c.navy,
     fontFamily: fonts.body,
     fontSize: 16,
     fontWeight: "900"
   },
   saveButtonTextDisabled: {
-    color: colors.muted
+    color: c.muted
   }
-});
+  });
+}

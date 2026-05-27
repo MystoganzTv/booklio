@@ -203,10 +203,23 @@ export function BookIntakeScreen() {
 
   const confirmAndOpen = (input: NewBookInput) => {
     const book = addBook(input);
+    // Reset so back-press from BookDetail lands on Library, not the Add tab
     navigation.reset({
       index: 1,
       routes: [
-        { name: "MainTabs" },
+        {
+          name: "MainTabs",
+          state: {
+            index: 1, // Library tab (0=Home, 1=Library, 2=Add, 3=Stats, 4=Profile)
+            routes: [
+              { name: "Home" },
+              { name: "Library" },
+              { name: "Add" },
+              { name: "Stats" },
+              { name: "Profile" }
+            ]
+          }
+        },
         { name: "BookDetail", params: { bookId: book.id } }
       ]
     });
