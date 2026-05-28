@@ -138,6 +138,15 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
       return;
     }
 
+    // Guard: detect unconfigured placeholder client IDs before hitting the native SDK
+    if (Platform.OS === "ios" && (!config.iosClientId || config.iosClientId.includes("TU_"))) {
+      Alert.alert(
+        "Google Sign-In not set up",
+        "Add your iOS Client ID from Google Cloud Console to app.json → extra → googleAuth → iosClientId, then rebuild."
+      );
+      return;
+    }
+
     setActiveProvider("google");
     try {
       if (Platform.OS === "android") {

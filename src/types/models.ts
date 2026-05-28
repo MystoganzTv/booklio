@@ -165,7 +165,7 @@ export interface UpdateUserProfileInput {
   avatarUri?: string;
   email?: string;
   authProvider?: "google" | "apple";
-  readingLevel: string;
+  readingLevel?: string;  // ignored — level is auto-computed from totalBooksRead
   yearlyGoal: number;
   yearlyGoalMode?: "auto" | "custom";
   favoriteAuthors: string[];

@@ -1144,7 +1144,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         avatarUri: input.avatarUri ?? current.avatarUri,
         email: input.email ?? current.email,
         authProvider: input.authProvider ?? current.authProvider,
-        readingLevel: input.readingLevel.trim() || current.readingLevel,
+        readingLevel: input.readingLevel?.trim() || current.readingLevel,
         yearlyGoal: input.yearlyGoal > 0 ? input.yearlyGoal : current.yearlyGoal,
         favoriteAuthors: input.favoriteAuthors.length ? input.favoriteAuthors : current.favoriteAuthors,
         favoriteGenres: input.favoriteGenres.length ? input.favoriteGenres : current.favoriteGenres

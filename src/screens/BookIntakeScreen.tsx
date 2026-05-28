@@ -1,9 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, BarcodeScanningResult, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { BooklioDialog } from "../components/BooklioDialog";
 import { Screen } from "../components/Screen";
@@ -27,8 +27,15 @@ import {
   SearchMode,
   summarizeMetadataChanges
 } from "../utils/bookMetadata";
+import {
+  BookMatch,
+  bookMatchToNewBookInput,
+  lookupByIsbn,
+  lookupByQuery,
+} from "../services/bookLookupService";
+import { parseIsbn, formatIsbn13 } from "../utils/isbnUtils";
 
-type IntakeMode = "menu" | "isbn" | "manual" | "search" | "review";
+type IntakeMode = "menu" | "isbn" | "manual" | "search" | "matches" | "review";
 type IconName = keyof typeof Ionicons.glyphMap;
 
 const booklioLogo = require("../../assets/brand/booklio-logo.png");
@@ -164,6 +171,14 @@ export function BookIntakeScreen() {
   const [isRefreshingMetadata, setIsRefreshingMetadata] = useState(false);
   const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const [scanZoom, setScanZoom] = useState<0 | 0.15 | 0.3>(0);
+  // Book lookup / match confirmation
+  const [matches, setMatches] = useState<BookMatch[]>([]);
+  const [matchLookupLabel, setMatchLookupLabel] = useState("");
+  const [matchReturnMode, setMatchReturnMode] = useState<"menu" | "isbn" | "search">("menu");
+  // Debounce: prevents re-processing the same barcode within 2 s
+  const lastScanRef = useRef<number>(0);
   const [manual, setManual] = useState({
     title: "",
     authorName: "",
@@ -172,6 +187,33 @@ export function BookIntakeScreen() {
     genre: "",
     publisher: ""
   });
+
+  // Reset everything when the user navigates away mid-flow (taps another tab, etc.)
+  // so that returning to the Add tab always shows the main menu, never a stuck mode.
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        setMode("menu");
+        setScanned(false);
+        setCoverUri(undefined);
+        setIsBusy(false);
+        setIsLoadingMore(false);
+        setSearchQuery("");
+        setSearchResults([]);
+        setSearchTotal(0);
+        setSearchOffset(0);
+        setReviewBook(null);
+        setReviewInsight(null);
+        setIsAnalyzingPhoto(false);
+        setIsSubmittingReview(false);
+        setTorchOn(false);
+        setScanZoom(0);
+        setMatches([]);
+        setMatchLookupLabel("");
+        setManual({ title: "", authorName: "", isbn: "", pages: "", genre: "", publisher: "" });
+      };
+    }, [])
+  );
 
   const photoSupport = getBookPhotoSupportSummary();
   const dialogNode = (
@@ -255,27 +297,7 @@ export function BookIntakeScreen() {
 
   const runSearch = async () => {
     if (!searchQuery.trim()) return;
-    setIsBusy(true);
-    setSearchOffset(0);
-    try {
-      const { results, total } = await searchBookMetadata(searchQuery.trim(), searchMode, 0);
-      setSearchResults(results);
-      setSearchTotal(total);
-      if (!results.length) {
-        openDialog("No results yet", "Booklio couldn't find a match in Open Library. Try a different title, author, or ISBN.");
-      }
-    } catch {
-      setSearchResults([]);
-      setSearchTotal(0);
-      openDialog(
-        "Connection issue",
-        Platform.OS === "web"
-          ? "Couldn't reach metadata search. In the web demo, start `npm run metadata-proxy` and try again, or use manual entry."
-          : "Couldn't reach Open Library right now. Try again or use manual entry."
-      );
-    } finally {
-      setIsBusy(false);
-    }
+    await lookupAndShowMatches(searchQuery.trim(), "search", "query");
   };
 
   const loadMoreResults = async () => {
@@ -326,10 +348,65 @@ export function BookIntakeScreen() {
     await processPhotoAsset(result.assets[0]);
   };
 
+  /**
+   * Fetch matches from all sources and navigate to the "matches" confirmation mode.
+   */
+  const lookupAndShowMatches = async (
+    query: string,
+    returnMode: "menu" | "isbn" | "search",
+    type: "isbn" | "query" = "query"
+  ) => {
+    setMatches([]);
+    setMatchLookupLabel(query);
+    setMatchReturnMode(returnMode);
+    setMode("matches");
+    setIsBusy(true);
+    try {
+      const results = type === "isbn"
+        ? await lookupByIsbn(query)
+        : await lookupByQuery(query);
+      setMatches(results);
+    } catch {
+      openDialog(
+        "Connection issue",
+        Platform.OS === "web"
+          ? "Couldn't reach book databases. In the web demo, start `npm run metadata-proxy` or try again."
+          : "Couldn't reach book databases right now. Check your internet connection."
+      );
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  /**
+   * Stage the chosen BookMatch for review.
+   */
+  const selectMatch = (match: BookMatch) => {
+    const sourceLabel =
+      match.source === "google-books" ? "Google Books" : "Open Library";
+    const insightByConfidence: Record<string, string> = {
+      high: `Confirmed match from ${sourceLabel} — all details verified.`,
+      medium: `Partial match from ${sourceLabel} — review the details before saving.`,
+      low: `Low-confidence result from ${sourceLabel}. Please verify title and author.`,
+    };
+    void stageBook(
+      bookMatchToNewBookInput(match, "isbn"),
+      insightByConfidence[match.confidence] ?? ""
+    );
+  };
+
+  /**
+   * ISBN barcode handler — debounced (2 s), validates before lookup.
+   */
   const handleBarcode = ({ data }: BarcodeScanningResult) => {
-    if (scanned) return;
-    setScanned(true);
-    addFromIsbn(data);
+    const now = Date.now();
+    if (now - lastScanRef.current < 2000) return; // debounce
+
+    const parsed = parseIsbn(data);
+    if (!parsed) return; // not a valid book ISBN — ignore
+
+    lastScanRef.current = now;
+    void lookupAndShowMatches(parsed.isbn13, "isbn", "isbn");
   };
 
   const saveManual = () => {
@@ -456,6 +533,24 @@ export function BookIntakeScreen() {
     if (!uri) return;
 
     setCoverUri(uri);
+
+    // On iOS without a configured vision provider, static-image barcode detection
+    // doesn't work (Apple OS limitation) and AI cover recognition is unavailable.
+    // Skip the misleading spinner and go directly to the review screen with the
+    // photo saved as the cover art.
+    if (!photoSupport.imageBarcodeIsbnSupported && !photoSupport.visionProviderConfigured) {
+      await stageBook({
+        title: "",
+        authorName: "",
+        genre: ["Uncategorized"],
+        language: "English",
+        coverImageUri: uri,
+        source: "photo",
+        ownership: "owned"
+      }, "Photo saved as cover art. Type the title (and ISBN if you have it) then tap “Refresh metadata” to fill in the rest automatically.");
+      return;
+    }
+
     setIsAnalyzingPhoto(true);
 
     try {
@@ -622,10 +717,93 @@ export function BookIntakeScreen() {
     );
   }
 
+  if (mode === "matches") {
+    const primaryMatch = matches[0];
+    const otherMatches = matches.slice(1, 7);
+    const backLabel =
+      matchReturnMode === "isbn" ? "Scanner" :
+      matchReturnMode === "search" ? "Search" : "All options";
+
+    return (
+      <Screen>
+        {dialogNode}
+        <Pressable style={styles.backButton} onPress={() => setMode(matchReturnMode)}>
+          <Ionicons name="chevron-back" size={20} color={c.tealDark} />
+          <Text style={styles.backButtonText}>{backLabel}</Text>
+        </Pressable>
+
+        <View style={styles.pageHeader}>
+          <Text style={styles.pageEyebrow}>Book lookup</Text>
+          <Text style={styles.pageTitle} numberOfLines={2}>
+            {matchLookupLabel ? `"${matchLookupLabel}"` : "Searching…"}
+          </Text>
+        </View>
+
+        {isBusy ? (
+          <View style={styles.busyRow}>
+            <ActivityIndicator size="small" color={c.tealDark} />
+            <Text style={styles.busyText}>Checking Google Books & Open Library…</Text>
+          </View>
+        ) : matches.length === 0 ? (
+          <View style={styles.noMatchCard}>
+            <Ionicons name="search-outline" size={32} color={c.muted} />
+            <Text style={[styles.cardTitle, { marginTop: spacing.sm }]}>No matches found</Text>
+            <Text style={styles.cardCopy}>
+              Try searching by a different title or author, or add the book manually.
+            </Text>
+            <Pressable style={styles.primaryButton} onPress={() => setMode("manual")}>
+              <Text style={styles.primaryButtonText}>Enter details manually</Text>
+            </Pressable>
+            <Pressable style={[styles.ghostButton, { marginTop: spacing.sm }]} onPress={() => setMode("search")}>
+              <Text style={styles.ghostButtonText}>Try a different search</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <>
+            <Text style={styles.matchCount}>
+              {matches.length === 1 ? "1 match" : `${matches.length} matches`}
+              {" · "}sorted by confidence
+            </Text>
+
+            {primaryMatch ? (
+              <MatchCard
+                match={primaryMatch}
+                isPrimary
+                onSelect={() => selectMatch(primaryMatch)}
+              />
+            ) : null}
+
+            {otherMatches.length > 0 ? (
+              <>
+                <Text style={styles.reviewSectionTitle}>Other editions</Text>
+                {otherMatches.map((match) => (
+                  <MatchCard
+                    key={match.id}
+                    match={match}
+                    onSelect={() => selectMatch(match)}
+                  />
+                ))}
+              </>
+            ) : null}
+
+            <Pressable style={styles.editManuallyBtn} onPress={() => setMode("manual")}>
+              <Ionicons name="create-outline" size={15} color={c.muted} />
+              <Text style={styles.editManuallyText}>Not what you're looking for? Edit manually</Text>
+            </Pressable>
+          </>
+        )}
+      </Screen>
+    );
+  }
+
   if (mode === "isbn") {
     return (
       <Screen>
         {dialogNode}
+        <Pressable style={styles.backButton} onPress={() => { setScanned(false); setMode("menu"); }}>
+          <Ionicons name="chevron-back" size={20} color={c.tealDark} />
+          <Text style={styles.backButtonText}>All options</Text>
+        </Pressable>
         <View style={styles.pageHeader}>
           <Text style={styles.pageEyebrow}>{t("addBook.scanIsbn")}</Text>
           <Text style={styles.pageTitle}>{t("addBook.scanIsbn")}</Text>
@@ -644,10 +822,36 @@ export function BookIntakeScreen() {
             <CameraView
               style={styles.camera}
               facing="back"
+              autofocus="on"
+              enableTorch={torchOn}
+              zoom={scanZoom}
               onBarcodeScanned={scanned ? undefined : handleBarcode}
               barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "qr"] }}
             />
             <View style={styles.scanFrame} />
+            {/* Torch + zoom overlay */}
+            <View style={styles.scanControls}>
+              <Pressable style={styles.scanControlBtn} onPress={() => setTorchOn((v) => !v)}>
+                <Ionicons
+                  name={torchOn ? "flashlight" : "flashlight-outline"}
+                  size={22}
+                  color={torchOn ? c.gold : "#FFFFFF"}
+                />
+              </Pressable>
+              <View style={styles.zoomRow}>
+                {([0, 0.15, 0.3] as const).map((z, i) => (
+                  <Pressable
+                    key={z}
+                    style={[styles.zoomBtn, scanZoom === z && styles.zoomBtnActive]}
+                    onPress={() => setScanZoom(z)}
+                  >
+                    <Text style={[styles.zoomBtnText, scanZoom === z && styles.zoomBtnTextActive]}>
+                      {i + 1}×
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
           </View>
         )}
 
@@ -678,6 +882,10 @@ export function BookIntakeScreen() {
     return (
       <Screen>
         {dialogNode}
+        <Pressable style={styles.backButton} onPress={() => setMode("menu")}>
+          <Ionicons name="chevron-back" size={20} color={c.tealDark} />
+          <Text style={styles.backButtonText}>All options</Text>
+        </Pressable>
         <View style={styles.pageHeader}>
           <Text style={styles.pageEyebrow}>{t("addBook.manual")}</Text>
           <Text style={styles.pageTitle}>{t("addBook.manual")}</Text>
@@ -698,13 +906,13 @@ export function BookIntakeScreen() {
   }
 
   if (mode === "search") {
-    const displayResults = searchResults.length
-      ? searchResults
-      : featuredExamples.map((isbn) => ({ ...mockIsbnCatalog[isbn], source: "search" as const }));
-
     return (
       <Screen>
         {dialogNode}
+        <Pressable style={styles.backButton} onPress={() => setMode("menu")}>
+          <Ionicons name="chevron-back" size={20} color={c.tealDark} />
+          <Text style={styles.backButtonText}>All options</Text>
+        </Pressable>
         <View style={styles.pageHeader}>
           <Text style={styles.pageEyebrow}>{t("addBook.search")}</Text>
           <Text style={styles.pageTitle}>{t("addBook.search")}</Text>
@@ -746,73 +954,9 @@ export function BookIntakeScreen() {
           </Pressable>
         </View>
 
-        {isBusy ? (
-          <View style={styles.busyRow}>
-            <Ionicons name="hourglass-outline" size={18} color={c.muted} />
-            <Text style={styles.busyText}>Searching Open Library…</Text>
-          </View>
-        ) : (
-          <View style={styles.resultsWrap}>
-            {!searchResults.length && (
-              <Text style={styles.resultsHint}>
-                {searchQuery.trim() ? "Showing example books — tap Search to find yours." : "Try searching above. Results come from Open Library."}
-              </Text>
-            )}
-            {searchResults.length > 0 && (
-              <Text style={styles.resultCount}>
-                {searchResults.length} of {searchTotal.toLocaleString()} results
-              </Text>
-            )}
-            {displayResults.map((book) => (
-              <Pressable
-                key={`${book.title}-${book.isbn}`}
-                style={styles.resultCard}
-                onPress={() => selectSearchResult(book)}
-              >
-                {book.coverImageUri
-                  ? <Image source={{ uri: book.coverImageUri }} style={styles.resultCover} />
-                  : <View style={styles.resultCoverFallback}><Ionicons name="book-outline" size={22} color="#FFFFFF" /></View>}
-                <View style={styles.resultCopy}>
-                  <Text numberOfLines={2} style={styles.resultTitle}>{book.title}</Text>
-                  <Text numberOfLines={1} style={styles.resultAuthor}>{book.authorName}</Text>
-                  <Text numberOfLines={1} style={styles.resultMeta}>
-                    {book.language ? `${book.language}` : ""}
-                    {book.language && (book.pages || book.publisher || book.publishedDate) ? " · " : ""}
-                    {book.pages ? `${book.pages} pg` : ""}
-                    {book.publisher ? ` · ${book.publisher}` : ""}
-                    {book.publishedDate ? ` · ${String(book.publishedDate).slice(0, 4)}` : ""}
-                  </Text>
-                  {!!book.editionCount && (
-                    <View style={styles.resultEditionPill}>
-                      <Ionicons name="layers-outline" size={12} color={c.tealDark} />
-                      <Text style={styles.resultEditionText}>
-                        {book.editionCount} edition{book.editionCount === 1 ? "" : "s"}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                <View style={styles.resultAction}>
-                  <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
-                </View>
-              </Pressable>
-            ))}
-            {searchResults.length > 0 && searchResults.length < searchTotal && (
-              <Pressable
-                style={[styles.loadMoreBtn, isLoadingMore && { opacity: 0.6 }]}
-                onPress={loadMoreResults}
-                disabled={isLoadingMore}
-              >
-                {isLoadingMore
-                  ? <Ionicons name="hourglass-outline" size={15} color={c.tealDark} />
-                  : <Ionicons name="chevron-down-circle-outline" size={15} color={c.tealDark} />
-                }
-                <Text style={styles.loadMoreText}>
-                  {isLoadingMore ? "Loading…" : `Load more (${(searchTotal - searchResults.length).toLocaleString()} remaining)`}
-                </Text>
-              </Pressable>
-            )}
-          </View>
-        )}
+        <Text style={styles.resultsHint}>
+          Search across Google Books and Open Library. Tap Search to see matches.
+        </Text>
       </Screen>
     );
   }
@@ -1004,6 +1148,106 @@ function splitList(value: string) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+// ─── MatchCard ────────────────────────────────────────────────────────────────
+
+const CONFIDENCE_COLORS: Record<string, string> = {
+  high: "#22C55E",
+  medium: "#F59E0B",
+  low: "#94A3B8",
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  "google-books": "Google Books",
+  "open-library": "Open Library",
+};
+
+function MatchCard({
+  match,
+  onSelect,
+  isPrimary = false,
+}: {
+  match: BookMatch;
+  onSelect: () => void;
+  isPrimary?: boolean;
+}) {
+  const c = useColors();
+  const { isDark } = useTheme();
+  const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
+  const confidenceColor = CONFIDENCE_COLORS[match.confidence] ?? CONFIDENCE_COLORS.low;
+  const year = match.publishedDate ? match.publishedDate.slice(0, 4) : null;
+  const isbnDisplay = match.isbn13
+    ? formatIsbn13(match.isbn13)
+    : match.isbn10 ?? null;
+
+  return (
+    <View style={[styles.matchCard, isPrimary && styles.matchCardPrimary]}>
+      {/* Cover */}
+      <View style={styles.matchCoverWrap}>
+        {match.coverUrl ? (
+          <Image source={{ uri: match.coverUrl }} style={styles.matchCover} />
+        ) : (
+          <View style={styles.matchCoverFallback}>
+            <Ionicons name="book-outline" size={24} color="rgba(255,255,255,0.6)" />
+          </View>
+        )}
+      </View>
+
+      {/* Info */}
+      <View style={styles.matchInfo}>
+        {/* Badges */}
+        <View style={styles.matchBadgeRow}>
+          <View style={[styles.matchConfidenceBadge, { backgroundColor: confidenceColor + "22", borderColor: confidenceColor + "55" }]}>
+            <View style={[styles.matchConfidenceDot, { backgroundColor: confidenceColor }]} />
+            <Text style={[styles.matchConfidenceText, { color: confidenceColor }]}>
+              {match.confidence.toUpperCase()}
+            </Text>
+          </View>
+          <View style={styles.matchSourceBadge}>
+            <Text style={styles.matchSourceText}>
+              {SOURCE_LABELS[match.source] ?? match.source}
+            </Text>
+          </View>
+        </View>
+
+        {/* Title & author */}
+        <Text style={styles.matchTitle} numberOfLines={2}>{match.title}</Text>
+        {match.subtitle ? (
+          <Text style={styles.matchSubtitle} numberOfLines={1}>{match.subtitle}</Text>
+        ) : null}
+        <Text style={styles.matchAuthor} numberOfLines={1}>
+          {match.authors.join(", ") || "Unknown author"}
+        </Text>
+
+        {/* Metadata row */}
+        <Text style={styles.matchMeta} numberOfLines={2}>
+          {[
+            match.language,
+            match.publisher,
+            year,
+            match.pageCount ? `${match.pageCount} pp` : null,
+          ].filter(Boolean).join(" · ")}
+        </Text>
+
+        {isbnDisplay ? (
+          <Text style={styles.matchIsbn}>ISBN {isbnDisplay}</Text>
+        ) : null}
+
+        {/* CTA */}
+        <Pressable style={[styles.matchSelectBtn, isPrimary && styles.matchSelectBtnPrimary]} onPress={onSelect}>
+          <Ionicons
+            name="library-outline"
+            size={14}
+            color={isPrimary ? "#FFFFFF" : c.tealDark}
+          />
+          <Text style={[styles.matchSelectText, isPrimary && styles.matchSelectTextPrimary]}>
+            {isPrimary ? "Add this edition" : "Select"}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
 }
 
 function Choice({
@@ -1486,10 +1730,73 @@ function createStyles(c: AppColors, isDark: boolean) {
     borderRadius: radii.lg,
     borderWidth: 3,
     height: 132,
-    left: "12%",
+    left: "8%",
     position: "absolute",
-    right: "12%",
+    right: "8%",
     top: 112
+  },
+  scanControls: {
+    alignItems: "center",
+    bottom: 16,
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "center",
+    left: 0,
+    position: "absolute",
+    right: 0
+  },
+  scanControlBtn: {
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.45)",
+    borderColor: "rgba(255,255,255,0.18)",
+    borderRadius: 24,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: "center",
+    width: 44
+  },
+  zoomRow: {
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.45)",
+    borderColor: "rgba(255,255,255,0.18)",
+    borderRadius: 24,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 6
+  },
+  zoomBtn: {
+    alignItems: "center",
+    borderRadius: 18,
+    height: 32,
+    justifyContent: "center",
+    width: 36
+  },
+  zoomBtnActive: {
+    backgroundColor: c.gold
+  },
+  zoomBtnText: {
+    color: "rgba(255,255,255,0.7)",
+    fontFamily: fonts.body,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  zoomBtnTextActive: {
+    color: c.ink
+  },
+  backButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    gap: 2,
+    marginBottom: spacing.sm
+  },
+  backButtonText: {
+    color: c.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    fontWeight: "900"
   },
   manualIsbnCard: {
     backgroundColor: c.surface,
@@ -1726,6 +2033,173 @@ function createStyles(c: AppColors, isDark: boolean) {
   },
   languageChipTextActive: {
     color: "#FFFFFF"
+  },
+  // ── Match confirmation ──
+  matchCount: {
+    color: c.muted,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    fontWeight: "800",
+    marginBottom: spacing.md,
+    textAlign: "center"
+  },
+  noMatchCard: {
+    alignItems: "center",
+    backgroundColor: c.surfaceAlt,
+    borderColor: c.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    padding: spacing.lg
+  },
+  matchCard: {
+    backgroundColor: c.surface,
+    borderColor: c.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    marginBottom: spacing.md,
+    padding: spacing.md
+  },
+  matchCardPrimary: {
+    ...shadows.card,
+    borderColor: c.teal + "55",
+    borderWidth: 2
+  },
+  matchCoverWrap: {
+    flexShrink: 0
+  },
+  matchCover: {
+    borderRadius: radii.md,
+    height: 120,
+    width: 80
+  },
+  matchCoverFallback: {
+    alignItems: "center",
+    backgroundColor: c.navy,
+    borderRadius: radii.md,
+    height: 120,
+    justifyContent: "center",
+    width: 80
+  },
+  matchInfo: {
+    flex: 1,
+    gap: 4
+  },
+  matchBadgeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 4
+  },
+  matchConfidenceBadge: {
+    alignItems: "center",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4
+  },
+  matchConfidenceDot: {
+    borderRadius: 4,
+    height: 6,
+    width: 6
+  },
+  matchConfidenceText: {
+    fontFamily: fonts.body,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.6
+  },
+  matchSourceBadge: {
+    backgroundColor: c.surfaceAlt,
+    borderColor: c.border,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4
+  },
+  matchSourceText: {
+    color: c.muted,
+    fontFamily: fonts.body,
+    fontSize: 10,
+    fontWeight: "800"
+  },
+  matchTitle: {
+    color: c.ink,
+    fontFamily: fonts.display,
+    fontSize: 17,
+    fontWeight: "900",
+    lineHeight: 22
+  },
+  matchSubtitle: {
+    color: c.muted,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 12
+  },
+  matchAuthor: {
+    color: c.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  matchMeta: {
+    color: c.muted,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 11,
+    lineHeight: 16
+  },
+  matchIsbn: {
+    color: c.muted,
+    fontFamily: fonts.body,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    marginTop: 2
+  },
+  matchSelectBtn: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: c.teal + "18",
+    borderColor: c.teal + "44",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8
+  },
+  matchSelectBtnPrimary: {
+    backgroundColor: c.navy,
+    borderColor: c.navy
+  },
+  matchSelectText: {
+    color: c.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  matchSelectTextPrimary: {
+    color: "#FFFFFF"
+  },
+  editManuallyBtn: {
+    alignItems: "center",
+    alignSelf: "center",
+    flexDirection: "row",
+    gap: 6,
+    marginTop: spacing.md,
+    marginBottom: spacing.xl,
+    paddingVertical: 8
+  },
+  editManuallyText: {
+    color: c.muted,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "800"
   }
   });
 }

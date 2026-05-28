@@ -2,37 +2,129 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- ═══════════════════════════════════════════════════════════
+	     Required Reason APIs
+	     https://developer.apple.com/documentation/bundleresources/privacy_manifest_files/describing_use_of_required_reason_api
+	     ═══════════════════════════════════════════════════════════ -->
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
+
+		<!-- File timestamps — expo-file-system, image caching -->
 		<dict>
 			<key>NSPrivacyAccessedAPIType</key>
 			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
-				<string>C617.1</string>
+				<string>C617.1</string>  <!-- display file timestamps to the user -->
 			</array>
 		</dict>
+
+		<!-- UserDefaults — AsyncStorage, expo-secure-store, theme/language prefs -->
 		<dict>
 			<key>NSPrivacyAccessedAPIType</key>
 			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
-				<string>CA92.1</string>
-				<string>C56D.1</string>
+				<string>1C8F.1</string>  <!-- read/write app state and preferences -->
+				<string>CA92.1</string>  <!-- managed app configuration (MDM) -->
+				<string>C56D.1</string>  <!-- app group container -->
 			</array>
 		</dict>
+
+		<!-- System boot time — used by Expo performance timing APIs -->
 		<dict>
 			<key>NSPrivacyAccessedAPIType</key>
 			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
-				<string>35F9.1</string>
+				<string>35F9.1</string>  <!-- calculate the absolute time of an event -->
 			</array>
 		</dict>
+
+		<!-- Disk space — expo-file-system checks available storage before writing -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>E174.1</string>  <!-- write or delete file based on available disk space -->
+			</array>
+		</dict>
+
 	</array>
+
+	<!-- ═══════════════════════════════════════════════════════════
+	     Data collection
+	     Mirrors the App Store Connect privacy nutrition labels.
+	     ═══════════════════════════════════════════════════════════ -->
 	<key>NSPrivacyCollectedDataTypes</key>
-	<array/>
+	<array>
+
+		<!-- Email address — used for sign-in (Google, Apple, Supabase auth) -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeEmailAddress</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- User ID — Supabase UUID that links all reading data to the account -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeUserID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- Name — display name set during onboarding -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeName</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- Other user content — books, reading sessions, reviews, notes, quotes -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+	</array>
+
+	<!-- App does not use data to track users across other apps/websites -->
 	<key>NSPrivacyTracking</key>
 	<false/>
+
+	<!-- No cross-app tracking domains -->
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
 </dict>
 </plist>

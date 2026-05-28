@@ -26,6 +26,7 @@ import { useBooklio } from "../data/BooklioContext";
 import { useTheme } from "../theme/ThemeContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { MainTabParamList, RootStackParamList } from "./types";
+import { WhatsNewModal } from "../components/WhatsNewModal";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tabs = createBottomTabNavigator<MainTabParamList>();
@@ -147,6 +148,8 @@ export function AppNavigator() {
         <Stack.Screen component={AchievementsScreen} name="Achievements" options={{ title: "" }} />
         <Stack.Screen component={WriteReviewScreen} name="WriteReview" options={{ title: t("nav.stack.writeReview") }} />
       </Stack.Navigator>
+      {/* Shown once per app version after onboarding is complete */}
+      {onboardingComplete ? <WhatsNewModal /> : null}
     </NavigationContainer>
   );
 }

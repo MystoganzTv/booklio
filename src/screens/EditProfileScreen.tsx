@@ -26,7 +26,6 @@ export function EditProfileScreen() {
   const { updateUserProfile, userProfile } = useBooklio();
   const [name, setName] = useState(userProfile.name);
   const [avatarInitials, setAvatarInitials] = useState(userProfile.avatarInitials);
-  const [readingLevel, setReadingLevel] = useState(userProfile.readingLevel);
   const [yearlyGoal, setYearlyGoal] = useState(String(userProfile.yearlyGoal));
   const [favoriteAuthors, setFavoriteAuthors] = useState(userProfile.favoriteAuthors.join(", "));
   const [favoriteGenres, setFavoriteGenres] = useState(userProfile.favoriteGenres.join(", "));
@@ -35,7 +34,6 @@ export function EditProfileScreen() {
     updateUserProfile({
       name,
       avatarInitials,
-      readingLevel,
       yearlyGoal: Number(yearlyGoal) || userProfile.yearlyGoal,
       favoriteAuthors: splitList(favoriteAuthors),
       favoriteGenres: splitList(favoriteGenres)
@@ -60,14 +58,6 @@ export function EditProfileScreen() {
         onChangeText={setAvatarInitials}
         autoCapitalize="characters"
         hint={t("editProfile.initialsHint")}
-      />
-      <Field
-        styles={styles}
-        colors={c}
-        label={t("editProfile.readingLevel")}
-        value={readingLevel}
-        onChangeText={setReadingLevel}
-        hint={t("editProfile.readingLevelHint")}
       />
       <Field
         styles={styles}

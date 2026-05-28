@@ -71,7 +71,7 @@ export function ProfileScreen() {
   const unlocked = unlockedAchievements.length;
   const goalPct = Math.min(100, Math.round((overallStats.booksReadThisYear / userProfile.yearlyGoal) * 100));
   const repositoryCopy = getRepositoryCopy(c, repositoryStatus, t, locale);
-  const level = getReaderLevel(overallStats.totalBooksRead, userProfile.readingLevel);
+  const level = getReaderLevel(overallStats.totalBooksRead);
   const nextLevel = READER_LEVELS[level.index + 1];
   const nextLevelProgress = nextLevel
     ? Math.min(
@@ -302,23 +302,11 @@ export function ProfileScreen() {
   );
 }
 
-function getReaderLevel(totalBooksRead: number, customLevel?: string) {
+function getReaderLevel(totalBooksRead: number) {
   const index = READER_LEVELS.reduce((current, level, levelIndex) => (
     totalBooksRead >= level.minBooks ? levelIndex : current
   ), 0);
-
-  const level = READER_LEVELS[index];
-  if (customLevel && customLevel.trim().length) {
-    return {
-      index,
-      level: {
-        ...level,
-        title: customLevel
-      }
-    };
-  }
-
-  return { index, level };
+  return { index, level: READER_LEVELS[index] };
 }
 
 function getRepositoryCopy(
