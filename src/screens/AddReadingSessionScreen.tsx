@@ -6,16 +6,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { BookCover } from "../components/BookCover";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
+import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { useColors } from "../theme/ThemeContext";
 import { NewReadingSessionInput, ReadingFormat } from "../types/models";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
-
-const FORMAT_OPTIONS: { value: ReadingFormat; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { value: "physical",  label: "Physical",  icon: "book-outline" },
-  { value: "kindle",    label: "Kindle",    icon: "tablet-portrait-outline" },
-  { value: "audiobook", label: "Audiobook", icon: "headset-outline" }
-];
 
 const QUICK_MINUTES = [15, 30, 45, 60, 90, 120];
 const LOCATION_PRESETS = ["Home", "Cafe", "Library"];
@@ -23,7 +18,14 @@ const MAX_VISIBLE_LOCATION_CHIPS = 6;
 
 export function AddReadingSessionScreen() {
   const c = useColors();
+  const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
+
+  const FORMAT_OPTIONS: { value: ReadingFormat; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+    { value: "physical",  label: t("logSession.formatPhysical"),  icon: "book-outline" },
+    { value: "kindle",    label: t("logSession.formatKindle"),    icon: "tablet-portrait-outline" },
+    { value: "audiobook", label: t("logSession.formatAudiobook"), icon: "headset-outline" }
+  ];
   const route = useRoute<RouteProp<RootStackParamList, "AddReadingSession">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { addReadingSession, books, deleteReadingSession, getBook, getAuthor, getReadingSession, readingSessions, updateReadingSession } = useBooklio();
@@ -124,10 +126,10 @@ export function AddReadingSessionScreen() {
 
   const deleteSession = () => {
     if (!editingSession) return;
-    Alert.alert("Delete session?", "This reading session will be removed from your log.", [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("logSession.deleteTitle"), t("logSession.deleteBody"), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Delete",
+        text: t("logSession.deleteConfirm"),
         style: "destructive",
         onPress: () => {
           deleteReadingSession(editingSession.id);
@@ -140,13 +142,13 @@ export function AddReadingSessionScreen() {
   const handleSave = () => {
     if (!selectedBook) return;
     if (!effectiveLocation) {
-      Alert.alert("Choose a location", "Pick a reading location or add a custom one before saving.");
+      Alert.alert(t("logSession.noLocation"), t("logSession.noLocationBody"));
       return;
     }
 
     if (isAudiobook) {
       if (gainedPct === 0) {
-        Alert.alert("No progress logged", "Move the progress forward to log your session.");
+        Alert.alert(t("logSession.noProgress"), t("logSession.noProgressBody"));
         return;
       }
       const startPage = Math.min(totalPages, Math.round((lastPct / 100) * totalPages) + 1);
@@ -169,16 +171,16 @@ export function AddReadingSessionScreen() {
         addReadingSession(sessionInput);
       }
       Alert.alert(
-        editingSession ? "Session updated!" : "Session logged!",
-        `+${gainedPct}% progress · ${effectiveMinutes} min listened`,
-        [{ text: "Done", onPress: () => navigation.goBack() }]
+        editingSession ? t("logSession.sessionUpdated") : t("logSession.sessionLogged"),
+        `+${gainedPct}% ${t("logSession.progressLbl")} · ${effectiveMinutes}m ${t("logSession.listened")}`,
+        [{ text: t("logSession.done"), onPress: () => navigation.goBack() }]
       );
       return;
     }
 
     // Physical / Kindle
     if (pagesRead === 0) {
-      Alert.alert("No pages logged", "Move the page forward to log a session.");
+      Alert.alert(t("logSession.noPages"), t("logSession.noPagesBody"));
       return;
     }
     const sessionInput: NewReadingSessionInput = {
@@ -199,9 +201,9 @@ export function AddReadingSessionScreen() {
       addReadingSession(sessionInput);
     }
     Alert.alert(
-      editingSession ? "Session updated!" : "Session logged!",
-      `${pagesRead} pages · ${speed} pp/h · ${progressPct}% through the book`,
-      [{ text: "Done", onPress: () => navigation.goBack() }]
+      editingSession ? t("logSession.sessionUpdated") : t("logSession.sessionLogged"),
+      `${pagesRead} ${t("readingLog.pages")} · ${speed} ${t("logSession.ppH")} · ${progressPct}% through the book`,
+      [{ text: t("logSession.done"), onPress: () => navigation.goBack() }]
     );
   };
 
@@ -212,10 +214,9 @@ export function AddReadingSessionScreen() {
 
   return (
     <Screen>
-      {/* Book selector */}
       <View style={styles.pageHeader}>
-        <Text style={styles.pageEyebrow}>{isEditing ? "Edit session" : "Reading log"}</Text>
-        <Text style={styles.pageTitle}>{isEditing ? "Update your reading session." : "Log a new reading session."}</Text>
+        <Text style={styles.pageEyebrow}>{isEditing ? t("logSession.eyebrowEdit") : t("logSession.eyebrowNew")}</Text>
+        <Text style={styles.pageTitle}>{isEditing ? t("logSession.titleEdit") : t("logSession.titleNew")}</Text>
       </View>
 
       {!isEditing && readingBooks.length + otherBooks.length > 1 && (
@@ -245,7 +246,7 @@ export function AddReadingSessionScreen() {
             <Text style={styles.bookTitle} numberOfLines={2}>{selectedBook.title}</Text>
             <Text style={styles.bookAuthor}>{getAuthor(selectedBook.authorId)?.name}</Text>
             {!isAudiobook && (
-              <Text style={styles.bookMeta}>{selectedBook.pages} pages total</Text>
+              <Text style={styles.bookMeta}>{selectedBook.pages} {t("logSession.pagesTotal")}</Text>
             )}
             <View style={styles.progressBar}>
               {isAudiobook ? (
@@ -294,10 +295,9 @@ export function AddReadingSessionScreen() {
         ))}
       </View>
 
-      {/* ── Audiobook: progress % stepper ── */}
       {isAudiobook ? (
         <View style={styles.stepperCard}>
-          <Text style={styles.stepperLabel}>I listened up to</Text>
+          <Text style={styles.stepperLabel}>{t("logSession.listenedTo")}</Text>
           <View style={styles.stepper}>
             <Pressable style={styles.stepBtn} onPress={() => nudgePct(-5)}>
               <Text style={styles.stepBtnText}>−5%</Text>
@@ -307,7 +307,7 @@ export function AddReadingSessionScreen() {
             </Pressable>
             <View style={styles.pageDisplay}>
               <Text style={styles.pageNumber}>{currentPct}%</Text>
-              <Text style={styles.pageOf}>of the book</Text>
+              <Text style={styles.pageOf}>{t("logSession.ofBook")}</Text>
             </View>
             <Pressable style={styles.stepBtnSm} onPress={() => nudgePct(1)}>
               <Ionicons name="add" size={18} color={c.navy} />
@@ -317,13 +317,12 @@ export function AddReadingSessionScreen() {
             </Pressable>
           </View>
           {gainedPct > 0 && (
-            <Text style={styles.pagesReadPill}>+{gainedPct}% from last session</Text>
+            <Text style={styles.pagesReadPill}>+{gainedPct}{t("logSession.pctFrom")}</Text>
           )}
         </View>
       ) : (
-        /* ── Physical / Kindle: page stepper ── */
         <View style={styles.stepperCard}>
-          <Text style={styles.stepperLabel}>I read up to page</Text>
+          <Text style={styles.stepperLabel}>{t("logSession.readUpTo")}</Text>
           <View style={styles.stepper}>
             <Pressable style={styles.stepBtn} onPress={() => nudgePage(-10)}>
               <Text style={styles.stepBtnText}>−10</Text>
@@ -343,14 +342,13 @@ export function AddReadingSessionScreen() {
             </Pressable>
           </View>
           {pagesRead > 0 && (
-            <Text style={styles.pagesReadPill}>+{pagesRead} pages from last session</Text>
+            <Text style={styles.pagesReadPill}>+{pagesRead} {t("logSession.pagesFrom")}</Text>
           )}
         </View>
       )}
 
-      {/* Time chips */}
       <View style={styles.minutesCard}>
-        <Text style={styles.minutesLabel}>Session date</Text>
+        <Text style={styles.minutesLabel}>{t("logSession.dateLabel")}</Text>
         <TextInput
           autoCapitalize="none"
           placeholder="2026-05-25"
@@ -363,7 +361,7 @@ export function AddReadingSessionScreen() {
 
       <View style={styles.minutesCard}>
         <Text style={styles.minutesLabel}>
-          {isAudiobook ? "Time listened" : "Time spent"}
+          {isAudiobook ? t("logSession.timeListened") : t("logSession.timeSpent")}
         </Text>
         <View style={styles.minutesRow}>
           {QUICK_MINUTES.map((m) => (
@@ -382,7 +380,7 @@ export function AddReadingSessionScreen() {
             onPress={() => setUseCustom(true)}
           >
             <Text style={[styles.minuteChipText, useCustom && styles.minuteChipTextActive]}>
-              {useCustom && customMinutes ? `${customMinutes}m` : "Other"}
+              {useCustom && customMinutes ? `${customMinutes}m` : t("logSession.minutesCustom")}
             </Text>
           </Pressable>
         </View>
@@ -390,7 +388,7 @@ export function AddReadingSessionScreen() {
           <TextInput
             autoFocus
             keyboardType="number-pad"
-            placeholder="Minutes..."
+            placeholder={t("logSession.minutesPlaceholder")}
             placeholderTextColor={c.gray}
             style={styles.customInput}
             value={customMinutes}
@@ -401,9 +399,9 @@ export function AddReadingSessionScreen() {
 
       <View style={styles.locationCard}>
         <View style={styles.sectionHeadingRow}>
-          <Text style={styles.minutesLabel}>Reading location</Text>
+          <Text style={styles.minutesLabel}>{t("logSession.locationLabel")}</Text>
           {recentLocations.length > 0 ? (
-            <Text style={styles.helperLabel}>Recent first</Text>
+            <Text style={styles.helperLabel}>{t("logSession.locationRecent")}</Text>
           ) : null}
         </View>
         <View style={styles.locationRow}>
@@ -439,29 +437,28 @@ export function AddReadingSessionScreen() {
               color={useCustomLocation ? c.card : c.muted}
             />
             <Text style={[styles.locationChipText, useCustomLocation && styles.locationChipTextActive]}>
-              Custom
+              {t("logSession.locationCustom")}
             </Text>
           </Pressable>
         </View>
         {useCustomLocation ? (
           <TextInput
             autoFocus
-            placeholder="Add a location..."
+            placeholder={t("logSession.locationPlaceholder")}
             placeholderTextColor={c.gray}
             style={styles.customInput}
             value={customLocation}
             onChangeText={setCustomLocation}
           />
         ) : (
-          <Text style={styles.locationSummary}>Logging this session at {effectiveLocation}.</Text>
+          <Text style={styles.locationSummary}>{t("logSession.loggingAt")} {effectiveLocation}.</Text>
         )}
       </View>
 
-      {/* Optional note */}
       <Pressable style={styles.noteToggle} onPress={() => setNoteOpen((v) => !v)}>
         <Ionicons name={noteOpen ? "chatbubble" : "chatbubble-outline"} size={15} color={noteOpen ? c.teal : c.muted} />
         <Text style={[styles.noteToggleText, noteOpen && styles.noteToggleTextActive]}>
-          {noteOpen ? "Note" : "Add a note"}
+          {noteOpen ? t("logSession.noteLbl") : t("logSession.noteToggle")}
         </Text>
         {note.trim().length > 0 && !noteOpen && (
           <View style={styles.noteDot} />
@@ -471,7 +468,7 @@ export function AddReadingSessionScreen() {
         <TextInput
           autoFocus
           multiline
-          placeholder="Thoughts, a quote, a moment worth remembering..."
+          placeholder={t("logSession.notePlaceholder")}
           placeholderTextColor={c.gray}
           style={styles.noteInput}
           value={note}
@@ -479,55 +476,53 @@ export function AddReadingSessionScreen() {
         />
       )}
 
-      {/* Stats strip */}
       {hasProgress && effectiveMinutes > 0 && (
         <View style={styles.statsRow}>
           {isAudiobook ? (
             <>
               <View style={styles.statItem}>
                 <Text style={styles.statVal}>{effectiveMinutes}m</Text>
-                <Text style={styles.statLbl}>listened</Text>
+                <Text style={styles.statLbl}>{t("logSession.listened")}</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
                 <Text style={[styles.statVal, { color: c.green }]}>{currentPct}%</Text>
-                <Text style={styles.statLbl}>progress</Text>
+                <Text style={styles.statLbl}>{t("logSession.progressLbl")}</Text>
               </View>
             </>
           ) : (
             <>
               <View style={styles.statItem}>
                 <Text style={styles.statVal}>{pagesRead}</Text>
-                <Text style={styles.statLbl}>pages</Text>
+                <Text style={styles.statLbl}>{t("readingLog.pages")}</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
                 <Text style={styles.statVal}>{speed}</Text>
-                <Text style={styles.statLbl}>pp/h</Text>
+                <Text style={styles.statLbl}>{t("logSession.ppH")}</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
                 <Text style={[styles.statVal, { color: c.green }]}>{progressPct}%</Text>
-                <Text style={styles.statLbl}>progress</Text>
+                <Text style={styles.statLbl}>{t("logSession.progressLbl")}</Text>
               </View>
             </>
           )}
         </View>
       )}
 
-      {/* Save */}
       <Pressable style={[styles.saveButton, !hasProgress && styles.saveButtonDisabled]} onPress={handleSave}>
         <Text style={styles.saveButtonText}>
           {hasProgress
-            ? isEditing ? "Update Session" : "Save Session"
+            ? isEditing ? t("logSession.updateSession") : t("logSession.saveSession")
             : isAudiobook
-              ? "Adjust progress to log"
-              : "Adjust the page to log"}
+              ? t("logSession.adjustProgress")
+              : t("logSession.adjustPage")}
         </Text>
       </Pressable>
       {isEditing ? (
         <Pressable style={styles.deleteButton} onPress={deleteSession}>
-          <Text style={styles.deleteButtonText}>Delete Session</Text>
+          <Text style={styles.deleteButtonText}>{t("logSession.deleteSession")}</Text>
         </Pressable>
       ) : null}
     </Screen>

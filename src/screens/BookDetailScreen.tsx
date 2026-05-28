@@ -13,8 +13,9 @@ import { SectionHeader } from "../components/SectionHeader";
 import { SessionRow } from "../components/SessionRow";
 import { useBooklio } from "../data/BooklioContext";
 import { RootStackParamList } from "../navigation/types";
-import { AppColors, colors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useTheme } from "../theme/ThemeContext";
+import { useI18n } from "../i18n/LocalizationContext";
 import { formatStatusLabel } from "../utils/statusLabels";
 
 /** Strip raw API genre strings and return clean, readable labels */
@@ -31,6 +32,7 @@ export function BookDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, "BookDetail">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors: c } = useTheme();
+  const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
   const { getAuthor, getBook, getBookStats, getRecommendationsForBook, updateBookStatus, getReviewForBook } = useBooklio();
   const book = getBook(route.params.bookId);
@@ -91,8 +93,8 @@ export function BookDetailScreen() {
           style={styles.primaryAction}
           onPress={() => navigation.navigate("AddReadingSession", { bookId: book.id })}
         >
-          <Ionicons name="pencil" size={15} color={colors.card} style={{ marginRight: 6 }} />
-          <Text style={styles.primaryActionText}>Log Session</Text>
+          <Ionicons name="pencil" size={15} color={c.card} style={{ marginRight: 6 }} />
+          <Text style={styles.primaryActionText}>{t("bookDetail.logSession")}</Text>
         </Pressable>
         {(isDone || review) ? (
           <Pressable
@@ -100,7 +102,7 @@ export function BookDetailScreen() {
             onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}
           >
             <Ionicons name={review ? "create-outline" : "star-outline"} size={15} color={c.navy} style={{ marginRight: 6 }} />
-            <Text style={styles.reviewActionText}>{review ? "Edit Review" : "Write Review"}</Text>
+            <Text style={styles.reviewActionText}>{review ? t("bookDetail.editReview") : t("bookDetail.writeReview")}</Text>
           </Pressable>
         ) : null}
         <Pressable
@@ -135,7 +137,7 @@ export function BookDetailScreen() {
       {(isReading || isDone) && (
         <View style={styles.progressCard}>
           <View style={styles.progressHeader}>
-            <Text style={styles.progressLabel}>Progress</Text>
+            <Text style={styles.progressLabel}>{t("bookDetail.progress")}</Text>
             <Text style={styles.progressPct}>{book.userStatus.progressPercent}%</Text>
           </View>
           <View style={styles.progressTrack}>
@@ -143,10 +145,10 @@ export function BookDetailScreen() {
           </View>
           <View style={styles.progressMeta}>
             {book.userStatus.startDate ? (
-              <Text style={styles.progressMetaText}>Started {book.userStatus.startDate}</Text>
+              <Text style={styles.progressMetaText}>{t("bookDetail.started")} {book.userStatus.startDate}</Text>
             ) : null}
             {book.userStatus.finishDate ? (
-              <Text style={styles.progressMetaText}>Finished {book.userStatus.finishDate}</Text>
+              <Text style={styles.progressMetaText}>{t("bookDetail.finished")} {book.userStatus.finishDate}</Text>
             ) : null}
           </View>
         </View>
@@ -157,17 +159,17 @@ export function BookDetailScreen() {
         <View style={styles.statsStrip}>
           <View style={styles.statItem}>
             <Text style={styles.statVal}>{stats.totalSessions}</Text>
-            <Text style={styles.statLbl}>sessions</Text>
+            <Text style={styles.statLbl}>{t("bookDetail.statSessions")}</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Text style={styles.statVal}>{stats.totalPages}</Text>
-            <Text style={styles.statLbl}>pages logged</Text>
+            <Text style={styles.statLbl}>{t("bookDetail.statPagesLogged")}</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Text style={styles.statVal}>{stats.averageSpeed}</Text>
-            <Text style={styles.statLbl}>pp/h avg</Text>
+            <Text style={styles.statLbl}>{t("bookDetail.statPpH")}</Text>
           </View>
         </View>
       )}
@@ -175,27 +177,27 @@ export function BookDetailScreen() {
       <View style={styles.collectorSummary}>
         <View style={styles.collectorSummaryItem}>
           <Text style={styles.collectorSummaryValue}>{book.userStatus.readCount ?? 0}</Text>
-          <Text style={styles.collectorSummaryLabel}>times finished</Text>
+          <Text style={styles.collectorSummaryLabel}>{t("bookDetail.timesFinished")}</Text>
         </View>
         <View style={styles.collectorDivider} />
         <View style={styles.collectorSummaryItem}>
           <Text style={styles.collectorSummaryValue}>{book.userStatus.personalRanking ?? "—"}</Text>
-          <Text style={styles.collectorSummaryLabel}>personal rank</Text>
+          <Text style={styles.collectorSummaryLabel}>{t("bookDetail.personalRank")}</Text>
         </View>
         <View style={styles.collectorDivider} />
         <View style={styles.collectorSummaryItem}>
           <Text style={styles.collectorSummaryValue}>{book.userStatus.favoriteQuotes.length}</Text>
-          <Text style={styles.collectorSummaryLabel}>saved quotes</Text>
+          <Text style={styles.collectorSummaryLabel}>{t("bookDetail.savedQuotes")}</Text>
         </View>
       </View>
 
       {/* Book info */}
       <View style={styles.infoRow}>
         {([
-          ["Genre", genres.length > 0 ? genres.join(", ") : "—"],
-          ["Pages", `${book.pages}`],
-          ["Published", book.publishedDate.slice(0, 4)],
-          ["Format", book.format],
+          [t("bookDetail.labelGenre"), genres.length > 0 ? genres.join(", ") : "—"],
+          [t("bookDetail.labelPages"), `${book.pages}`],
+          [t("bookDetail.labelPublished"), book.publishedDate.slice(0, 4)],
+          [t("bookDetail.labelFormat"), book.format],
         ] as [string, string][]).map(([label, value]) => (
           <View key={label} style={styles.infoChip}>
             <Text style={styles.infoChipLabel}>{label}</Text>

@@ -6,6 +6,7 @@ import { useMemo } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { GoogleConnectionCard } from "../components/GoogleConnectionCard";
 import { Screen } from "../components/Screen";
+import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors, useTheme } from "../theme/ThemeContext";
@@ -13,32 +14,38 @@ import { useColors, useTheme } from "../theme/ThemeContext";
 const booklioLogoLight = require("../../assets/brand/booklio-logo.png");
 const booklioLogoDark = require("../../assets/brand/booklio-logo-dark.png");
 
-const HERO_TAGS = ["Collector-grade", "Session-rich", "Warm stats", "Saga-aware"];
-
-const FEATURE_TILES = [
-  {
-    icon: "library-outline" as const,
-    title: "Shelves that remember everything",
-    body: "Ownership, wishlist, rereads, editions, and series paths in one personal system."
-  },
-  {
-    icon: "time-outline" as const,
-    title: "Reading sessions with memory",
-    body: "Pages, minutes, mood, place, and quotes tracked like they actually matter."
-  },
-  {
-    icon: "sparkles-outline" as const,
-    title: "A reading life that grows",
-    body: "Recommendations, future unlocks, and next-saga momentum built around your habits."
-  }
-];
-
 export function WelcomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const c = useColors();
   const { isDark } = useTheme();
+  const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
   const logoSource = isDark ? booklioLogoDark : booklioLogoLight;
+
+  const heroTags = [
+    t("welcome.tagCollector"),
+    t("welcome.tagSession"),
+    t("welcome.tagStats"),
+    t("welcome.tagSaga"),
+  ];
+
+  const featureTiles = [
+    {
+      icon: "library-outline" as const,
+      title: t("welcome.feature1Title"),
+      body: t("welcome.feature1Body"),
+    },
+    {
+      icon: "time-outline" as const,
+      title: t("welcome.feature2Title"),
+      body: t("welcome.feature2Body"),
+    },
+    {
+      icon: "sparkles-outline" as const,
+      title: t("welcome.feature3Title"),
+      body: t("welcome.feature3Body"),
+    },
+  ];
 
   return (
     <Screen contentStyle={styles.safe}>
@@ -51,15 +58,13 @@ export function WelcomeScreen() {
         </View>
 
         <View style={styles.heroCopy}>
-          <Text style={styles.eyebrow}>Booklio</Text>
-          <Text style={styles.title}>Your story, every book.</Text>
-          <Text style={styles.subtitle}>
-            Track the books you own, the sessions you live through, and the sagas still waiting for you.
-          </Text>
+          <Text style={styles.eyebrow}>{t("welcome.eyebrow")}</Text>
+          <Text style={styles.title}>{t("welcome.title")}</Text>
+          <Text style={styles.subtitle}>{t("welcome.subtitle")}</Text>
         </View>
 
         <View style={styles.tagRow}>
-          {HERO_TAGS.map((tag) => (
+          {heroTags.map((tag) => (
             <View key={tag} style={styles.tagChip}>
               <Text style={styles.tagText}>{tag}</Text>
             </View>
@@ -72,15 +77,13 @@ export function WelcomeScreen() {
           end={{ x: 1, y: 1 }}
           style={styles.promiseCard}
         >
-          <Text style={styles.promiseLead}>One calm home for your whole reading life.</Text>
-          <Text style={styles.promiseBody}>
-            From first page to reread number two, Booklio keeps the emotional memory and the collector detail together.
-          </Text>
+          <Text style={styles.promiseLead}>{t("welcome.promiseLead")}</Text>
+          <Text style={styles.promiseBody}>{t("welcome.promiseBody")}</Text>
         </LinearGradient>
       </View>
 
       <View style={styles.featureGrid}>
-        {FEATURE_TILES.map((tile, index) => (
+        {featureTiles.map((tile, index) => (
           <View
             key={tile.title}
             style={[
@@ -101,7 +104,7 @@ export function WelcomeScreen() {
 
       <Pressable style={styles.skipRow} onPress={() => navigation.navigate("MainTabs")}>
         <Ionicons name="arrow-back-outline" size={14} color={c.muted} />
-        <Text style={styles.skipText}>Back to my library</Text>
+        <Text style={styles.skipText}>{t("welcome.backToLibrary")}</Text>
       </Pressable>
     </Screen>
   );

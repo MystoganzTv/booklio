@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useI18n } from "../i18n/LocalizationContext";
 import { colors, fonts, radii, spacing } from "../theme/theme";
 
 const EMOJI_PICKS = ["📚", "⭐", "🌙", "🔥", "💎", "🧠", "🌿", "🎯", "✨", "🗺️", "🏔️", "❤️"];
@@ -15,6 +16,7 @@ type Props = {
 };
 
 export function CreateListSheet({ open, initialName = "", initialEmoji = "📚", mode = "create", onSave, onClose }: Props) {
+  const { t } = useI18n();
   const [name, setName] = useState(initialName);
   const [emoji, setEmoji] = useState(initialEmoji);
   const inputRef = useRef<TextInput>(null);
@@ -36,7 +38,7 @@ export function CreateListSheet({ open, initialName = "", initialEmoji = "📚",
 
         <View style={styles.sheet}>
           <View style={styles.handle} />
-          <Text style={styles.title}>{mode === "rename" ? "Rename list" : "New list"}</Text>
+          <Text style={styles.title}>{mode === "rename" ? t("lists.renameTitle") : t("lists.createTitle")}</Text>
 
           {/* Emoji picker */}
           <View style={styles.emojiRow}>
@@ -77,11 +79,11 @@ export function CreateListSheet({ open, initialName = "", initialEmoji = "📚",
             }}
             disabled={!canSave}
           >
-            <Text style={styles.saveBtnText}>{mode === "rename" ? "Save changes" : "Create list"}</Text>
+            <Text style={styles.saveBtnText}>{mode === "rename" ? t("lists.renameBtn") : t("lists.createBtn")}</Text>
           </Pressable>
 
           <Pressable style={styles.cancelBtn} onPress={onClose}>
-            <Text style={styles.cancelText}>Cancel</Text>
+            <Text style={styles.cancelText}>{t("common.cancel")}</Text>
           </Pressable>
         </View>
       </View>

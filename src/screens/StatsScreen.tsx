@@ -6,12 +6,14 @@ import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
+import { useI18n } from "../i18n/LocalizationContext";
 
 type Tab = "books" | "pages" | "minutes";
 type StatsStyles = ReturnType<typeof createStyles>;
 
 export function StatsScreen() {
   const c = useColors();
+  const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
   const { books, overallStats, userProfile } = useBooklio();
   const [activeTab, setActiveTab] = useState<Tab>("books");
@@ -44,23 +46,29 @@ export function StatsScreen() {
   const shareYearInReview = async () => {
     const year = new Date().getFullYear();
     const text = [
-      `📚 My ${year} in books — powered by Booklio`,
+      `📚 ${t("stats.shareText").replace("{{year}}", String(year))}`,
       "",
-      `${overallStats.booksReadThisYear} books read`,
-      overallStats.rereadsCompleted > 0 ? `${overallStats.rereadsCompleted} rereads completed` : null,
-      `${overallStats.pagesRead.toLocaleString()} pages`,
-      `${hoursRead} hours of reading`,
-      `${overallStats.longestStreak}-day longest streak`,
-      topGenre !== "—" ? `Favorite genre: ${topGenre}` : null,
-      topAuthor !== "—" ? `Most-read author: ${topAuthor}` : null,
-      overallStats.averageRating > 0 ? `Average rating: ${overallStats.averageRating} ★` : null
+      `${overallStats.booksReadThisYear} ${t("stats.shareBooks")}`,
+      overallStats.rereadsCompleted > 0 ? `${overallStats.rereadsCompleted} ${t("stats.shareRereads")}` : null,
+      `${overallStats.pagesRead.toLocaleString()} ${t("stats.sharePages")}`,
+      `${hoursRead} ${t("stats.shareHours")}`,
+      `${overallStats.longestStreak}${t("stats.shareStreak")}`,
+      topGenre !== "—" ? `${t("stats.shareFavGenre")} ${topGenre}` : null,
+      topAuthor !== "—" ? `${t("stats.shareMostRead")} ${topAuthor}` : null,
+      overallStats.averageRating > 0 ? `${t("stats.shareAvgRating")} ${overallStats.averageRating} ★` : null
     ].filter(Boolean).join("\n");
 
     try {
       await Share.share({ message: text });
     } catch {
-      Alert.alert("Could not share", "Try again later.");
+      Alert.alert(t("stats.shareError"), t("stats.shareErrorBody"));
     }
+  };
+
+  const tabLabels: Record<Tab, string> = {
+    books: t("stats.tabBooks"),
+    pages: t("stats.tabPages"),
+    minutes: t("stats.tabMinutes"),
   };
 
   const hasData = overallStats.totalBooksRead > 0 || overallStats.pagesRead > 0;
@@ -69,17 +77,17 @@ export function StatsScreen() {
     return (
       <Screen>
         <View style={styles.header}>
-          <Text style={styles.eyebrow}>Statistics</Text>
-          <Text style={styles.title}>Your reading stats</Text>
-          <Text style={styles.subtitle}>The more you log, the richer your reading map becomes.</Text>
+          <Text style={styles.eyebrow}>{t("stats.eyebrow")}</Text>
+          <Text style={styles.title}>{t("stats.title")}</Text>
+          <Text style={styles.subtitle}>{t("stats.subtitleEmpty")}</Text>
         </View>
 
         <View style={styles.emptyState}>
           <View style={styles.emptyIconWrap}>
             <Ionicons name="bar-chart-outline" size={42} color={c.teal} />
           </View>
-          <Text style={styles.emptyTitle}>Nothing to show yet</Text>
-          <Text style={styles.emptySub}>Log your first reading session and your stats will appear here.</Text>
+          <Text style={styles.emptyTitle}>{t("stats.emptyTitle")}</Text>
+          <Text style={styles.emptySub}>{t("stats.emptySub")}</Text>
         </View>
       </Screen>
     );
@@ -88,9 +96,9 @@ export function StatsScreen() {
   return (
     <Screen>
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>Statistics</Text>
-        <Text style={styles.title}>Your reading stats</Text>
-        <Text style={styles.subtitle}>Momentum, habits, and collector signals in one reading dashboard.</Text>
+        <Text style={styles.eyebrow}>{t("stats.eyebrow")}</Text>
+        <Text style={styles.title}>{t("stats.title")}</Text>
+        <Text style={styles.subtitle}>{t("stats.subtitle")}</Text>
       </View>
 
       <View style={styles.heroCard}>
@@ -99,7 +107,7 @@ export function StatsScreen() {
 
         <View style={styles.goalRow}>
           <View style={styles.goalLeft}>
-            <Text style={styles.goalLabel}>Annual goal</Text>
+            <Text style={styles.goalLabel}>{t("stats.annualGoal")}</Text>
             <Text style={styles.goalNumbers}>
               {overallStats.booksReadThisYear}
               <Text style={styles.goalOf}> / {userProfile.yearlyGoal}</Text>
@@ -113,16 +121,16 @@ export function StatsScreen() {
         </View>
 
         <View style={styles.heroNumbers}>
-          <HeroStat styles={styles} value={overallStats.pagesRead.toLocaleString()} label="pages" />
-          <HeroStat styles={styles} value={`${hoursRead}h`} label="hours read" />
-          <HeroStat styles={styles} value={`${overallStats.longestStreak}d`} label="best streak" accent={c.coral} />
-          <HeroStat styles={styles} value={overallStats.totalSessions.toString()} label="sessions" />
+          <HeroStat styles={styles} value={overallStats.pagesRead.toLocaleString()} label={t("stats.pages")} />
+          <HeroStat styles={styles} value={`${hoursRead}h`} label={t("stats.hoursRead")} />
+          <HeroStat styles={styles} value={`${overallStats.longestStreak}d`} label={t("stats.bestStreak")} accent={c.coral} />
+          <HeroStat styles={styles} value={overallStats.totalSessions.toString()} label={t("stats.sessions")} />
         </View>
       </View>
 
       <View style={styles.chartCard}>
         <View style={styles.chartHeader}>
-          <Text style={styles.sectionTitle}>Monthly activity</Text>
+          <Text style={styles.sectionTitle}>{t("stats.monthlyActivity")}</Text>
           <View style={styles.tabs}>
             {(["books", "pages", "minutes"] as Tab[]).map((tab) => (
               <Pressable
@@ -131,7 +139,7 @@ export function StatsScreen() {
                 onPress={() => setActiveTab(tab)}
               >
                 <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  {tabLabels[tab]}
                 </Text>
               </Pressable>
             ))}
@@ -141,82 +149,82 @@ export function StatsScreen() {
       </View>
 
       <View style={styles.chartCard}>
-        <Text style={styles.sectionTitle}>Insights</Text>
+        <Text style={styles.sectionTitle}>{t("stats.insights")}</Text>
         <View style={styles.insightsGrid}>
-          <InsightTile styles={styles} icon="compass-outline" label="Top genre" value={topGenre} color={c.teal} />
-          <InsightTile styles={styles} icon="person-outline" label="Top author" value={topAuthor} color={c.gold} />
-          <InsightTile styles={styles} icon="speedometer-outline" label="Avg speed" value={`${avgSpeed} pp/h`} color="#7C83FD" />
-          <InsightTile styles={styles} icon="calendar-outline" label="Best day" value={bestDay} color={c.green} />
-          <InsightTile styles={styles} icon="star-outline" label="Avg rating" value={`${overallStats.averageRating.toFixed(1)} ★`} color={c.coral} />
-          <InsightTile styles={styles} icon="close-circle-outline" label="Unfinished" value={unfinishedCount.toString()} color={c.muted} />
+          <InsightTile styles={styles} icon="compass-outline" label={t("stats.topGenre")} value={topGenre} color={c.teal} />
+          <InsightTile styles={styles} icon="person-outline" label={t("stats.topAuthor")} value={topAuthor} color={c.gold} />
+          <InsightTile styles={styles} icon="speedometer-outline" label={t("stats.avgSpeed")} value={`${avgSpeed} pp/h`} color="#7C83FD" />
+          <InsightTile styles={styles} icon="calendar-outline" label={t("stats.bestDay")} value={bestDay} color={c.green} />
+          <InsightTile styles={styles} icon="star-outline" label={t("stats.avgRating")} value={`${overallStats.averageRating.toFixed(1)} ★`} color={c.coral} />
+          <InsightTile styles={styles} icon="close-circle-outline" label={t("stats.unfinished")} value={unfinishedCount.toString()} color={c.muted} />
         </View>
       </View>
 
       <View style={styles.chartCard}>
-        <Text style={styles.sectionTitle}>Collector dashboard</Text>
+        <Text style={styles.sectionTitle}>{t("stats.collectorDashboard")}</Text>
         <View style={styles.collectorGrid}>
-          <CollectorTile styles={styles} label="Tracked books" value={overallStats.booksTracked.toString()} sub={`${overallStats.completionRate}% completed`} accent={c.tealDark} />
-          <CollectorTile styles={styles} label="Owned shelf" value={overallStats.ownedCount.toString()} sub={`${overallStats.wishlistCount} wishlist`} accent={c.gold} />
-          <CollectorTile styles={styles} label="Want to buy" value={overallStats.wantToBuyCount.toString()} sub={`${overallStats.completedSeriesCount} sagas done`} accent={c.coral} />
-          <CollectorTile styles={styles} label="Avg length" value={`${overallStats.averageBookLength}`} sub="pages per tracked book" accent={c.ink} />
+          <CollectorTile styles={styles} label={t("stats.trackedBooks")} value={overallStats.booksTracked.toString()} sub={`${overallStats.completionRate}${t("stats.completedSuffix")}`} accent={c.tealDark} />
+          <CollectorTile styles={styles} label={t("stats.ownedShelf")} value={overallStats.ownedCount.toString()} sub={`${overallStats.wishlistCount} ${t("stats.wishlistSuffix")}`} accent={c.gold} />
+          <CollectorTile styles={styles} label={t("stats.wantToBuy")} value={overallStats.wantToBuyCount.toString()} sub={`${overallStats.completedSeriesCount} ${t("stats.sagasDone")}`} accent={c.coral} />
+          <CollectorTile styles={styles} label={t("stats.avgLength")} value={`${overallStats.averageBookLength}`} sub={t("stats.pagesPerBook")} accent={c.ink} />
         </View>
       </View>
 
       <View style={styles.chartCard}>
-        <Text style={styles.sectionTitle}>Habit lens</Text>
+        <Text style={styles.sectionTitle}>{t("stats.habitLens")}</Text>
         <View style={styles.collectorGrid}>
-          <CollectorTile styles={styles} label="Enjoyment" value={`${overallStats.averageSessionEnjoyment.toFixed(1)} / 10`} sub="average session rating" accent={c.green} />
-          <CollectorTile styles={styles} label="Session length" value={`${overallStats.averageMinutesPerSession}m`} sub="average reading session" accent={c.teal} />
-          <CollectorTile styles={styles} label="Top place" value={topLocation} sub="where you read most" accent={c.gold} />
-          <CollectorTile styles={styles} label="Top format" value={topFormat} sub="dominant reading format" accent={c.coral} />
+          <CollectorTile styles={styles} label={t("stats.enjoyment")} value={`${overallStats.averageSessionEnjoyment.toFixed(1)} / 10`} sub={t("stats.avgSessionRating")} accent={c.green} />
+          <CollectorTile styles={styles} label={t("stats.sessionLength")} value={`${overallStats.averageMinutesPerSession}m`} sub={t("stats.avgSession")} accent={c.teal} />
+          <CollectorTile styles={styles} label={t("stats.topPlace")} value={topLocation} sub={t("stats.whereYouRead")} accent={c.gold} />
+          <CollectorTile styles={styles} label={t("stats.topFormat")} value={topFormat} sub={t("stats.dominantFormat")} accent={c.coral} />
         </View>
       </View>
 
       {overallStats.genreCounts.length > 0 && (
         <View style={styles.chartCard}>
-          <Text style={styles.sectionTitle}>By genre</Text>
+          <Text style={styles.sectionTitle}>{t("stats.byGenre")}</Text>
           <BarChart data={overallStats.genreCounts.slice(0, 6)} />
         </View>
       )}
 
       {overallStats.locationCounts.length > 0 && (
         <View style={styles.chartCard}>
-          <Text style={styles.sectionTitle}>Reading places</Text>
+          <Text style={styles.sectionTitle}>{t("stats.readingPlaces")}</Text>
           <BarChart data={overallStats.locationCounts.slice(0, 5)} />
         </View>
       )}
 
       {overallStats.formatCounts.length > 0 && (
         <View style={styles.chartCard}>
-          <Text style={styles.sectionTitle}>By format</Text>
+          <Text style={styles.sectionTitle}>{t("stats.byFormat")}</Text>
           <BarChart data={overallStats.formatCounts} />
         </View>
       )}
 
       <View style={styles.yearCard}>
         <View style={styles.yearTop}>
-          <Text style={styles.yearEyebrow}>{new Date().getFullYear()} Year in Review</Text>
+          <Text style={styles.yearEyebrow}>{new Date().getFullYear()} {t("stats.yearInReview")}</Text>
           <Ionicons name="trophy" size={20} color={c.gold} />
         </View>
 
-        <Text style={styles.yearTitle}>Your reading year, at a glance.</Text>
+        <Text style={styles.yearTitle}>{t("stats.yearTitle")}</Text>
 
         <View style={styles.yearRow}>
-          <YearStat styles={styles} value={overallStats.booksReadThisYear.toString()} label="books read" />
-          <YearStat styles={styles} value={overallStats.pagesRead.toLocaleString()} label="pages" />
-          <YearStat styles={styles} value={`${hoursRead}h`} label="hours" />
+          <YearStat styles={styles} value={overallStats.booksReadThisYear.toString()} label={t("stats.booksRead")} />
+          <YearStat styles={styles} value={overallStats.pagesRead.toLocaleString()} label={t("stats.pages")} />
+          <YearStat styles={styles} value={`${hoursRead}h`} label={t("stats.hours")} />
         </View>
 
         {(topGenre !== "—" || topAuthor !== "—") && (
           <View style={styles.yearMeta}>
-            {topGenre !== "—" && <YearMeta styles={styles} label="Top genre" value={topGenre} />}
-            {topAuthor !== "—" && <YearMeta styles={styles} label="Top author" value={topAuthor} />}
+            {topGenre !== "—" && <YearMeta styles={styles} label={t("stats.topGenre")} value={topGenre} />}
+            {topAuthor !== "—" && <YearMeta styles={styles} label={t("stats.topAuthor")} value={topAuthor} />}
           </View>
         )}
 
         <Pressable style={styles.shareBtn} onPress={shareYearInReview}>
           <Ionicons name="share-outline" size={15} color={c.navy} />
-          <Text style={styles.shareBtnText}>Share my year</Text>
+          <Text style={styles.shareBtnText}>{t("stats.shareYear")}</Text>
         </Pressable>
       </View>
     </Screen>

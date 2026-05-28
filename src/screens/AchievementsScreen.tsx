@@ -3,6 +3,7 @@ import { Image, StyleSheet, Text, View } from "react-native";
 import { useMemo } from "react";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
+import { useI18n } from "../i18n/LocalizationContext";
 import { Achievement } from "../types/models";
 import { getAchievementIconSource } from "../utils/achievementIcons";
 import { AppColors, fonts, palette, radii, shadows, spacing } from "../theme/theme";
@@ -10,14 +11,14 @@ import { useColors } from "../theme/ThemeContext";
 
 type Category = Achievement["category"];
 
-const CATEGORY_META: Record<Category, { label: string; icon: keyof typeof Ionicons.glyphMap; color: string }> = {
-  reading:    { label: "Reading Milestones", icon: "book-outline",         color: palette.teal    },
-  habit:      { label: "Habits",             icon: "flame-outline",        color: palette.coral   },
-  genre:      { label: "Genres",             icon: "compass-outline",      color: palette.gold    },
-  collection: { label: "Collection",         icon: "library-outline",      color: palette.green   },
-  speed:      { label: "Speed",              icon: "speedometer-outline",  color: "#6366F1"      },
-  social:     { label: "Social",             icon: "people-outline",       color: palette.navy    },
-  location:   { label: "Reading Places",     icon: "location-outline",     color: "#F59E0B"      }
+const CATEGORY_META: Record<Category, { icon: keyof typeof Ionicons.glyphMap; color: string }> = {
+  reading:    { icon: "book-outline",         color: palette.teal    },
+  habit:      { icon: "flame-outline",        color: palette.coral   },
+  genre:      { icon: "compass-outline",      color: palette.gold    },
+  collection: { icon: "library-outline",      color: palette.green   },
+  speed:      { icon: "speedometer-outline",  color: "#6366F1"       },
+  social:     { icon: "people-outline",       color: palette.navy    },
+  location:   { icon: "location-outline",     color: "#F59E0B"       }
 };
 
 const CATEGORY_ORDER: Category[] = ["habit", "reading", "genre", "collection", "speed", "social", "location"];
@@ -29,13 +30,6 @@ const TIER_COLOR: Record<Achievement["tier"], string> = {
   legendary: "#9B5DE5"
 };
 
-const TIER_LABEL: Record<Achievement["tier"], string> = {
-  bronze:    "Bronze",
-  silver:    "Silver",
-  gold:      "Gold",
-  legendary: "Legendary"
-};
-
 function TierPill({
   tier,
   unlocked,
@@ -45,10 +39,17 @@ function TierPill({
   unlocked: boolean;
   styles: ReturnType<typeof createStyles>;
 }) {
+  const { t } = useI18n();
+  const tierLabels: Record<Achievement["tier"], string> = {
+    bronze:    t("achievements.tierBronze"),
+    silver:    t("achievements.tierSilver"),
+    gold:      t("achievements.tierGold"),
+    legendary: t("achievements.tierLegendary"),
+  };
   return (
     <View style={[styles.tierPill, { borderColor: unlocked ? TIER_COLOR[tier] : "#C5BEB4" }]}>
       <Text style={[styles.tierText, { color: unlocked ? TIER_COLOR[tier] : "#A09890" }]}>
-        {TIER_LABEL[tier]}
+        {tierLabels[tier]}
       </Text>
     </View>
   );
@@ -91,6 +92,7 @@ function AchievementEmoji({
 }
 
 function UnlockedCard({ achievement, styles, c }: { achievement: Achievement; styles: ReturnType<typeof createStyles>; c: AppColors }) {
+  const { t } = useI18n();
   return (
     <View style={[styles.unlockedCard, { borderLeftColor: TIER_COLOR[achievement.tier] }]}>
       <View style={styles.unlockedTop}>
@@ -109,8 +111,8 @@ function UnlockedCard({ achievement, styles, c }: { achievement: Achievement; st
         <Ionicons name="checkmark-circle" size={14} color={c.green} />
         <Text style={styles.unlockedDate}>
           {achievement.unlockedAt
-            ? `Unlocked ${new Date(`${achievement.unlockedAt}T00:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
-            : "Unlocked"}
+            ? `${t("achievements.unlockedOn")} ${new Date(`${achievement.unlockedAt}T00:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
+            : t("achievements.unlockedOn")}
         </Text>
       </View>
     </View>
@@ -157,7 +159,17 @@ function CategorySection({
   styles: ReturnType<typeof createStyles>;
   c: AppColors;
 }) {
+  const { t } = useI18n();
   const meta = CATEGORY_META[category];
+  const categoryLabels: Record<Category, string> = {
+    reading:    t("achievements.catReading"),
+    habit:      t("achievements.catHabit"),
+    genre:      t("achievements.catGenre"),
+    collection: t("achievements.catCollection"),
+    speed:      t("achievements.catSpeed"),
+    social:     t("achievements.catSocial"),
+    location:   t("achievements.catLocation"),
+  };
   if (!achievements.length) return null;
 
   return (
@@ -166,7 +178,7 @@ function CategorySection({
         <View style={[styles.categoryIconWrap, { backgroundColor: meta.color + "18" }]}>
           <Ionicons name={meta.icon} size={16} color={meta.color} />
         </View>
-        <Text style={[styles.categoryLabel, { color: meta.color }]}>{meta.label}</Text>
+        <Text style={[styles.categoryLabel, { color: meta.color }]}>{categoryLabels[category]}</Text>
         <Text style={styles.categoryCount}>{achievements.length}</Text>
       </View>
 
@@ -232,6 +244,7 @@ function StatusSection({
 
 export function AchievementsScreen() {
   const c = useColors();
+  const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
   const { userProfile } = useBooklio();
   const { achievements } = userProfile;
@@ -252,18 +265,16 @@ export function AchievementsScreen() {
 
   return (
     <Screen>
-      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>Your progress</Text>
-        <Text style={styles.title}>Achievements</Text>
+        <Text style={styles.eyebrow}>{t("achievements.eyebrow")}</Text>
+        <Text style={styles.title}>{t("achievements.title")}</Text>
       </View>
 
-      {/* Overall progress card */}
       <View style={styles.overallCard}>
         <View style={styles.overallRow}>
           <View>
             <Text style={styles.overallBig}>{unlockedCount}</Text>
-            <Text style={styles.overallSub}>of {totalCount} unlocked</Text>
+            <Text style={styles.overallSub}>{t("achievements.of")} {totalCount} {t("achievements.unlocked").toLowerCase()}</Text>
           </View>
           <Text style={styles.overallPct}>{overallPct}%</Text>
         </View>
@@ -273,7 +284,7 @@ export function AchievementsScreen() {
       </View>
 
       <StatusSection
-        title="Completed"
+        title={t("achievements.completed")}
         icon="checkmark-done-circle-outline"
         color={c.green}
         byCategory={unlockedByCategory}
@@ -283,7 +294,7 @@ export function AchievementsScreen() {
       />
 
       <StatusSection
-        title="Incomplete"
+        title={t("achievements.incomplete")}
         icon="ellipse-outline"
         color={c.gold}
         byCategory={lockedByCategory}

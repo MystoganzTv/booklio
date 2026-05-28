@@ -227,7 +227,7 @@ export function LibraryScreen() {
       ) : (
         <Pressable style={styles.listsRailEmpty} onPress={() => setCreateListOpen(true)}>
           <Ionicons name="bookmarks-outline" size={14} color={c.teal} />
-          <Text style={styles.listsRailEmptyText}>Create your first custom list</Text>
+          <Text style={styles.listsRailEmptyText}>{t("lists.createPrompt")}</Text>
           <Ionicons name="add-circle-outline" size={14} color={c.teal} />
         </Pressable>
       )}

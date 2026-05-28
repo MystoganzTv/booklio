@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, TextIn
 import { BookCover } from "../components/BookCover";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
+import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { CoreTrackingStatus, OwnershipStatus, ReadingFormat } from "../types/models";
 import { useColors } from "../theme/ThemeContext";
@@ -16,22 +17,6 @@ import {
   resolveBookMetadata
 } from "../utils/bookMetadata";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
-
-const statusOptions: { value: CoreTrackingStatus; label: string }[] = [
-  { value: "want-to-read", label: "Want" },
-  { value: "reading", label: "Reading" },
-  { value: "read", label: "Read" },
-  { value: "wishlist", label: "Wishlist" },
-  { value: "want-to-buy", label: "Buy" },
-  { value: "dnf", label: "Unfinished" },
-  { value: "upcoming-release", label: "Upcoming" }
-];
-
-const formatOptions: { value: ReadingFormat; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { value: "physical", label: "Physical", icon: "book-outline" },
-  { value: "kindle", label: "Kindle", icon: "tablet-portrait-outline" },
-  { value: "audiobook", label: "Audio", icon: "headset-outline" }
-];
 
 const splitList = (value: string) =>
   value
@@ -46,10 +31,27 @@ const parseNumber = (value: string) => {
 
 export function EditBookScreen() {
   const c = useColors();
+  const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
   const route = useRoute<RouteProp<RootStackParamList, "EditBook">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { getAuthor, getBook, updateBook, deleteBook } = useBooklio();
+
+  const statusOptions: { value: CoreTrackingStatus; label: string }[] = [
+    { value: "want-to-read", label: t("editBook.statusWant") },
+    { value: "reading",       label: t("editBook.statusReading") },
+    { value: "read",          label: t("editBook.statusRead") },
+    { value: "wishlist",      label: t("editBook.statusWishlist") },
+    { value: "want-to-buy",   label: t("editBook.statusBuy") },
+    { value: "dnf",           label: t("editBook.statusDnf") },
+    { value: "upcoming-release", label: t("editBook.statusUpcoming") },
+  ];
+
+  const formatOptions: { value: ReadingFormat; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+    { value: "physical",  label: t("logSession.formatPhysical"),  icon: "book-outline" },
+    { value: "kindle",    label: t("logSession.formatKindle"),    icon: "tablet-portrait-outline" },
+    { value: "audiobook", label: t("logSession.formatAudiobook"), icon: "headset-outline" },
+  ];
   const book = getBook(route.params.bookId);
 
   const [title, setTitle] = useState(book?.title ?? "");
@@ -88,7 +90,7 @@ export function EditBookScreen() {
 
   const fetchInfo = async () => {
     if (!canFetchMetadata({ isbn, title, authorName })) {
-      Alert.alert("Need a clue first", "Add an ISBN or at least a title before fetching metadata.");
+      Alert.alert(t("editBook.fetchNeedClue"), t("editBook.fetchNeedClueBody"));
       return;
     }
 
@@ -105,10 +107,10 @@ export function EditBookScreen() {
 
     if (!meta) {
       Alert.alert(
-        "Nothing found",
+        t("editBook.fetchNoResult"),
         Platform.OS === "web"
-          ? "No metadata came back. If you're testing in the web demo, make sure `npm run metadata-proxy` is running, or add an ISBN and try again."
-          : "Open Library couldn't find this book. Check the title or add an ISBN and try again."
+          ? t("editBook.fetchNoResultBodyDev")
+          : t("editBook.fetchNoResultBody")
       );
       return;
     }
@@ -156,14 +158,14 @@ export function EditBookScreen() {
 
     if (filled.length === 0) {
       Alert.alert(
-        "All fields already filled",
+        t("editBook.fetchAllFilled"),
         skipped.length
           ? `Nothing was empty to fill.\n\n${skipped.join("\n")}\n\nTo refill a field, clear it first then tap Fetch again.`
-          : "This book already has complete metadata."
+          : t("editBook.fetchAllFilledBody")
       );
     } else {
       Alert.alert(
-        "Info updated ✓",
+        t("editBook.fetchUpdated"),
         `Updated: ${filled.join(", ")}.`
       );
     }
@@ -226,18 +228,18 @@ export function EditBookScreen() {
       notes,
       favoriteQuotes: favoriteQuotes.split("\n").map((quote) => quote.trim()).filter(Boolean)
     });
-    Alert.alert("Saved", `${title || book.title} has been updated.`);
+    Alert.alert(t("editBook.savedTitle"), `${title || book.title} has been updated.`);
     navigation.goBack();
   };
 
   const onDelete = () => {
     Alert.alert(
-      "Delete this book?",
+      t("editBook.deleteTitle"),
       `Booklio will remove ${title || book.title}, its reading sessions, and its review from your library.`,
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("common.cancel"), style: "cancel" },
         {
-          text: "Delete book",
+          text: t("editBook.deleteConfirm"),
           style: "destructive",
           onPress: () => {
             deleteBook(book.id);
@@ -256,9 +258,9 @@ export function EditBookScreen() {
       <View style={styles.header}>
         <BookCover book={previewBook} size="md" />
         <View style={styles.headerCopy}>
-          <Text style={styles.eyebrow}>Edit book</Text>
+          <Text style={styles.eyebrow}>{t("nav.stack.editBook")}</Text>
           <Text style={styles.title} numberOfLines={3}>{title || book.title}</Text>
-          <Text style={styles.author} numberOfLines={1}>{authorName || "Unknown author"}</Text>
+          <Text style={styles.author} numberOfLines={1}>{authorName || t("editBook.unknownAuthor")}</Text>
         </View>
       </View>
 
@@ -272,11 +274,11 @@ export function EditBookScreen() {
           : <Ionicons name="cloud-download-outline" size={16} color={c.teal} />
         }
         <Text style={styles.fetchButtonText}>
-          {isFetching ? "Searching Open Library…" : "Fetch missing info from Open Library"}
+          {isFetching ? t("editBook.fetchBtnSearching") : t("editBook.fetchBtn")}
         </Text>
       </Pressable>
 
-      <SectionTitle title="Book metadata" />
+      <SectionTitle title={t("editBook.sectionMetadata")} />
       <Field label="Title" value={title} onChangeText={setTitle} />
       <Field label="Author" value={authorName} onChangeText={setAuthorName} />
       <Field label="Series / saga" value={seriesName} onChangeText={setSeriesName} />
@@ -297,11 +299,11 @@ export function EditBookScreen() {
       />
 
       <View style={styles.toggleRow}>
-        <Toggle label="Bestseller"  active={isBestseller} onPress={() => setIsBestseller((v) => !v)} />
-        <Toggle label="Sequel"      active={isSequel}     onPress={() => setIsSequel((v) => !v)} />
+        <Toggle label={t("editBook.toggleBestseller")} active={isBestseller} onPress={() => setIsBestseller((v) => !v)} />
+        <Toggle label={t("editBook.toggleSequel")}     active={isSequel}     onPress={() => setIsSequel((v) => !v)} />
       </View>
 
-      <SectionTitle title="Tracking" />
+      <SectionTitle title={t("editBook.sectionTracking")} />
       <View style={styles.optionGrid}>
         {statusOptions.map((option) => (
           <Pressable
@@ -328,9 +330,9 @@ export function EditBookScreen() {
       </View>
 
       <View style={styles.toggleRow}>
-        <Toggle label="Owned" active={ownership === "owned"} onPress={() => setOwnership(ownership === "owned" ? "not-owned" : "owned")} />
-        <Toggle label="Wishlist" active={wishlist} onPress={() => setWishlist((current) => !current)} />
-        <Toggle label="Want to buy" active={wantToBuy} onPress={() => setWantToBuy((current) => !current)} />
+        <Toggle label={t("editBook.toggleOwned")}     active={ownership === "owned"} onPress={() => setOwnership(ownership === "owned" ? "not-owned" : "owned")} />
+        <Toggle label={t("editBook.toggleWishlist")}  active={wishlist}   onPress={() => setWishlist((current) => !current)} />
+        <Toggle label={t("editBook.toggleWantToBuy")} active={wantToBuy}  onPress={() => setWantToBuy((current) => !current)} />
       </View>
 
       <Field label="Rating" value={rating} onChangeText={setRating} keyboardType="numeric" hint="1-5" />
@@ -342,18 +344,16 @@ export function EditBookScreen() {
       <Field label="Favorite quotes" value={favoriteQuotes} onChangeText={setFavoriteQuotes} multiline hint="One quote per line" />
 
       <Pressable style={styles.saveButton} onPress={onSave}>
-        <Text style={styles.saveButtonText}>Save book</Text>
+        <Text style={styles.saveButtonText}>{t("editBook.saveBtn")}</Text>
       </Pressable>
 
       <View style={styles.dangerZone}>
-        <Text style={styles.dangerEyebrow}>Danger zone</Text>
-        <Text style={styles.dangerTitle}>Delete this book</Text>
-        <Text style={styles.dangerBody}>
-          This removes the book from your library, along with its reading sessions and review.
-        </Text>
+        <Text style={styles.dangerEyebrow}>{t("settings.dangerEyebrow")}</Text>
+        <Text style={styles.dangerTitle}>{t("editBook.deleteTitle")}</Text>
+        <Text style={styles.dangerBody}>{t("editBook.deleteBody")}</Text>
         <Pressable style={styles.deleteButton} onPress={onDelete}>
           <Ionicons name="trash-outline" size={16} color={c.coral} />
-          <Text style={styles.deleteButtonText}>Delete book & erase its history</Text>
+          <Text style={styles.deleteButtonText}>{t("editBook.deleteConfirm")}</Text>
         </Pressable>
       </View>
     </Screen>

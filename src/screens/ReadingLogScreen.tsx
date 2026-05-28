@@ -6,12 +6,14 @@ import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
 import { SessionRow } from "../components/SessionRow";
 import { useBooklio } from "../data/BooklioContext";
+import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { useColors } from "../theme/ThemeContext";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 
 export function ReadingLogScreen() {
   const c = useColors();
+  const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
   const route = useRoute<RouteProp<RootStackParamList, "ReadingLog">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -43,47 +45,44 @@ export function ReadingLogScreen() {
 
   return (
     <Screen>
-      {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.eyebrow}>Reading Log</Text>
-          <Text style={styles.title}>{book ? book.title : "All sessions"}</Text>
+          <Text style={styles.eyebrow}>{t("readingLog.eyebrow")}</Text>
+          <Text style={styles.title}>{book ? book.title : t("readingLog.allSessions")}</Text>
         </View>
         <Pressable
           style={styles.logButton}
           onPress={() => navigation.navigate("AddReadingSession", { bookId })}
         >
-          <Text style={styles.logButtonText}>+ Log</Text>
+          <Text style={styles.logButtonText}>{t("readingLog.logBtn")}</Text>
         </Pressable>
       </View>
 
-      {/* Stats strip */}
       <View style={styles.statsStrip}>
         <View style={styles.statItem}>
           <Text style={styles.statVal}>{totalSessions}</Text>
-          <Text style={styles.statLbl}>sessions</Text>
+          <Text style={styles.statLbl}>{t("readingLog.sessionsLower")}</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
           <Text style={styles.statVal}>{totalPages.toLocaleString()}</Text>
-          <Text style={styles.statLbl}>pages</Text>
+          <Text style={styles.statLbl}>{t("readingLog.pages")}</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
           <Text style={styles.statVal}>{Math.round(totalMinutes / 60)}h</Text>
-          <Text style={styles.statLbl}>hours read</Text>
+          <Text style={styles.statLbl}>{t("readingLog.hoursRead")}</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
           <Text style={styles.statVal}>{avgSpeed}</Text>
-          <Text style={styles.statLbl}>pp/h avg</Text>
+          <Text style={styles.statLbl}>{t("readingLog.ppH")}</Text>
         </View>
       </View>
 
-      {/* Calendar — current month */}
       <View style={styles.calendarCard}>
         <Text style={styles.calendarTitle}>
-          {now.toLocaleString("en-US", { month: "long" })} · {activeDays.size} days active
+          {now.toLocaleString("en-US", { month: "long" })} · {activeDays.size} {t("readingLog.daysActive")}
         </Text>
         <View style={styles.calendarGrid}>
           {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => (
@@ -99,23 +98,22 @@ export function ReadingLogScreen() {
         </View>
       </View>
 
-      {/* Sessions list */}
-      <SectionHeader title="Sessions" />
+      <SectionHeader title={t("readingLog.sessions")} />
       {sessions.length === 0 ? (
         <View style={styles.emptyCard}>
-          <Text style={styles.emptyText}>No sessions logged yet.</Text>
+          <Text style={styles.emptyText}>{t("readingLog.emptyText")}</Text>
           <Pressable
             style={styles.emptyButton}
             onPress={() => navigation.navigate("AddReadingSession", { bookId })}
           >
-            <Text style={styles.emptyButtonText}>Log your first session</Text>
+            <Text style={styles.emptyButtonText}>{t("readingLog.emptyBtn")}</Text>
           </Pressable>
         </View>
       ) : (
         sessions.map((session) => (
           <SessionRow
             key={session.id}
-            bookTitle={getBook(session.bookId)?.title ?? "Unknown book"}
+            bookTitle={getBook(session.bookId)?.title ?? t("readingLog.unknownBook")}
             session={session}
             onPress={() => navigation.navigate("AddReadingSession", { bookId: session.bookId, sessionId: session.id })}
           />

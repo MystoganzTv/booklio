@@ -9,21 +9,23 @@ import { BookCover } from "../components/BookCover";
 import { FilterChip } from "../components/FilterChip";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
+import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { useColors } from "../theme/ThemeContext";
 import { Book } from "../types/models";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { formatStatusLabel } from "../utils/statusLabels";
 
-type OrderMode = "Reading order" | "Release order";
+type OrderMode = "reading" | "release";
 
 export function SeriesTrackerScreen() {
   const c = useColors();
+  const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
   const route = useRoute<RouteProp<RootStackParamList, "SeriesTracker">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { books, getAuthor, series } = useBooklio();
-  const [order, setOrder] = useState<OrderMode>("Reading order");
+  const [order, setOrder] = useState<OrderMode>("reading");
   const saga = series.find((item) => item.id === route.params.seriesId);
 
   const sagaBooks = useMemo(
@@ -35,7 +37,7 @@ export function SeriesTrackerScreen() {
   const orderedBooks = useMemo(
     () =>
       [...sagaBooks].sort((a, b) =>
-        order === "Reading order"
+        order === "reading"
           ? (a.sagaOrder ?? 99) - (b.sagaOrder ?? 99)
           : (a.releaseOrder ?? 99) - (b.releaseOrder ?? 99)
       ),
@@ -49,16 +51,17 @@ export function SeriesTrackerScreen() {
   const activeBook = orderedBooks.find((book) => book.userStatus.status === "reading");
   const nextUnread = orderedBooks.find((book) => !["read", "dnf"].includes(book.userStatus.status));
   const queuedBooks = orderedBooks.filter((book) => book.id !== nextUnread?.id && book.userStatus.status !== "read").slice(0, 2);
+  const orderLabel = order === "reading" ? t("series.readingOrder") : t("series.releaseOrder");
 
   return (
     <Screen>
       <View style={styles.hero}>
-        <Text style={styles.eyebrow}>Saga hub</Text>
-        <Text style={styles.title}>{saga?.name ?? "Series"}</Text>
+        <Text style={styles.eyebrow}>{t("series.eyebrow")}</Text>
+        <Text style={styles.title}>{saga?.name ?? t("series.defaultTitle")}</Text>
         {saga?.description ? <Text style={styles.subtitle}>{saga.description}</Text> : null}
 
         <View style={styles.progressHeader}>
-          <Text style={styles.progressTitle}>{completed}/{sagaBooks.length} finished</Text>
+          <Text style={styles.progressTitle}>{completed}/{sagaBooks.length} {t("series.finished")}</Text>
           <Text style={styles.progressPct}>{completion}%</Text>
         </View>
         <View style={styles.completionTrack}>
@@ -66,16 +69,16 @@ export function SeriesTrackerScreen() {
         </View>
 
         <View style={styles.statRow}>
-          <StatChip label="Owned" value={String(owned)} accent={c.teal} styles={styles} />
-          <StatChip label="Unread" value={String(Math.max(sagaBooks.length - completed, 0))} accent={c.gold} styles={styles} />
-          <StatChip label="Upcoming" value={String(upcoming.length)} accent={c.coral} styles={styles} />
+          <StatChip label={t("series.owned")} value={String(owned)} accent={c.teal} styles={styles} />
+          <StatChip label={t("series.unread")} value={String(Math.max(sagaBooks.length - completed, 0))} accent={c.gold} styles={styles} />
+          <StatChip label={t("series.upcomingLabel")} value={String(upcoming.length)} accent={c.coral} styles={styles} />
         </View>
       </View>
 
       <View style={styles.shelfCard}>
         <View style={styles.sectionTopline}>
-          <Text style={styles.sectionTitle}>Saga shelf</Text>
-          <Text style={styles.sectionMeta}>{order}</Text>
+          <Text style={styles.sectionTitle}>{t("series.sagaShelf")}</Text>
+          <Text style={styles.sectionMeta}>{orderLabel}</Text>
         </View>
         <View style={styles.coverRail}>
           {orderedBooks.map((book) => (
@@ -88,15 +91,15 @@ export function SeriesTrackerScreen() {
 
       <View style={styles.pathCard}>
         <View style={styles.sectionTopline}>
-          <Text style={styles.sectionTitle}>Your path through this saga</Text>
-          <Text style={styles.sectionMeta}>{order === "Reading order" ? "Best reading flow" : "Publication timeline"}</Text>
+          <Text style={styles.sectionTitle}>{t("series.yourPath")}</Text>
+          <Text style={styles.sectionMeta}>{order === "reading" ? t("series.bestFlow") : t("series.pubTimeline")}</Text>
         </View>
 
         {activeBook ? (
           <View style={styles.activeRow}>
             <View style={styles.activePill}>
               <Ionicons name="book-outline" size={14} color={c.card} />
-              <Text style={styles.activePillText}>Currently reading</Text>
+              <Text style={styles.activePillText}>{t("series.currentlyReading")}</Text>
             </View>
             <Text style={styles.activeTitle}>{activeBook.title}</Text>
             <Text style={styles.activeMeta}>
@@ -110,27 +113,27 @@ export function SeriesTrackerScreen() {
           <View style={styles.activeRow}>
             <View style={[styles.activePill, styles.activePillSoft]}>
               <Ionicons name="sparkles-outline" size={14} color={c.navy} />
-              <Text style={[styles.activePillText, styles.activePillTextSoft]}>Best next pick</Text>
+              <Text style={[styles.activePillText, styles.activePillTextSoft]}>{t("series.bestNext")}</Text>
             </View>
             <Text style={styles.activeTitle}>{nextUnread.title}</Text>
             <Text style={styles.activeMeta}>
-              {getAuthor(nextUnread.authorId)?.name} · {nextUnread.pages} pages
+              {getAuthor(nextUnread.authorId)?.name} · {nextUnread.pages} {t("series.pagesLower")}
             </Text>
           </View>
         ) : (
           <View style={styles.activeRow}>
             <View style={[styles.activePill, { backgroundColor: c.green }]}>
               <Ionicons name="trophy-outline" size={14} color={c.card} />
-              <Text style={styles.activePillText}>Saga complete</Text>
+              <Text style={styles.activePillText}>{t("series.sagaComplete")}</Text>
             </View>
-            <Text style={styles.activeTitle}>You have finished this saga path.</Text>
-            <Text style={styles.activeMeta}>Now Booklio can help with rereads, ownership, and upcoming entries.</Text>
+            <Text style={styles.activeTitle}>{t("series.sagaCompleteTitle")}</Text>
+            <Text style={styles.activeMeta}>{t("series.sagaCompleteBody")}</Text>
           </View>
         )}
 
         {queuedBooks.length > 0 ? (
           <View style={styles.queueWrap}>
-            <Text style={styles.queueLabel}>After that</Text>
+            <Text style={styles.queueLabel}>{t("series.afterThat")}</Text>
             {queuedBooks.map((book, index) => (
               <Pressable
                 key={book.id}
@@ -141,7 +144,7 @@ export function SeriesTrackerScreen() {
                 <View style={styles.queueCopy}>
                   <Text style={styles.queueTitle}>{book.title}</Text>
                   <Text style={styles.queueMeta}>
-                    {order === "Reading order" ? `Reading order ${book.sagaOrder ?? "—"}` : `Published ${book.publishedDate.slice(0, 4)}`}
+                    {order === "reading" ? `${t("series.readingOrder")} ${book.sagaOrder ?? "—"}` : `${t("series.published")} ${book.publishedDate.slice(0, 4)}`}
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={c.muted} />
@@ -152,14 +155,14 @@ export function SeriesTrackerScreen() {
       </View>
 
       <View style={styles.orderRail}>
-        <FilterChip label="Reading order" selected={order === "Reading order"} onPress={() => setOrder("Reading order")} />
-        <FilterChip label="Release order" selected={order === "Release order"} onPress={() => setOrder("Release order")} />
+        <FilterChip label={t("series.readingOrder")} selected={order === "reading"} onPress={() => setOrder("reading")} />
+        <FilterChip label={t("series.releaseOrder")} selected={order === "release"} onPress={() => setOrder("release")} />
       </View>
 
       <View style={styles.roadmapCard}>
         <View style={styles.sectionTopline}>
-          <Text style={styles.sectionTitle}>Roadmap</Text>
-          <Text style={styles.sectionMeta}>Reading vs release</Text>
+          <Text style={styles.sectionTitle}>{t("series.roadmap")}</Text>
+          <Text style={styles.sectionMeta}>{t("series.roadmapMeta")}</Text>
         </View>
 
         {orderedBooks.map((book) => (
@@ -176,8 +179,8 @@ export function SeriesTrackerScreen() {
       {upcoming.length > 0 ? (
         <View style={styles.upcomingCard}>
           <View style={styles.sectionTopline}>
-            <Text style={styles.sectionTitle}>Upcoming in this saga</Text>
-            <Text style={styles.sectionMeta}>{upcoming.length} tracked</Text>
+            <Text style={styles.sectionTitle}>{t("series.upcoming")}</Text>
+            <Text style={styles.sectionMeta}>{upcoming.length} {t("series.tracked")}</Text>
           </View>
           {upcoming.map((book) => (
             <Pressable
@@ -234,8 +237,9 @@ function SagaRoadmapRow({
   onPress: () => void;
 }) {
   const c = useColors();
+  const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
-  const orderValue = order === "Reading order" ? book.sagaOrder : book.releaseOrder;
+  const orderValue = order === "reading" ? book.sagaOrder : book.releaseOrder;
 
   return (
     <Pressable style={styles.roadmapRow} onPress={onPress}>
@@ -243,20 +247,20 @@ function SagaRoadmapRow({
       <View style={styles.roadmapCopy}>
         <View style={styles.orderBadgeRow}>
           <View style={styles.orderBadge}>
-            <Text style={styles.orderBadgeText}>Read #{book.sagaOrder ?? "—"}</Text>
+            <Text style={styles.orderBadgeText}>{t("series.readNum")}{book.sagaOrder ?? "—"}</Text>
           </View>
           <View style={[styles.orderBadge, styles.orderBadgeAlt]}>
-            <Text style={[styles.orderBadgeText, styles.orderBadgeTextAlt]}>Release #{book.releaseOrder ?? "—"}</Text>
+            <Text style={[styles.orderBadgeText, styles.orderBadgeTextAlt]}>{t("series.releaseNum")}{book.releaseOrder ?? "—"}</Text>
           </View>
         </View>
         <Text style={styles.bookTitle}>{book.title}</Text>
         <Text style={styles.bookMeta}>
-          {authorName} · {book.publishedDate.slice(0, 4)} · {book.pages} pages
+          {authorName} · {book.publishedDate.slice(0, 4)} · {book.pages} {t("series.pagesLower")}
         </Text>
         <View style={styles.badges}>
-          <Badge label={`${order === "Reading order" ? "Current lane" : "Current release"} ${orderValue ?? "—"}`} tone="navy" />
+          <Badge label={`${order === "reading" ? t("series.currentLane") : t("series.currentRelease")} ${orderValue ?? "—"}`} tone="navy" />
           <Badge label={formatStatusLabel(book.userStatus.status)} tone={book.userStatus.status === "read" ? "green" : "gray"} />
-          {book.userStatus.ownership === "owned" ? <Badge label="Owned" tone="green" /> : null}
+          {book.userStatus.ownership === "owned" ? <Badge label={t("series.owned")} tone="green" /> : null}
         </View>
         {book.userStatus.status === "reading" ? (
           <View style={styles.rowProgressTrack}>

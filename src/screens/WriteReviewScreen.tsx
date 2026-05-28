@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
+import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { useColors } from "../theme/ThemeContext";
 import { AppColors, fonts, radii, spacing } from "../theme/theme";
@@ -37,6 +38,7 @@ function StarRow({ value, onChange }: { value: number; onChange: (v: number) => 
 
 export function WriteReviewScreen() {
   const c = useColors();
+  const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
   const route = useRoute<RouteP>();
   const navigation = useNavigation();
@@ -52,6 +54,15 @@ export function WriteReviewScreen() {
 
   const canSave = rating > 0 && title.trim().length > 0;
 
+  const ratingLabels = [
+    t("writeReview.ratingLabel0"),
+    t("writeReview.ratingLabel1"),
+    t("writeReview.ratingLabel2"),
+    t("writeReview.ratingLabel3"),
+    t("writeReview.ratingLabel4"),
+    t("writeReview.ratingLabel5"),
+  ];
+
   const handleSave = () => {
     if (!canSave) return;
     const payload = { bookId, rating, title: title.trim(), body: body.trim() };
@@ -66,12 +77,12 @@ export function WriteReviewScreen() {
   const handleDelete = () => {
     if (!existing) return;
     Alert.alert(
-      "Delete review?",
-      "This will permanently remove your review for this book.",
+      t("writeReview.deleteTitle"),
+      t("writeReview.deleteBody"),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("common.cancel"), style: "cancel" },
         {
-          text: "Delete",
+          text: t("writeReview.deleteConfirm"),
           style: "destructive",
           onPress: () => {
             deleteReview(existing.id);
@@ -88,7 +99,7 @@ export function WriteReviewScreen() {
         <View style={styles.headerActions}>
           {canSave ? (
             <Pressable style={styles.headerSaveButton} onPress={handleSave} hitSlop={8}>
-              <Text style={styles.headerSaveButtonText}>{existing ? "Update" : "Save"}</Text>
+              <Text style={styles.headerSaveButtonText}>{existing ? t("writeReview.update") : t("writeReview.save")}</Text>
             </Pressable>
           ) : null}
           {existing ? (
@@ -99,28 +110,23 @@ export function WriteReviewScreen() {
         </View>
       }
     >
-      {/* Book title hint */}
       {book ? (
         <View style={styles.bookHint}>
-          <Text style={styles.bookHintLabel}>Reviewing</Text>
+          <Text style={styles.bookHintLabel}>{t("writeReview.reviewing")}</Text>
           <Text style={styles.bookHintTitle} numberOfLines={1}>{book.title}</Text>
         </View>
       ) : null}
 
-      {/* Star rating */}
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Your rating</Text>
+        <Text style={styles.sectionLabel}>{t("writeReview.yourRating")}</Text>
         <StarRow value={rating} onChange={setRating} />
         {rating > 0 ? (
-          <Text style={styles.ratingHint}>
-            {["", "Didn't enjoy it", "It was okay", "Liked it", "Really liked it", "Loved it"][rating]}
-          </Text>
+          <Text style={styles.ratingHint}>{ratingLabels[rating]}</Text>
         ) : null}
       </View>
 
-      {/* Title */}
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Title</Text>
+        <Text style={styles.sectionLabel}>{t("writeReview.titleLabel")}</Text>
         <TextInput
           style={styles.input}
           placeholder="Give your review a headline…"
@@ -132,9 +138,8 @@ export function WriteReviewScreen() {
         />
       </View>
 
-      {/* Body */}
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Your thoughts</Text>
+        <Text style={styles.sectionLabel}>{t("writeReview.thoughtsLabel")}</Text>
         <TextInput
           style={[styles.input, styles.inputMultiline]}
           placeholder="What did you think? What stayed with you?"
@@ -148,7 +153,6 @@ export function WriteReviewScreen() {
         <Text style={styles.charCount}>{body.length} / 2000</Text>
       </View>
 
-      {/* Save */}
       <Pressable
         style={[styles.saveButton, !canSave && styles.saveButtonDisabled]}
         onPress={handleSave}
@@ -156,7 +160,7 @@ export function WriteReviewScreen() {
       >
         <Ionicons name="checkmark-circle-outline" size={18} color={canSave ? c.navy : c.muted} style={{ marginRight: 8 }} />
         <Text style={[styles.saveButtonText, !canSave && styles.saveButtonTextDisabled]}>
-          {existing ? "Update Review" : "Save Review"}
+          {existing ? t("writeReview.updateBtn") : t("writeReview.saveBtn")}
         </Text>
       </Pressable>
     </Screen>

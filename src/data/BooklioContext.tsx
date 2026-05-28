@@ -1213,6 +1213,12 @@ export function BooklioProvider({ children }: PropsWithChildren) {
     const completeOnboarding = async (name: string, genres: string[]) => {
       const trimmedName = name.trim() || "Reader";
       const initials = buildInitials(trimmedName, undefined);
+      // Wipe all seed/demo data so new users start with a clean library
+      setAuthors([]);
+      setBooks([]);
+      setReadingSessions([]);
+      setReviews([]);
+      setUserLists([]);
       setProfile((prev) => ({
         ...prev,
         name: trimmedName,

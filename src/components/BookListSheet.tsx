@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBooklio } from "../data/BooklioContext";
+import { useI18n } from "../i18n/LocalizationContext";
 import { colors, fonts, radii, spacing } from "../theme/theme";
 import { CreateListSheet } from "./CreateListSheet";
 
@@ -12,6 +13,7 @@ type Props = {
 };
 
 export function BookListSheet({ open, bookId, onClose }: Props) {
+  const { t } = useI18n();
   const { userLists, addBookToList, removeBookFromList, createUserList } = useBooklio();
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -38,12 +40,12 @@ export function BookListSheet({ open, bookId, onClose }: Props) {
 
           <View style={styles.sheet}>
             <View style={styles.handle} />
-            <Text style={styles.title}>Save to list</Text>
+            <Text style={styles.title}>{t("lists.saveToList")}</Text>
 
             {userLists.length === 0 ? (
               <View style={styles.emptyHint}>
                 <Ionicons name="bookmarks-outline" size={32} color={colors.muted} />
-                <Text style={styles.emptyText}>No lists yet. Create your first one below.</Text>
+                <Text style={styles.emptyText}>{t("lists.noListsHint")}</Text>
               </View>
             ) : (
               <ScrollView style={styles.listScroll} showsVerticalScrollIndicator={false}>
@@ -76,11 +78,11 @@ export function BookListSheet({ open, bookId, onClose }: Props) {
               <View style={styles.newListIcon}>
                 <Ionicons name="add" size={18} color={colors.teal} />
               </View>
-              <Text style={styles.newListText}>New list…</Text>
+              <Text style={styles.newListText}>{t("lists.newList")}</Text>
             </Pressable>
 
             <Pressable style={styles.doneBtn} onPress={onClose}>
-              <Text style={styles.doneBtnText}>Done</Text>
+              <Text style={styles.doneBtnText}>{t("lists.done")}</Text>
             </Pressable>
           </View>
         </View>
