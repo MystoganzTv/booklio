@@ -27,6 +27,7 @@ import { useTheme } from "../theme/ThemeContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { MainTabParamList, RootStackParamList } from "./types";
 import { WhatsNewModal } from "../components/WhatsNewModal";
+import { SeriesCompletionModal } from "../components/SeriesCompletionModal";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tabs = createBottomTabNavigator<MainTabParamList>();
@@ -150,6 +151,8 @@ export function AppNavigator() {
       </Stack.Navigator>
       {/* Shown once per app version after onboarding is complete */}
       {onboardingComplete ? <WhatsNewModal /> : null}
+      {/* Shown when the user finishes the last book of a series */}
+      {onboardingComplete ? <SeriesCompletionModal /> : null}
     </NavigationContainer>
   );
 }

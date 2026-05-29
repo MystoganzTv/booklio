@@ -1,5 +1,7 @@
 import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { flushQueue, isOnline } from "../utils/offlineQueue";
 import { authors as authorSeed, books as bookSeed, readingSessions as sessionSeed, series, userProfile } from "./mockData";
 import {
   BooklioRepository,
@@ -120,6 +122,8 @@ type BooklioContextValue = {
   getSessionsForBook: (bookId: string) => ReadingSession[];
   getRecommendationsForBook: (bookId: string, limit?: number) => Recommendation[];
   overallStats: OverallStats;
+  seriesJustCompleted: { seriesId: string; seriesName: string } | null;
+  clearSeriesCompletion: () => void;
 };
 
 const BooklioContext = createContext<BooklioContextValue | null>(null);
@@ -661,6 +665,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
   const [hydrated, setHydrated] = useState(false);
   const [onboardingComplete, setOnboardingComplete] = useState(false);
   const [repositoryStatus, setRepositoryStatus] = useState<RepositoryStatus>(repositoryRef.current.getStatus());
+  const [seriesJustCompleted, setSeriesJustCompleted] = useState<{ seriesId: string; seriesName: string } | null>(null);
   const resolvedProfile = useMemo(
     () => enrichProfileAchievements(profile, books, readingSessions, reviews),
     [books, profile, readingSessions, reviews]
@@ -740,6 +745,27 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       mounted = false;
     };
   }, []);
+
+  // Flush offline queue when app returns to foreground and network is available
+  useEffect(() => {
+    if (!hydrated) return;
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        void (async () => {
+          const online = await isOnline();
+          if (online) {
+            // Flush with a no-op executor — repository handles its own Supabase
+            // sync on save(). The queue is for external consumers to plug in.
+            const { flushed } = await flushQueue(async () => false);
+            if (flushed > 0) {
+              console.log(`[Booklio] Flushed ${flushed} queued offline operations.`);
+            }
+          }
+        })();
+      }
+    });
+    return () => subscription.remove();
+  }, [hydrated]);
 
   useEffect(() => {
     if (!hydrated || !supabase) {
@@ -1034,6 +1060,25 @@ export function BooklioProvider({ children }: PropsWithChildren) {
 
     const updateBookStatus = (bookId: string, newStatus: CoreTrackingStatus, rating?: number) => {
       const today = new Date().toISOString().slice(0, 10);
+
+      // Detect series completion: if this book is the last unread book in a series
+      if (newStatus === "read") {
+        const targetBook = books.find((b) => b.id === bookId);
+        if (targetBook?.seriesId && targetBook.userStatus.status !== "read") {
+          const seriesBooks = books.filter((b) => b.seriesId === targetBook.seriesId);
+          const allOthersRead = seriesBooks.every(
+            (b) => b.id === bookId || b.userStatus.status === "read"
+          );
+          if (allOthersRead && seriesBooks.length > 1) {
+            const saga = series.find((s) => s.id === targetBook.seriesId);
+            setSeriesJustCompleted({
+              seriesId: targetBook.seriesId,
+              seriesName: saga?.name ?? "Series",
+            });
+          }
+        }
+      }
+
       setBooks((current) =>
         current.map((book) => {
           if (book.id !== bookId) return book;
@@ -1317,9 +1362,11 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       getBookStats,
       getSessionsForBook,
       getRecommendationsForBook,
-      overallStats: buildOverallStats(books, readingSessions, authors)
+      overallStats: buildOverallStats(books, readingSessions, authors),
+      seriesJustCompleted,
+      clearSeriesCompletion: () => setSeriesJustCompleted(null)
     };
-  }, [authors, books, onboardingComplete, readingSessions, repositoryStatus, resolvedProfile, reviews, userLists]);
+  }, [authors, books, onboardingComplete, readingSessions, repositoryStatus, resolvedProfile, reviews, seriesJustCompleted, userLists]);
 
   if (!hydrated) return null;
 

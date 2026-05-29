@@ -444,17 +444,18 @@ function GridBookTile({
   styles: ReturnType<typeof createStyles>;
   onPress: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <Pressable style={styles.bookTile} onPress={onPress}>
       <BookCover book={book} size="md" style={styles.tileCover} />
       <Text numberOfLines={2} style={styles.bookTitle}>{book.title}</Text>
-      <Text numberOfLines={1} style={styles.bookAuthor}>By {authorName}</Text>
+      <Text numberOfLines={1} style={styles.bookAuthor}>{t("series.byAuthor").replace("{name}", authorName)}</Text>
       <View style={styles.tileBadges}>
         <Badge
-          label={book.userStatus.rating ? `${book.userStatus.rating} stars` : formatStatusLabel(book.userStatus.status)}
+          label={book.userStatus.rating ? t("series.starsRating").replace("{count}", String(book.userStatus.rating)) : formatStatusLabel(book.userStatus.status)}
           tone={book.userStatus.status === "read" ? "gold" : book.userStatus.status === "reading" ? "teal" : "gray"}
         />
-        {book.seriesId ? <Badge label="Saga" tone="navy" /> : null}
+        {book.seriesId ? <Badge label={t("series.badgeSaga")} tone="navy" /> : null}
       </View>
     </Pressable>
   );
@@ -475,6 +476,7 @@ function LibraryRowCard({
   onPress: () => void;
   onOpenSeries?: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <Pressable style={styles.rowCard} onPress={onPress}>
       <BookCover book={book} size="sm" style={styles.rowCover} />
@@ -487,23 +489,23 @@ function LibraryRowCard({
         </View>
         <Text style={styles.rowAuthor}>{authorName}</Text>
         <Text style={styles.rowMeta}>
-          {book.language} · {book.pages} pages · {book.publisher}
+          {book.language} · {book.pages} {t("series.pagesLower")} · {book.publisher}
         </Text>
         {book.seriesName ? (
           <Pressable onPress={onOpenSeries}>
             <Text style={styles.rowSeries}>
-              {book.seriesName} · Book {book.seriesNumber ?? "—"}
+              {book.seriesName} · {t("series.bookInSeries").replace("{num}", String(book.seriesNumber ?? "—"))}
             </Text>
           </Pressable>
         ) : null}
         <View style={styles.rowBadges}>
           <Badge label={formatStatusLabel(book.userStatus.status)} tone={book.userStatus.status === "read" ? "gold" : book.userStatus.status === "reading" ? "teal" : book.userStatus.status === "dnf" ? "danger" : "gray"} />
-          {book.userStatus.ownership === "owned" ? <Badge label="Owned" tone="green" /> : null}
-          {book.userStatus.wishlist ? <Badge label="Wishlist" tone="navy" /> : null}
-          {book.userStatus.wantToBuy ? <Badge label="Buy" tone="coral" /> : null}
+          {book.userStatus.ownership === "owned" ? <Badge label={t("series.badgeOwned")} tone="green" /> : null}
+          {book.userStatus.wishlist ? <Badge label={t("series.badgeWishlist")} tone="navy" /> : null}
+          {book.userStatus.wantToBuy ? <Badge label={t("series.badgeBuy")} tone="coral" /> : null}
         </View>
         <Text style={styles.rowFootnote}>
-          {latestLogDate ? `Latest session: ${latestLogDate}` : `ISBN ${book.isbn}`}
+          {latestLogDate ? t("series.latestSession").replace("{date}", latestLogDate) : t("series.isbnLabel").replace("{isbn}", book.isbn ?? "—")}
         </Text>
       </View>
     </Pressable>

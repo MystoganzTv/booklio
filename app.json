@@ -2,7 +2,7 @@
   "expo": {
     "name": "Booklio",
     "slug": "booklio",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "scheme": "booklio",
     "orientation": "portrait",
     "icon": "./assets/brand/booklio-icon.png",
@@ -44,6 +44,14 @@
       "expo-web-browser",
       "expo-apple-authentication",
       "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/brand/booklio-icon.png",
+          "color": "#14B8A6",
+          "sounds": []
+        }
+      ],
 
       [
         "@react-native-google-signin/google-signin",

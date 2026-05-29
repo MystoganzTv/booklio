@@ -1,18 +1,38 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useMemo } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { GoogleConnectionCard } from "../components/GoogleConnectionCard";
 import { Screen } from "../components/Screen";
 import { useBooklio } from "../data/BooklioContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { useTheme } from "../theme/ThemeContext";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
+import {
+  formatReminderTime,
+  loadNotificationPrefs,
+  NotificationPrefs,
+  setReminderEnabled,
+} from "../utils/notificationService";
 
 export function SettingsScreen() {
   const { colors: c, isDark, toggleTheme } = useTheme();
   const { locale, setLocale, t } = useI18n();
   const { resetApp } = useBooklio();
   const styles = useMemo(() => createStyles(c), [c]);
+
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>({ enabled: false, hour: 20, minute: 0 });
+
+  useEffect(() => {
+    void loadNotificationPrefs().then(setNotifPrefs);
+  }, []);
+
+  const handleToggleNotification = useCallback(async (value: boolean) => {
+    const { prefs, permissionGranted } = await setReminderEnabled(value, notifPrefs.hour, notifPrefs.minute);
+    setNotifPrefs(prefs);
+    if (!permissionGranted) {
+      Alert.alert(t("notifications.permissionDenied"), t("notifications.permissionDeniedBody"));
+    }
+  }, [notifPrefs.hour, notifPrefs.minute, t]);
 
   const themeTitle = isDark ? t("settings.themeDarkTitle") : t("settings.themeLightTitle");
   const themeBody = isDark ? t("settings.themeDarkBody") : t("settings.themeLightBody");
@@ -86,6 +106,36 @@ export function SettingsScreen() {
               {t("common.spanish")}
             </Text>
           </Pressable>
+        </View>
+      </View>
+
+      {/* Notifications card */}
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionIconWrap}>
+            <Ionicons name="notifications-outline" size={18} color={c.tealDark} />
+          </View>
+          <View style={styles.sectionCopy}>
+            <Text style={styles.sectionTitle}>{t("notifications.settingsTitle")}</Text>
+            <Text style={styles.sectionBody}>{t("notifications.settingsBody")}</Text>
+          </View>
+        </View>
+
+        <View style={styles.settingRow}>
+          <View style={styles.settingCopy}>
+            <Text style={styles.settingTitle}>{t("notifications.enableLabel")}</Text>
+            <Text style={styles.settingSub}>
+              {notifPrefs.enabled
+                ? t("notifications.scheduled").replace("{time}", formatReminderTime(notifPrefs.hour, notifPrefs.minute))
+                : t("notifications.enableSub")}
+            </Text>
+          </View>
+          <Switch
+            value={notifPrefs.enabled}
+            onValueChange={(v) => { void handleToggleNotification(v); }}
+            trackColor={{ false: c.border, true: c.teal + "80" }}
+            thumbColor={notifPrefs.enabled ? c.tealDark : c.muted}
+          />
         </View>
       </View>
 

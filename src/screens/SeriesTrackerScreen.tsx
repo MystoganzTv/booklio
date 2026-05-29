@@ -103,7 +103,7 @@ export function SeriesTrackerScreen() {
             </View>
             <Text style={styles.activeTitle}>{activeBook.title}</Text>
             <Text style={styles.activeMeta}>
-              {getAuthor(activeBook.authorId)?.name} · {activeBook.userStatus.progressPercent}% complete
+              {getAuthor(activeBook.authorId)?.name} · {activeBook.userStatus.progressPercent}{t("series.percentComplete")}
             </Text>
             <View style={styles.activeTrack}>
               <View style={[styles.activeFill, { width: `${activeBook.userStatus.progressPercent}%` }]} />

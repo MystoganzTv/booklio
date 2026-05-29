@@ -4,7 +4,13 @@ import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as AuthSession from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
-import { GoogleSignin } from "@react-native-google-signin/google-signin";
+// @react-native-google-signin is NOT bundled in Expo Go — lazy-requiring it
+// inside the functions that use it prevents the "Native module not found" crash.
+type _GoogleSigninModule = typeof import("@react-native-google-signin/google-signin");
+function getGoogleSignin() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return (require("@react-native-google-signin/google-signin") as _GoogleSigninModule).GoogleSignin;
+}
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useMemo, useState } from "react";
@@ -16,6 +22,7 @@ import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
 import { buildAppleDisplayName, getGoogleAuthConfig } from "../utils/googleAuth";
+import { IS_EXPO_GO, DEV_MOCK_USER } from "../utils/devUtils";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -50,9 +57,9 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
   });
 
   useEffect(() => {
-    if (!isNative || isExpoGo) return;
+    if (!isNative || isExpoGo) return; // GoogleSignin not available in Expo Go
 
-    GoogleSignin.configure({
+    getGoogleSignin().configure({
       webClientId: config.webClientId,
       iosClientId: config.iosClientId,
       profileImageSize: 120
@@ -150,16 +157,16 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
     setActiveProvider("google");
     try {
       if (Platform.OS === "android") {
-        await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+        await getGoogleSignin().hasPlayServices({ showPlayServicesUpdateDialog: true });
       }
 
-      const result = await GoogleSignin.signIn();
+      const result = await getGoogleSignin().signIn();
       if (result.type !== "success") {
         return;
       }
 
       const account = result.data.user;
-      const tokens = (await GoogleSignin.getTokens()) as { idToken?: string; accessToken?: string };
+      const tokens = (await getGoogleSignin().getTokens()) as { idToken?: string; accessToken?: string };
       const idToken = (result as { data?: { idToken?: string } }).data?.idToken ?? tokens.idToken;
 
       // Supabase cloud sync — non-fatal on native iOS/Android because the id_token
@@ -248,10 +255,21 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
     }
   };
 
+  const handleDevMockLogin = async () => {
+    setActiveProvider("google");
+    try {
+      await connectIdentityAccount(DEV_MOCK_USER);
+    } catch {
+      Alert.alert("Dev mock login failed", "Could not connect mock account.");
+    } finally {
+      setActiveProvider(null);
+    }
+  };
+
   const handleDisconnect = async () => {
     try {
       if (userProfile.authProvider === "google" && isNative && !isExpoGo) {
-        await GoogleSignin.signOut();
+        await getGoogleSignin().signOut();
       }
       if (supabase) {
         await supabase.auth.signOut();
@@ -357,6 +375,17 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
               <Text style={styles.appleUnavailableText}>{t("auth.appleUnavailableBody")}</Text>
             </View>
           )}
+
+          {IS_EXPO_GO ? (
+            <Pressable
+              style={styles.devMockButton}
+              onPress={() => { void handleDevMockLogin(); }}
+              disabled={isGoogleBusy}
+            >
+              <Ionicons name="code-slash-outline" size={15} color={c.teal} />
+              <Text style={styles.devMockText}>Continue as Dev (Expo Go)</Text>
+            </Pressable>
+          ) : null}
         </View>
       )}
     </View>
@@ -512,6 +541,23 @@ function createStyles(c: AppColors) {
       fontFamily: fonts.body,
       fontSize: 12,
       fontWeight: "700"
+    },
+    devMockButton: {
+      alignItems: "center",
+      borderColor: c.teal,
+      borderRadius: radii.pill,
+      borderStyle: "dashed",
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 6,
+      justifyContent: "center",
+      paddingVertical: 10
+    },
+    devMockText: {
+      color: c.teal,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "800"
     }
   });
 }

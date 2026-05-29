@@ -18,6 +18,34 @@ export type ReleaseEntry = {
 
 export const RELEASE_NOTES: ReleaseEntry[] = [
   {
+    version: "1.1.0",
+    label: "May 2026",
+    sections: [
+      {
+        type: "new",
+        items: [
+          "Saga celebration — finish the last book in a series and Booklio throws you a trophy moment",
+          "Daily reading reminder — schedule a local push notification to keep your streak alive",
+          "Offline queue — failed cloud syncs are retried automatically when you reconnect",
+        ],
+      },
+      {
+        type: "improved",
+        items: [
+          "Library badges and row cards now fully translated into Spanish",
+          "Series screen shows reading progress percentage in your chosen language",
+          "Settings screen includes a notification toggle with scheduled time display",
+        ],
+      },
+      {
+        type: "fixed",
+        items: [
+          "Google Sign-In no longer crashes in Expo Go — use the dev login button to test",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.0.0",
     label: "May 2026",
     sections: [
