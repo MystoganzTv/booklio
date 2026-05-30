@@ -13,7 +13,7 @@ export const IS_EXPO_GO =
 export const DEV_MOCK_USER = {
   id: "dev-expo-go",
   provider: "google" as const,
-  email: "dev@booklio.test",
+  email: "dev@bookliz.test",
   name: "Enrique (Dev)",
   givenName: "Enrique",
   familyName: "Dev",

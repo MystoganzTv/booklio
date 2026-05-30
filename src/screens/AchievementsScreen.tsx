@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image, StyleSheet, Text, View } from "react-native";
 import { useMemo } from "react";
 import { Screen } from "../components/Screen";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { Achievement } from "../types/models";
 import { getAchievementIconSource } from "../utils/achievementIcons";
@@ -246,7 +246,7 @@ export function AchievementsScreen() {
   const c = useColors();
   const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
-  const { userProfile } = useBooklio();
+  const { userProfile } = useBookliz();
   const { achievements } = userProfile;
 
   const unlockedCount = achievements.filter((a) => a.unlocked).length;

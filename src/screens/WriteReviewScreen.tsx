@@ -10,7 +10,7 @@ import {
   View
 } from "react-native";
 import { Screen } from "../components/Screen";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { useColors } from "../theme/ThemeContext";
@@ -42,7 +42,7 @@ export function WriteReviewScreen() {
   const styles = useMemo(() => createStyles(c), [c]);
   const route = useRoute<RouteP>();
   const navigation = useNavigation();
-  const { getBook, getReviewForBook, addReview, updateReview, deleteReview } = useBooklio();
+  const { getBook, getReviewForBook, addReview, updateReview, deleteReview } = useBookliz();
 
   const { bookId } = route.params;
   const book = getBook(bookId);

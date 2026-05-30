@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { AppLocale, translations } from "./translations";
 
-const STORAGE_KEY = "@booklio/locale";
+const STORAGE_KEY = "@bookliz/locale";
 
 type TranslationVars = Record<string, string | number>;
 

@@ -4,7 +4,7 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Screen } from "../components/Screen";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
@@ -23,7 +23,7 @@ export function EditProfileScreen() {
   const styles = useMemo(() => createStyles(c), [c]);
   const { t } = useI18n();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { updateUserProfile, userProfile } = useBooklio();
+  const { updateUserProfile, userProfile } = useBookliz();
   const [name, setName] = useState(userProfile.name);
   const [avatarInitials, setAvatarInitials] = useState(userProfile.avatarInitials);
   const [yearlyGoal, setYearlyGoal] = useState(String(userProfile.yearlyGoal));

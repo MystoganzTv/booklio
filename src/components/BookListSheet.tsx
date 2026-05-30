@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { colors, fonts, radii, spacing } from "../theme/theme";
 import { CreateListSheet } from "./CreateListSheet";
@@ -14,7 +14,7 @@ type Props = {
 
 export function BookListSheet({ open, bookId, onClose }: Props) {
   const { t } = useI18n();
-  const { userLists, addBookToList, removeBookFromList, createUserList } = useBooklio();
+  const { userLists, addBookToList, removeBookFromList, createUserList } = useBookliz();
   const [createOpen, setCreateOpen] = useState(false);
 
   const handleToggle = (listId: string, isIn: boolean) => {

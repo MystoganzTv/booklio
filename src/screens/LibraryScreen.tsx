@@ -7,7 +7,7 @@ import { Badge } from "../components/Badge";
 import { BookCover } from "../components/BookCover";
 import { FilterChip } from "../components/FilterChip";
 import { Screen } from "../components/Screen";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { Book } from "../types/models";
@@ -31,7 +31,7 @@ export function LibraryScreen() {
   const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   const activeControlTextColor = isDark ? c.ink : "#FFFFFF";
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { books, getAuthor, readingSessions, userLists, createUserList, deleteUserList, renameUserList } = useBooklio();
+  const { books, getAuthor, readingSessions, userLists, createUserList, deleteUserList, renameUserList } = useBookliz();
   const [filter, setFilter] = useState<LibraryFilter>("all");
   const [sortBy, setSortBy] = useState<LibrarySort>("personalRank");
   const [query, setQuery] = useState("");

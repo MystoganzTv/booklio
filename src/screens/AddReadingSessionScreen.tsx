@@ -5,7 +5,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { Ionicons } from "@expo/vector-icons";
 import { BookCover } from "../components/BookCover";
 import { Screen } from "../components/Screen";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { useColors } from "../theme/ThemeContext";
@@ -28,7 +28,7 @@ export function AddReadingSessionScreen() {
   ];
   const route = useRoute<RouteProp<RootStackParamList, "AddReadingSession">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { addReadingSession, books, deleteReadingSession, getBook, getAuthor, getReadingSession, readingSessions, updateReadingSession } = useBooklio();
+  const { addReadingSession, books, deleteReadingSession, getBook, getAuthor, getReadingSession, readingSessions, updateReadingSession } = useBookliz();
   const editingSession = route.params?.sessionId ? getReadingSession(route.params.sessionId) : undefined;
   const isEditing = Boolean(editingSession);
   const today = new Date().toISOString().split("T")[0];

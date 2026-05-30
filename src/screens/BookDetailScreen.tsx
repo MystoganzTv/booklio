@@ -11,7 +11,7 @@ import { BookListSheet } from "../components/BookListSheet";
 import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
 import { SessionRow } from "../components/SessionRow";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { RootStackParamList } from "../navigation/types";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useTheme } from "../theme/ThemeContext";
@@ -34,7 +34,7 @@ export function BookDetailScreen() {
   const { colors: c } = useTheme();
   const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
-  const { getAuthor, getBook, getBookStats, getRecommendationsForBook, updateBookStatus, getReviewForBook } = useBooklio();
+  const { getAuthor, getBook, getBookStats, getRecommendationsForBook, updateBookStatus, getReviewForBook } = useBookliz();
   const book = getBook(route.params.bookId);
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
   const [statusSheetOpen, setStatusSheetOpen] = useState(false);

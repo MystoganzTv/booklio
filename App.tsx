@@ -8,7 +8,7 @@ import {
   Nunito_800ExtraBold,
   Nunito_900Black
 } from "@expo-google-fonts/nunito";
-import { BooklioProvider } from "./src/data/BooklioContext";
+import { BooklizProvider } from "./src/data/BooklizContext";
 import { ThemeProvider, useTheme } from "./src/theme/ThemeContext";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { LocalizationProvider } from "./src/i18n/LocalizationContext";
@@ -38,9 +38,9 @@ export default function App() {
   return (
     <LocalizationProvider>
       <ThemeProvider>
-        <BooklioProvider>
+        <BooklizProvider>
           <Root />
-        </BooklioProvider>
+        </BooklizProvider>
       </ThemeProvider>
     </LocalizationProvider>
   );

@@ -11,8 +11,8 @@ import { RootStackParamList } from "../navigation/types";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors, useTheme } from "../theme/ThemeContext";
 
-const booklioLogoLight = require("../../assets/brand/booklio-logo.png");
-const booklioLogoDark = require("../../assets/brand/booklio-logo-dark.png");
+const booklizLogoLight = require("../../assets/brand/bookliz-logo.png");
+const booklizLogoDark = require("../../assets/brand/bookliz-logo-dark.png");
 
 export function WelcomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -20,7 +20,7 @@ export function WelcomeScreen() {
   const { isDark } = useTheme();
   const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
-  const logoSource = isDark ? booklioLogoDark : booklioLogoLight;
+  const logoSource = isDark ? booklizLogoDark : booklizLogoLight;
 
   const heroTags = [
     t("welcome.tagCollector"),

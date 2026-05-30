@@ -3,8 +3,8 @@ import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
-const STORAGE_KEY = "booklio_connected_account";
-const LEGACY_STORAGE_KEY = "booklio_google_account";
+const STORAGE_KEY = "bookliz_connected_account";
+const LEGACY_STORAGE_KEY = "bookliz_google_account";
 
 export type ConnectedAccountProvider = "google" | "apple";
 
@@ -66,7 +66,7 @@ export function buildAppleDisplayName({
     return fallbackEmail.trim();
   }
 
-  return "Booklio Reader";
+  return "Bookliz Reader";
 }
 
 export async function persistConnectedAccount(account: ConnectedAccount) {

@@ -15,7 +15,7 @@ import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Image, Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
@@ -34,7 +34,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
   const c = useColors();
   const styles = useMemo(() => createStyles(c), [c]);
   const { t } = useI18n();
-  const { connectIdentityAccount, disconnectIdentityAccount, userProfile } = useBooklio();
+  const { connectIdentityAccount, disconnectIdentityAccount, userProfile } = useBookliz();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [activeProvider, setActiveProvider] = useState<"google" | "apple" | null>(null);
   const config = useMemo(() => getGoogleAuthConfig(), []);
@@ -42,7 +42,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
   const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
   const isAppleAvailable = Platform.OS === "ios";
   const redirectUri = AuthSession.makeRedirectUri({
-    scheme: "booklio",
+    scheme: "bookliz",
     path: "oauth"
   });
 
@@ -178,7 +178,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
           token: idToken
         });
         if (error) {
-          console.warn("Booklio: Supabase cloud sync skipped for native Google sign-in:", error.message);
+          console.warn("Bookliz: Supabase cloud sync skipped for native Google sign-in:", error.message);
           // Do NOT throw — local profile linking works fine without cloud sync.
           // To enable cloud sync on native, add your iOS/Android client IDs to
           // the Supabase dashboard → Authentication → Providers → Google →
@@ -197,7 +197,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
       });
 
     } catch (error) {
-      console.error("Booklio native Google sign-in failed", error);
+      console.error("Bookliz native Google sign-in failed", error);
       Alert.alert(t("auth.googleFailedTitle"), t("auth.googleFailedBody"));
     } finally {
       setActiveProvider(null);
@@ -248,7 +248,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
       if (error instanceof Error && error.message?.includes("ERR_REQUEST_CANCELED")) {
         return;
       }
-      console.error("Booklio Apple sign-in failed", error);
+      console.error("Bookliz Apple sign-in failed", error);
       Alert.alert(t("auth.appleUnavailableTitle"), t("auth.appleFailedBody"));
     } finally {
       setActiveProvider(null);
@@ -275,7 +275,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
         await supabase.auth.signOut();
       }
     } catch (error) {
-      console.error("Booklio sign-out failed", error);
+      console.error("Bookliz sign-out failed", error);
     } finally {
       await disconnectIdentityAccount();
       navigation.navigate("Welcome");

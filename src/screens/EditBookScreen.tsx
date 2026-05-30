@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { BookCover } from "../components/BookCover";
 import { Screen } from "../components/Screen";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { CoreTrackingStatus, OwnershipStatus, ReadingFormat } from "../types/models";
@@ -35,7 +35,7 @@ export function EditBookScreen() {
   const styles = useMemo(() => createStyles(c), [c]);
   const route = useRoute<RouteProp<RootStackParamList, "EditBook">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { getAuthor, getBook, updateBook, deleteBook } = useBooklio();
+  const { getAuthor, getBook, updateBook, deleteBook } = useBookliz();
 
   const statusOptions: { value: CoreTrackingStatus; label: string }[] = [
     { value: "want-to-read", label: t("editBook.statusWant") },
@@ -235,7 +235,7 @@ export function EditBookScreen() {
   const onDelete = () => {
     Alert.alert(
       t("editBook.deleteTitle"),
-      `Booklio will remove ${title || book.title}, its reading sessions, and its review from your library.`,
+      `Bookliz will remove ${title || book.title}, its reading sessions, and its review from your library.`,
       [
         { text: t("common.cancel"), style: "cancel" },
         {

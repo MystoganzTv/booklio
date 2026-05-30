@@ -11,7 +11,7 @@ type Props = {
   onConfirm: () => void;
 };
 
-export function BooklioDialog({
+export function BooklizDialog({
   open,
   title,
   body,

@@ -22,7 +22,7 @@ import { SettingsScreen } from "../screens/SettingsScreen";
 import { OnboardingWelcomeScreen } from "../screens/onboarding/OnboardingWelcomeScreen";
 import { OnboardingNameScreen } from "../screens/onboarding/OnboardingNameScreen";
 import { OnboardingGenresScreen } from "../screens/onboarding/OnboardingGenresScreen";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useTheme } from "../theme/ThemeContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { MainTabParamList, RootStackParamList } from "./types";
@@ -101,7 +101,7 @@ function MainTabs() {
 }
 
 export function AppNavigator() {
-  const { onboardingComplete } = useBooklio();
+  const { onboardingComplete } = useBookliz();
   const { colors: c } = useTheme();
   const { t } = useI18n();
 

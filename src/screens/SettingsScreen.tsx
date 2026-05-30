@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { GoogleConnectionCard } from "../components/GoogleConnectionCard";
 import { Screen } from "../components/Screen";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { useTheme } from "../theme/ThemeContext";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
@@ -17,7 +17,7 @@ import {
 export function SettingsScreen() {
   const { colors: c, isDark, toggleTheme } = useTheme();
   const { locale, setLocale, t } = useI18n();
-  const { resetApp } = useBooklio();
+  const { resetApp } = useBookliz();
   const styles = useMemo(() => createStyles(c), [c]);
 
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>({ enabled: false, hour: 20, minute: 0 });

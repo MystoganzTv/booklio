@@ -10,12 +10,12 @@ import {
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../../navigation/types";
-import { useBooklio } from "../../data/BooklioContext";
+import { useBookliz } from "../../data/BooklizContext";
 import { colors, fonts, radii, spacing } from "../../theme/theme";
 
 type Nav = NativeStackNavigationProp<RootStackParamList, "OnboardingGenres">;
 type Route = RouteProp<RootStackParamList, "OnboardingGenres">;
-const onboardingLogo = require("../../../assets/brand/booklio-onboarding-glow.png");
+const onboardingLogo = require("../../../assets/brand/bookliz-onboarding-glow.png");
 
 const GENRES = [
   { label: "Fantasy",            icon: "🐉" },
@@ -45,7 +45,7 @@ function StepDots({ current }: { current: number }) {
 export function OnboardingGenresScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
-  const { completeOnboarding } = useBooklio();
+  const { completeOnboarding } = useBookliz();
   const { name } = route.params;
 
   const [selected, setSelected] = useState<Set<string>>(new Set());

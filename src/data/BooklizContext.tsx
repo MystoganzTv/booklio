@@ -1,15 +1,15 @@
 import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { flushQueue, isOnline } from "../utils/offlineQueue";
+import { clearQueue, enqueue, hasPendingOperations, isOnline } from "../utils/offlineQueue";
 import { authors as authorSeed, books as bookSeed, readingSessions as sessionSeed, series, userProfile } from "./mockData";
 import {
-  BooklioRepository,
-  createBooklioSnapshot,
-  LocalFirstBooklioRepository,
-  PersistedBooklioState,
+  BooklizRepository,
+  createBooklizSnapshot,
+  LocalFirstBooklizRepository,
+  PersistedBooklizState,
   RepositoryStatus
-} from "./booklioRepository";
+} from "./booklizRepository";
 import {
   Achievement,
   Author,
@@ -83,7 +83,7 @@ type OverallStats = {
   mostActiveDays: { label: string; value: number }[];
 };
 
-type BooklioContextValue = {
+type BooklizContextValue = {
   authors: Author[];
   books: Book[];
   readingSessions: ReadingSession[];
@@ -126,7 +126,7 @@ type BooklioContextValue = {
   clearSeriesCompletion: () => void;
 };
 
-const BooklioContext = createContext<BooklioContextValue | null>(null);
+const BooklizContext = createContext<BooklizContextValue | null>(null);
 
 const rereadAchievement: Achievement = {
   id: "ach-rereader",
@@ -654,8 +654,8 @@ const buildOverallStats = (books: Book[], sessions: ReadingSession[], authors: A
   };
 };
 
-export function BooklioProvider({ children }: PropsWithChildren) {
-  const repositoryRef = useRef<BooklioRepository>(new LocalFirstBooklioRepository());
+export function BooklizProvider({ children }: PropsWithChildren) {
+  const repositoryRef = useRef<BooklizRepository>(new LocalFirstBooklizRepository());
   const [authors, setAuthors] = useState<Author[]>(authorSeed);
   const [books, setBooks] = useState<Book[]>(() => bookSeed.map(normalizeReadState));
   const [readingSessions, setReadingSessions] = useState<ReadingSession[]>(sessionSeed);
@@ -671,6 +671,15 @@ export function BooklioProvider({ children }: PropsWithChildren) {
     [books, profile, readingSessions, reviews]
   );
 
+  // Track the latest persisted state in a ref so the AppState effect (which
+  // only depends on `hydrated`) can access fresh data without re-subscribing.
+  const latestStateRef = useRef<PersistedBooklizState>({
+    authors, books, readingSessions, reviews, userLists, userProfile: resolvedProfile,
+  });
+  useEffect(() => {
+    latestStateRef.current = { authors, books, readingSessions, reviews, userLists, userProfile: resolvedProfile };
+  }, [authors, books, readingSessions, reviews, userLists, resolvedProfile]);
+
   useEffect(() => {
     let mounted = true;
 
@@ -685,7 +694,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
           return;
         }
 
-        const parsed = snapshot as PersistedBooklioState;
+        const parsed = snapshot as PersistedBooklizState;
         // ?? only falls back when the field is null/undefined (missing from old snapshots).
         // An intentionally-empty [] after a reset is preserved as-is, preventing
         // mock seed data from reappearing on the next launch.
@@ -726,7 +735,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
           setProfile(userProfile);
         }
         // Onboarding flag (stored separately from the main library snapshot)
-        const onboardingFlag = await AsyncStorage.getItem("@booklio/onboardingComplete");
+        const onboardingFlag = await AsyncStorage.getItem("@bookliz/onboardingComplete");
         if (mounted && onboardingFlag === "true") {
           setOnboardingComplete(true);
         }
@@ -746,20 +755,24 @@ export function BooklioProvider({ children }: PropsWithChildren) {
     };
   }, []);
 
-  // Flush offline queue when app returns to foreground and network is available
+  // Flush offline queue when app returns to foreground and network is available.
+  // The repository does a full delete + re-insert on every save(), so one call
+  // covers all pending operations regardless of type — no need for per-op replay.
   useEffect(() => {
     if (!hydrated) return;
     const subscription = AppState.addEventListener("change", (nextState) => {
       if (nextState === "active") {
         void (async () => {
           const online = await isOnline();
-          if (online) {
-            // Flush with a no-op executor — repository handles its own Supabase
-            // sync on save(). The queue is for external consumers to plug in.
-            const { flushed } = await flushQueue(async () => false);
-            if (flushed > 0) {
-              console.log(`[Booklio] Flushed ${flushed} queued offline operations.`);
-            }
+          if (!online) return;
+          const pending = await hasPendingOperations();
+          if (!pending) return;
+          try {
+            await repositoryRef.current.save(createBooklizSnapshot(latestStateRef.current));
+            await clearQueue();
+            console.log("[Booklio] Offline queue flushed via full Supabase sync.");
+          } catch (err) {
+            console.warn("[Booklio] Could not flush offline queue", err);
           }
         })();
       }
@@ -785,7 +798,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
           return;
         }
 
-        const parsed = snapshot as PersistedBooklioState;
+        const parsed = snapshot as PersistedBooklizState;
         // ?? only falls back when the field is null/undefined (missing from old snapshots).
         // An intentionally-empty [] after a reset is preserved as-is, preventing
         // mock seed data from reappearing on the next launch.
@@ -835,12 +848,16 @@ export function BooklioProvider({ children }: PropsWithChildren) {
     }
 
     const persist = async () => {
-      const state: PersistedBooklioState = { authors, books, readingSessions, reviews, userLists, userProfile: resolvedProfile };
+      const state: PersistedBooklizState = { authors, books, readingSessions, reviews, userLists, userProfile: resolvedProfile };
       try {
-        await repositoryRef.current.save(createBooklioSnapshot(state));
+        await repositoryRef.current.save(createBooklizSnapshot(state));
         setRepositoryStatus(repositoryRef.current.getStatus());
       } catch (error) {
         console.warn("Booklio could not persist local library", error);
+        // Queue a full sync marker so the AppState listener retries when back online.
+        // AsyncStorage was already written successfully — this only covers the
+        // Supabase / remote sync portion that failed.
+        void enqueue("upsert_profile", { reason: "full_sync_needed", timestamp: Date.now() });
         setRepositoryStatus(repositoryRef.current.getStatus());
       }
     };
@@ -848,7 +865,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
     persist();
   }, [authors, books, hydrated, readingSessions, resolvedProfile, reviews]);
 
-  const value = useMemo<BooklioContextValue>(() => {
+  const value = useMemo<BooklizContextValue>(() => {
     const getBook = (bookId: string) => books.find((book) => book.id === bookId);
     const getAuthor = (authorId: string) => authors.find((author) => author.id === authorId);
     const getReadingSession = (sessionId: string) => readingSessions.find((session) => session.id === sessionId);
@@ -1010,6 +1027,9 @@ export function BooklioProvider({ children }: PropsWithChildren) {
           coverGradient: existingBook.coverGradient,
           isBestseller: input.isBestseller ?? existingBook.isBestseller,
           tags: Array.from(new Set([...(existingBook.tags ?? []), ...(input.tags ?? [])])),
+          workKey: input.workKey ?? existingBook.workKey,
+          editionKey: input.editionKey ?? existingBook.editionKey,
+          languageCode: input.languageCode ?? existingBook.languageCode,
           userStatus: {
             ...existingBook.userStatus,
             ownership: input.ownership ?? existingBook.userStatus.ownership,
@@ -1041,6 +1061,9 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         coverGradient: [colorsFromSource(input.source).start, colorsFromSource(input.source).end],
         coverImageUri: input.coverImageUri,
         isBestseller: input.isBestseller,
+        workKey: input.workKey,
+        editionKey: input.editionKey,
+        languageCode: input.languageCode,
         tags: input.tags ?? [],
           userStatus: {
             status: "want-to-read",
@@ -1271,7 +1294,7 @@ export function BooklioProvider({ children }: PropsWithChildren) {
         favoriteGenres: genres.length ? genres : prev.favoriteGenres,
         readingLevel: ""   // Always start with auto-computed title; no custom override for new accounts
       }));
-      await AsyncStorage.setItem("@booklio/onboardingComplete", "true");
+      await AsyncStorage.setItem("@bookliz/onboardingComplete", "true");
       setOnboardingComplete(true);
     };
 
@@ -1288,10 +1311,10 @@ export function BooklioProvider({ children }: PropsWithChildren) {
       setOnboardingComplete(false);
       // 3. Wipe AsyncStorage
       await AsyncStorage.multiRemove([
-        "booklio:v2",
-        "@booklio/onboardingComplete",
-        "booklio_connected_account",
-        "booklio_google_account"
+        "bookliz:v2",
+        "@bookliz/onboardingComplete",
+        "bookliz_connected_account",
+        "bookliz_google_account"
       ]);
       // 4. Sign out from Supabase if active
       try {
@@ -1370,13 +1393,13 @@ export function BooklioProvider({ children }: PropsWithChildren) {
 
   if (!hydrated) return null;
 
-  return <BooklioContext.Provider value={value}>{children}</BooklioContext.Provider>;
+  return <BooklizContext.Provider value={value}>{children}</BooklizContext.Provider>;
 }
 
-export const useBooklio = () => {
-  const context = useContext(BooklioContext);
+export const useBookliz = () => {
+  const context = useContext(BooklizContext);
   if (!context) {
-    throw new Error("useBooklio must be used inside BooklioProvider");
+    throw new Error("useBookliz must be used inside BooklizProvider");
   }
   return context;
 };

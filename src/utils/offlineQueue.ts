@@ -8,13 +8,13 @@
  *  - The queue is replayed automatically when the app comes to the foreground
  *    (AppState "active") or when the caller explicitly calls `flushQueue`.
  *
- * Storage key: @booklio/offlineQueue
+ * Storage key: @bookliz/offlineQueue
  * Schema: QueuedOperation[]
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Network from "expo-network";
 
-const QUEUE_KEY = "@booklio/offlineQueue";
+const QUEUE_KEY = "@bookliz/offlineQueue";
 const MAX_RETRIES = 5;
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 

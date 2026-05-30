@@ -15,7 +15,7 @@ import { RootStackParamList } from "../../navigation/types";
 import { colors, fonts, radii, spacing } from "../../theme/theme";
 
 type Nav = NativeStackNavigationProp<RootStackParamList, "OnboardingName">;
-const onboardingLogo = require("../../../assets/brand/booklio-onboarding-glow.png");
+const onboardingLogo = require("../../../assets/brand/bookliz-onboarding-glow.png");
 
 function StepDots({ current }: { current: number }) {
   return (
@@ -99,7 +99,7 @@ export function OnboardingNameScreen() {
             </View>
             <View>
               <Text style={styles.previewName}>{name.trim()}</Text>
-              <Text style={styles.previewMeta}>Reader · Booklio</Text>
+              <Text style={styles.previewMeta}>Reader · Bookliz</Text>
             </View>
           </View>
         )}

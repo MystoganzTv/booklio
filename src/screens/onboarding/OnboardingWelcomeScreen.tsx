@@ -4,7 +4,7 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../../navigation/types";
 import { colors, fonts, radii, spacing } from "../../theme/theme";
 
-const booklioLogo = require("../../../assets/brand/booklio-onboarding-glow.png");
+const booklizLogo = require("../../../assets/brand/bookliz-onboarding-glow.png");
 
 const BULLETS = [
   { emoji: "📚", text: "Track every book you own or read" },
@@ -35,7 +35,7 @@ export function OnboardingWelcomeScreen() {
 
       {/* Logo inverted — white silhouette on navy */}
       <View style={styles.logoWrap}>
-        <Image source={booklioLogo} style={styles.logo} resizeMode="contain" />
+        <Image source={booklizLogo} style={styles.logo} resizeMode="contain" />
       </View>
 
       {/* Copy */}

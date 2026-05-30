@@ -7,14 +7,14 @@ import { RecommendationCard } from "../components/RecommendationCard";
 import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
 import { SessionRow } from "../components/SessionRow";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { MainTabParamList, RootStackParamList } from "../navigation/types";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors, useTheme } from "../theme/ThemeContext";
 
-const booklioLogoLight = require("../../assets/brand/booklio-logo.png");
-const booklioLogoDark = require("../../assets/brand/booklio-logo-dark.png");
+const booklizLogoLight = require("../../assets/brand/bookliz-logo.png");
+const booklizLogoDark = require("../../assets/brand/bookliz-logo-dark.png");
 
 function getGreeting(t: (key: string) => string) {
   const hour = new Date().getHours();
@@ -39,8 +39,8 @@ export function HomeScreen() {
   const { isDark } = useTheme();
   const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
-  const { books, getAuthor, getBook, overallStats, readingSessions, recommendations, userProfile } = useBooklio();
-  const logoSource = isDark ? booklioLogoDark : booklioLogoLight;
+  const { books, getAuthor, getBook, overallStats, readingSessions, recommendations, userProfile } = useBookliz();
+  const logoSource = isDark ? booklizLogoDark : booklizLogoLight;
 
   const continueBook = books.find((b) => b.userStatus.status === "reading") ?? null;
   const goalPct = Math.min(100, Math.round((overallStats.booksReadThisYear / userProfile.yearlyGoal) * 100));

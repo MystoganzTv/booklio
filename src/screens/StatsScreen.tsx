@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { Alert, Pressable, Share, StyleSheet, Text, View } from "react-native";
 import { BarChart } from "../components/BarChart";
 import { Screen } from "../components/Screen";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
 import { useI18n } from "../i18n/LocalizationContext";
@@ -15,7 +15,7 @@ export function StatsScreen() {
   const c = useColors();
   const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
-  const { books, overallStats, userProfile } = useBooklio();
+  const { books, overallStats, userProfile } = useBookliz();
   const [activeTab, setActiveTab] = useState<Tab>("books");
 
   const unfinishedCount = books.filter((b) => b.userStatus.status === "dnf").length;

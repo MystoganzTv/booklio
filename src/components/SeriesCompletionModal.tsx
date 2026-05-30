@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
@@ -16,7 +16,7 @@ import { useColors } from "../theme/ThemeContext";
 export function SeriesCompletionModal() {
   const c = useColors();
   const styles = useMemo(() => createStyles(c), [c]);
-  const { seriesJustCompleted, clearSeriesCompletion } = useBooklio();
+  const { seriesJustCompleted, clearSeriesCompletion } = useBookliz();
   const { t } = useI18n();
 
   const slideAnim = useRef(new Animated.Value(700)).current;

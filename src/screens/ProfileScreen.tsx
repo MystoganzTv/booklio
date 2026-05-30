@@ -6,7 +6,7 @@ import { useMemo } from "react";
 import { BookCard } from "../components/BookCard";
 import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { Achievement } from "../types/models";
@@ -63,7 +63,7 @@ export function ProfileScreen() {
   const { colors: c } = useTheme();
   const { t, locale } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
-  const { books, getAuthor, overallStats, repositoryStatus, userProfile } = useBooklio();
+  const { books, getAuthor, overallStats, repositoryStatus, userProfile } = useBookliz();
 
   const topBooks = userProfile.topBookIds.map((id) => books.find((b) => b.id === id)).filter(Boolean);
   const unlockedAchievements = userProfile.achievements.filter((achievement) => achievement.unlocked);
@@ -311,7 +311,7 @@ function getReaderLevel(totalBooksRead: number) {
 
 function getRepositoryCopy(
   c: AppColors,
-  repositoryStatus: ReturnType<typeof useBooklio>["repositoryStatus"],
+  repositoryStatus: ReturnType<typeof useBookliz>["repositoryStatus"],
   t: (key: string, vars?: Record<string, string | number>) => string,
   locale: string
 ) {
@@ -319,7 +319,7 @@ function getRepositoryCopy(
     return {
       accent: c.coral,
       title: t("profile.syncNeedsAttention"),
-      body: repositoryStatus.lastError ?? "Booklio could not persist your latest changes."
+      body: repositoryStatus.lastError ?? "Bookliz could not persist your latest changes."
     };
   }
 

@@ -1,17 +1,17 @@
 /**
- * Booklio notification service — local daily reading reminders.
+ * Bookliz notification service — local daily reading reminders.
  *
  * Uses expo-notifications for scheduling. Push tokens are NOT needed;
  * these are all local (device-only) notifications.
  *
- * Storage key: @booklio/notificationPrefs
+ * Storage key: @bookliz/notificationPrefs
  * Schema: { enabled: boolean; hour: number; minute: number }
  */
 import * as Notifications from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const PREFS_KEY = "@booklio/notificationPrefs";
-const CHANNEL_ID = "booklio-reading-reminder";
+const PREFS_KEY = "@bookliz/notificationPrefs";
+const CHANNEL_ID = "bookliz-reading-reminder";
 const NOTIFICATION_ID = "daily-reading-reminder";
 
 export type NotificationPrefs = {
@@ -80,7 +80,7 @@ export async function scheduleDailyReminder(hour: number, minute: number): Promi
     { title: "📚 Time to read!", body: "Your reading streak is waiting. Open a book." },
     { title: "📖 Reading time", body: "A few pages a day builds a library of a lifetime." },
     { title: "📚 Don't break the streak!", body: "Log a session and keep your momentum going." },
-    { title: "📖 Booklio reminder", body: "Your current book is waiting for you." },
+    { title: "📖 Bookliz reminder", body: "Your current book is waiting for you." },
   ];
   const msg = messages[Math.floor(Math.random() * messages.length)];
 

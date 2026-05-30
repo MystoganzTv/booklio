@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import { AppColors, darkColors, lightColors } from "./theme";
 
-const STORAGE_KEY = "@booklio/theme";
+const STORAGE_KEY = "@bookliz/theme";
 
 type ThemeMode = "light" | "dark";
 

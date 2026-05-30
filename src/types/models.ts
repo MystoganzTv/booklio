@@ -66,6 +66,10 @@ export interface Book {
   isBestseller?: boolean;
   isSequel?: boolean;            // true if it's not book #1 in a series
   tags?: string[];               // free-form tags: "thriller", "award-winner", "slow-burn", etc.
+  // Book Intelligence Engine fields — link to canonical work/edition records
+  workKey?: string;              // Open Library work key, e.g. "/works/OL12345W"
+  editionKey?: string;           // Open Library edition key, e.g. "/books/OL12345M"
+  languageCode?: string;         // ISO 639-1 two-letter code, e.g. "en", "es"
   userStatus: UserBookStatus;
 }
 
@@ -216,6 +220,8 @@ export interface NewBookInput {
   publisher?: string;
   publishedDate?: string;
   language?: string;
+  /** ISO 639-1 two-letter code, e.g. "en", "es" */
+  languageCode?: string;
   synopsis?: string;
   coverImageUri?: string;
   format?: ReadingFormat;

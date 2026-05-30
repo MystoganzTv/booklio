@@ -51,7 +51,7 @@ export async function analyzeBookPhoto(input: {
         strategy: "barcode-image",
         matched: true,
         notes: [
-          "Booklio found an ISBN inside the photo and matched it with Open Library.",
+          "Bookliz found an ISBN inside the photo and matched it with Open Library.",
           "Review the details before saving in case this edition differs from your copy."
         ]
       };
@@ -64,7 +64,7 @@ export async function analyzeBookPhoto(input: {
         isbn: detectedIsbn,
         genre: ["Uncategorized"],
         language: "English",
-        synopsis: "Booklio detected an ISBN from the photo, but the edition still needs metadata.",
+        synopsis: "Bookliz detected an ISBN from the photo, but the edition still needs metadata.",
         coverImageUri: input.uri,
         source: "photo",
         ownership: "owned"
@@ -72,7 +72,7 @@ export async function analyzeBookPhoto(input: {
       strategy: "barcode-image",
       matched: false,
       notes: [
-        "Booklio detected an ISBN in the image.",
+        "Bookliz detected an ISBN in the image.",
         "Open Library did not return full metadata for that code, so this draft still needs review."
       ]
     };
@@ -106,7 +106,7 @@ export async function analyzeBookPhoto(input: {
       strategy: "vision-provider",
       matched: Boolean(metadata || providerResult.title || providerResult.isbn),
       notes: [
-        "Booklio used the configured vision provider to read clues from the photo.",
+        "Bookliz used the configured vision provider to read clues from the photo.",
         "Please verify title, author, and edition before saving."
       ]
     };
@@ -120,8 +120,8 @@ export async function analyzeBookPhoto(input: {
       language: "English",
       synopsis:
         Platform.OS === "ios"
-          ? "Booklio saved your photo, but iPhone photo ISBN scanning is limited. Try the live ISBN scanner or add a title, then refresh metadata."
-          : "Booklio saved your photo, but could not read an ISBN from this image. Try the back cover, the copyright page, or enter a title and refresh metadata.",
+          ? "Bookliz saved your photo, but iPhone photo ISBN scanning is limited. Try the live ISBN scanner or add a title, then refresh metadata."
+          : "Bookliz saved your photo, but could not read an ISBN from this image. Try the back cover, the copyright page, or enter a title and refresh metadata.",
       coverImageUri: input.uri,
       source: "photo",
       ownership: "owned"
@@ -174,13 +174,13 @@ async function scanWithVisionProvider(input: {
 function buildFallbackNotes() {
   if (Platform.OS === "ios") {
     return [
-      "Booklio kept the photo, but iOS static image barcode scanning is limited.",
+      "Bookliz kept the photo, but iOS static image barcode scanning is limited.",
       "For the most reliable detection on iPhone, use Scan ISBN or connect a vision provider."
     ];
   }
 
   return [
-    "Booklio inspected the image for ISBN barcodes.",
+    "Bookliz inspected the image for ISBN barcodes.",
     "No barcode was found, so this draft is ready for manual review or a later metadata refresh."
   ];
 }

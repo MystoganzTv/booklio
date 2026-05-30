@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
 import { SessionRow } from "../components/SessionRow";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { useColors } from "../theme/ThemeContext";
@@ -17,7 +17,7 @@ export function ReadingLogScreen() {
   const styles = useMemo(() => createStyles(c), [c]);
   const route = useRoute<RouteProp<RootStackParamList, "ReadingLog">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { getBook, getBookStats, overallStats, readingSessions } = useBooklio();
+  const { getBook, getBookStats, overallStats, readingSessions } = useBookliz();
 
   const bookId = route.params?.bookId;
   const book = bookId ? getBook(bookId) : undefined;

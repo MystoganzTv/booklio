@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Author, Book, ReadingSession, Review, UserList, UserProfile } from "../types/models";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
-export type PersistedBooklioState = {
+export type PersistedBooklizState = {
   authors: Author[];
   books: Book[];
   readingSessions: ReadingSession[];
@@ -11,7 +11,7 @@ export type PersistedBooklioState = {
   userProfile: UserProfile;
 };
 
-export type BooklioSnapshot = PersistedBooklioState & {
+export type BooklizSnapshot = PersistedBooklizState & {
   version: number;
   updatedAt: string;
 };
@@ -28,9 +28,9 @@ export type RepositoryStatus = {
   cloudSignedIn: boolean;
 };
 
-export interface BooklioRepository {
-  load(): Promise<BooklioSnapshot | null>;
-  save(snapshot: BooklioSnapshot): Promise<void>;
+export interface BooklizRepository {
+  load(): Promise<BooklizSnapshot | null>;
+  save(snapshot: BooklizSnapshot): Promise<void>;
   getStatus(): RepositoryStatus;
 }
 
@@ -38,7 +38,7 @@ const STORAGE_KEY = "booklio:v2";
 const SNAPSHOT_VERSION = 2;
 
 type RemotePayload = {
-  snapshot?: BooklioSnapshot | null;
+  snapshot?: BooklizSnapshot | null;
 };
 
 const createBaseStatus = (remoteEnabled: boolean): RepositoryStatus => ({
@@ -48,7 +48,7 @@ const createBaseStatus = (remoteEnabled: boolean): RepositoryStatus => ({
   cloudSignedIn: false
 });
 
-export class LocalFirstBooklioRepository implements BooklioRepository {
+export class LocalFirstBooklizRepository implements BooklizRepository {
   private status: RepositoryStatus;
 
   constructor(
@@ -106,7 +106,7 @@ export class LocalFirstBooklioRepository implements BooklioRepository {
         return null;
       }
 
-      const parsed = JSON.parse(raw) as Partial<BooklioSnapshot> | PersistedBooklioState;
+      const parsed = JSON.parse(raw) as Partial<BooklizSnapshot> | PersistedBooklizState;
       const snapshot = normalizeSnapshot(parsed);
       if (!snapshot) {
         this.status = {
@@ -135,7 +135,7 @@ export class LocalFirstBooklioRepository implements BooklioRepository {
     }
   }
 
-  async save(snapshot: BooklioSnapshot) {
+  async save(snapshot: BooklizSnapshot) {
     this.status = { ...this.status, syncState: "saving", lastError: undefined };
 
     try {
@@ -183,12 +183,12 @@ export class LocalFirstBooklioRepository implements BooklioRepository {
       throw new Error(`Remote load failed with ${response.status}`);
     }
 
-      const payload = (await response.json()) as RemotePayload | BooklioSnapshot | null;
+      const payload = (await response.json()) as RemotePayload | BooklizSnapshot | null;
       const snapshot = isRemotePayload(payload) ? payload.snapshot ?? null : payload;
       return normalizeSnapshot(snapshot);
   }
 
-  private async saveRemote(snapshot: BooklioSnapshot) {
+  private async saveRemote(snapshot: BooklizSnapshot) {
     if (!this.remoteBaseUrl) return;
 
     const response = await fetch(`${this.remoteBaseUrl.replace(/\/$/, "")}/booklio/snapshot`, {
@@ -243,7 +243,7 @@ export class LocalFirstBooklioRepository implements BooklioRepository {
     });
   }
 
-  private async saveSupabase(snapshot: BooklioSnapshot) {
+  private async saveSupabase(snapshot: BooklizSnapshot) {
     if (!supabase) return;
 
     const userId = await this.getSupabaseUserId();
@@ -322,13 +322,13 @@ export class LocalFirstBooklioRepository implements BooklioRepository {
   }
 }
 
-export const createBooklioSnapshot = (state: PersistedBooklioState): BooklioSnapshot => ({
+export const createBooklizSnapshot = (state: PersistedBooklizState): BooklizSnapshot => ({
   ...state,
   version: SNAPSHOT_VERSION,
   updatedAt: new Date().toISOString()
 });
 
-function normalizeSnapshot(snapshot?: Partial<BooklioSnapshot> | PersistedBooklioState | null): BooklioSnapshot | null {
+function normalizeSnapshot(snapshot?: Partial<BooklizSnapshot> | PersistedBooklizState | null): BooklizSnapshot | null {
   if (!snapshot) return null;
   if (!Array.isArray(snapshot.authors) || !Array.isArray(snapshot.books) || !Array.isArray(snapshot.readingSessions) || !snapshot.userProfile) {
     return null;
@@ -349,7 +349,7 @@ function normalizeSnapshot(snapshot?: Partial<BooklioSnapshot> | PersistedBookli
   };
 }
 
-function isRemotePayload(payload: RemotePayload | BooklioSnapshot | null): payload is RemotePayload {
+function isRemotePayload(payload: RemotePayload | BooklizSnapshot | null): payload is RemotePayload {
   return Boolean(payload && typeof payload === "object" && "snapshot" in payload);
 }
 
@@ -399,6 +399,9 @@ type BookRow = {
   is_bestseller?: boolean | null;
   is_sequel?: boolean | null;
   tags: string[] | null;
+  work_key?: string | null;
+  edition_key?: string | null;
+  language_code?: string | null;
   user_status: Book["userStatus"];
 };
 
@@ -498,6 +501,9 @@ function mapBookToRow(userId: string, book: Book) {
     is_bestseller: book.isBestseller,
     is_sequel: book.isSequel,
     tags: book.tags ?? [],
+    work_key: book.workKey,
+    edition_key: book.editionKey,
+    language_code: book.languageCode,
     user_status: book.userStatus
   };
 }
@@ -526,6 +532,9 @@ function mapBookRowToBook(row: BookRow): Book {
     isBestseller: row.is_bestseller ?? undefined,
     isSequel: row.is_sequel ?? undefined,
     tags: row.tags ?? [],
+    workKey: row.work_key ?? undefined,
+    editionKey: row.edition_key ?? undefined,
+    languageCode: row.language_code ?? undefined,
     userStatus: row.user_status
   };
 }

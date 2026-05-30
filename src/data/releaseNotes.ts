@@ -1,5 +1,5 @@
 /**
- * Booklio release notes.
+ * Bookliz release notes.
  *
  * Each entry maps to an app version string (must match app.json `version`).
  * Sections: "new" (blue), "improved" (gold), "fixed" (green).
@@ -24,7 +24,7 @@ export const RELEASE_NOTES: ReleaseEntry[] = [
       {
         type: "new",
         items: [
-          "Saga celebration — finish the last book in a series and Booklio throws you a trophy moment",
+          "Saga celebration — finish the last book in a series and Bookliz throws you a trophy moment",
           "Daily reading reminder — schedule a local push notification to keep your streak alive",
           "Offline queue — failed cloud syncs are retried automatically when you reconnect",
         ],

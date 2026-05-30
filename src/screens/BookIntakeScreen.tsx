@@ -4,10 +4,10 @@ import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { BooklioDialog } from "../components/BooklioDialog";
+import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { BooklizDialog } from "../components/BooklizDialog";
 import { Screen } from "../components/Screen";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { AppColors, colors, fonts, radii, shadows, spacing } from "../theme/theme";
@@ -30,15 +30,20 @@ import {
 import {
   BookMatch,
   bookMatchToNewBookInput,
-  lookupByIsbn,
-  lookupByQuery,
 } from "../services/bookLookupService";
+import {
+  lookupByIsbn as aggregatorLookupByIsbn,
+  lookupByQuery as aggregatorLookupByQuery,
+  workEditionToNewBookInput,
+} from "../services/bookMetadataAggregator";
+import { BookEdition, BookWork, WorkLookupResult } from "../types/bookMetadata";
+import { BookEditionsSheet } from "../components/BookEditionsSheet";
 import { parseIsbn, formatIsbn13 } from "../utils/isbnUtils";
 
 type IntakeMode = "menu" | "isbn" | "manual" | "search" | "matches" | "review";
 type IconName = keyof typeof Ionicons.glyphMap;
 
-const booklioLogo = require("../../assets/brand/booklio-logo.png");
+const booklizLogo = require("../../assets/brand/bookliz-logo.png");
 
 const mockIsbnCatalog: Record<string, Omit<NewBookInput, "source">> = {
   "9780441172719": {
@@ -147,13 +152,54 @@ const sourceLabel: Record<NewBookInput["source"], string> = {
   search: "Book search"
 };
 
+// ─── Discover data ───────────────────────────────────────────────────────────
+
+const DISCOVER_GENRES: { label: string; icon: IconName; color: string; query: string }[] = [
+  { label: "Fantasy",         icon: "sparkles-outline",     color: "#14B8A6", query: "fantasy novels" },
+  { label: "Science Fiction", icon: "planet-outline",        color: "#6366F1", query: "science fiction" },
+  { label: "Mystery",         icon: "search-outline",        color: "#F59E0B", query: "mystery thriller" },
+  { label: "Romance",         icon: "heart-outline",         color: "#EC4899", query: "romance novels" },
+  { label: "Historical",      icon: "time-outline",          color: "#8B5CF6", query: "historical fiction" },
+  { label: "Horror",          icon: "moon-outline",          color: "#EF4444", query: "horror books" },
+  { label: "Nonfiction",      icon: "newspaper-outline",     color: "#10B981", query: "nonfiction bestsellers" },
+  { label: "Biography",       icon: "person-outline",        color: "#F97316", query: "biography memoir" },
+  { label: "Thriller",        icon: "warning-outline",       color: "#DC2626", query: "psychological thriller" },
+  { label: "Self-Help",       icon: "trending-up-outline",   color: "#0EA5E9", query: "self improvement" },
+  { label: "Adventure",       icon: "compass-outline",       color: "#06B6D4", query: "adventure novels" },
+  { label: "Crime",           icon: "shield-outline",        color: "#64748B", query: "crime fiction" },
+];
+
+const DISCOVER_SUGGESTIONS = [
+  "Epic fantasy sagas",
+  "Cozy mysteries",
+  "Historical thrillers",
+  "Sci-fi classics",
+  "Feel-good romance",
+  "True crime",
+  "Award-winning novels",
+  "Dark academia",
+  "Coming of age",
+  "Psychological thrillers",
+];
+
+const DISCOVER_MOODS = [
+  "Exciting", "Heartfelt", "Thought-provoking",
+  "Funny", "Scary", "Inspiring", "Feel-good", "Gripping",
+];
+
+const DISCOVER_SERIES = [
+  "Harry Potter", "Lord of the Rings", "Dune Saga",
+  "A Court of Thorns and Roses", "The Witcher", "Mistborn",
+  "Percy Jackson", "Stormlight Archive", "Sherlock Holmes", "Jack Reacher",
+];
+
 export function BookIntakeScreen() {
   const c = useColors();
   const { isDark } = useTheme();
   const { t } = useI18n();
   const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { addBook } = useBooklio();
+  const { addBook } = useBookliz();
   const [permission, requestPermission] = useCameraPermissions();
   const [mode, setMode] = useState<IntakeMode>("menu");
   const [scanned, setScanned] = useState(false);
@@ -177,6 +223,10 @@ export function BookIntakeScreen() {
   const [matches, setMatches] = useState<BookMatch[]>([]);
   const [matchLookupLabel, setMatchLookupLabel] = useState("");
   const [matchReturnMode, setMatchReturnMode] = useState<"menu" | "isbn" | "search">("menu");
+  // Book Intelligence Engine — work result + editions sheet
+  const [lookupResult, setLookupResult] = useState<WorkLookupResult | null>(null);
+  const [isEditionsSheetVisible, setIsEditionsSheetVisible] = useState(false);
+  const [isLoadingEditions, setIsLoadingEditions] = useState(false);
   // Debounce: prevents re-processing the same barcode within 2 s
   const lastScanRef = useRef<number>(0);
   const [manual, setManual] = useState({
@@ -210,6 +260,9 @@ export function BookIntakeScreen() {
         setScanZoom(0);
         setMatches([]);
         setMatchLookupLabel("");
+        setLookupResult(null);
+        setIsEditionsSheetVisible(false);
+        setIsLoadingEditions(false);
         setManual({ title: "", authorName: "", isbn: "", pages: "", genre: "", publisher: "" });
       };
     }, [])
@@ -217,7 +270,7 @@ export function BookIntakeScreen() {
 
   const photoSupport = getBookPhotoSupportSummary();
   const dialogNode = (
-    <BooklioDialog
+    <BooklizDialog
       open={Boolean(dialog)}
       title={dialog?.title ?? ""}
       body={dialog?.body ?? ""}
@@ -292,7 +345,7 @@ export function BookIntakeScreen() {
         synopsis: "ISBN captured. Ready to be completed from a live metadata provider."
       }),
       source: "isbn"
-    }, found ? "Booklio matched this ISBN with live metadata." : "Booklio captured the ISBN. Review and complete any missing details.");
+    }, found ? "Bookliz matched this ISBN with live metadata." : "Bookliz captured the ISBN. Review and complete any missing details.");
   };
 
   const runSearch = async () => {
@@ -349,7 +402,9 @@ export function BookIntakeScreen() {
   };
 
   /**
-   * Fetch matches from all sources and navigate to the "matches" confirmation mode.
+   * Fetch matches via the Book Intelligence Engine and navigate to the "matches" mode.
+   * Stores the full WorkLookupResult in `lookupResult` and also populates the legacy
+   * `matches` array (BookMatch[]) so the existing MatchCard UI keeps working.
    */
   const lookupAndShowMatches = async (
     query: string,
@@ -357,15 +412,41 @@ export function BookIntakeScreen() {
     type: "isbn" | "query" = "query"
   ) => {
     setMatches([]);
+    setLookupResult(null);
     setMatchLookupLabel(query);
     setMatchReturnMode(returnMode);
     setMode("matches");
     setIsBusy(true);
     try {
-      const results = type === "isbn"
-        ? await lookupByIsbn(query)
-        : await lookupByQuery(query);
-      setMatches(results);
+      // "auto" mode: the aggregator's detectQueryIntent() decides whether to
+      // search by author name or by title/keyword based on what was typed.
+      const result = type === "isbn"
+        ? await aggregatorLookupByIsbn(query)
+        : await aggregatorLookupByQuery(query);
+      setLookupResult(result);
+      // Convert BookEdition[] → BookMatch[] so the existing MatchCard renders correctly.
+      const legacyMatches: BookMatch[] = result.flatEditions.map((ed) => ({
+        id: ed.id,
+        title: ed.title,
+        subtitle: ed.subtitle,
+        authors: result.work?.authors ?? [],
+        isbn13: ed.isbn13,
+        isbn10: ed.isbn10,
+        coverUrl: ed.coverUrl,
+        description: result.work?.description,
+        genres: result.work?.genres ?? [],
+        pageCount: ed.pageCount,
+        publisher: ed.publisher,
+        publishedDate: ed.publishedDate,
+        language: ed.language,
+        source: ed.source,
+        sourceId: ed.editionKey ?? ed.googleBooksId,
+        workKey: result.work?.workKey,
+        editionKey: ed.editionKey,
+        score: ed.score,
+        confidence: ed.score >= 90 ? "high" : ed.score >= 70 ? "medium" : "low",
+      }));
+      setMatches(legacyMatches);
     } catch {
       openDialog(
         "Connection issue",
@@ -439,7 +520,7 @@ export function BookIntakeScreen() {
       if (changes.length) {
         openDialog("Metadata refreshed", `Updated: ${changes.join(", ")}.`);
       } else {
-        openDialog("No changes found", "Booklio couldn't find any additional details for this draft.");
+        openDialog("No changes found", "Bookliz couldn't find any additional details for this draft.");
       }
     } catch {
       openDialog(
@@ -470,7 +551,7 @@ export function BookIntakeScreen() {
       const exactMatch = options.find((option) => option.language?.toLowerCase() === language.toLowerCase());
 
       if (!exactMatch) {
-        setReviewInsight(`Language changed to ${language}. Booklio could not find a matching edition, so ISBN and publisher were kept from the current version.`);
+        setReviewInsight(`Language changed to ${language}. Bookliz could not find a matching edition, so ISBN and publisher were kept from the current version.`);
         return;
       }
 
@@ -506,7 +587,7 @@ export function BookIntakeScreen() {
       setReviewBook(nextDraft);
       setReviewInsight(`Matched a ${language} edition. ISBN, publisher, and edition details were updated where Open Library had them.`);
     } catch {
-      setReviewInsight(`Language changed to ${language}. Booklio could not refresh the edition metadata right now.`);
+      setReviewInsight(`Language changed to ${language}. Bookliz could not refresh the edition metadata right now.`);
     } finally {
       setIsRefreshingMetadata(false);
     }
@@ -566,11 +647,11 @@ export function BookIntakeScreen() {
         authorName: "Needs identification",
         genre: ["Uncategorized"],
         language: "English",
-        synopsis: "Booklio saved your photo, but detection failed this time. Review the draft and refresh metadata once you add a title or ISBN.",
+        synopsis: "Bookliz saved your photo, but detection failed this time. Review the draft and refresh metadata once you add a title or ISBN.",
         coverImageUri: uri,
         source: "photo",
         ownership: "owned"
-      }, "Booklio could not inspect that image right now, but your photo is attached and ready for review.");
+      }, "Bookliz could not inspect that image right now, but your photo is attached and ready for review.");
     } finally {
       setIsAnalyzingPhoto(false);
     }
@@ -786,12 +867,53 @@ export function BookIntakeScreen() {
               </>
             ) : null}
 
+            {/* View all editions — shown when the Intelligence Engine found a work */}
+            {lookupResult?.work ? (
+              <Pressable
+                style={styles.viewEditionsBtn}
+                onPress={() => setIsEditionsSheetVisible(true)}
+              >
+                <Ionicons name="layers-outline" size={15} color={c.tealDark} />
+                <Text style={styles.viewEditionsBtnText}>
+                  View all editions
+                  {lookupResult.flatEditions.length > 0
+                    ? ` (${lookupResult.flatEditions.length})`
+                    : ""}
+                </Text>
+              </Pressable>
+            ) : null}
+
             <Pressable style={styles.editManuallyBtn} onPress={() => setMode("manual")}>
               <Ionicons name="create-outline" size={15} color={c.muted} />
               <Text style={styles.editManuallyText}>Not what you're looking for? Edit manually</Text>
             </Pressable>
           </>
         )}
+
+        <BookEditionsSheet
+          visible={isEditionsSheetVisible}
+          work={lookupResult?.work ?? null}
+          isLoadingEditions={isLoadingEditions}
+          onSelectEdition={(edition) => {
+            setIsEditionsSheetVisible(false);
+            if (lookupResult?.work) {
+              const input = workEditionToNewBookInput(
+                lookupResult.work,
+                edition,
+                edition.isbn13 ? "isbn" : "search"
+              );
+              void stageBook(
+                input,
+                `Edition confirmed: ${edition.language ?? ""}${edition.publisher ? ` · ${edition.publisher}` : ""}.`
+              );
+            }
+          }}
+          onAddManually={() => {
+            setIsEditionsSheetVisible(false);
+            setMode("manual");
+          }}
+          onClose={() => setIsEditionsSheetVisible(false)}
+        />
       </Screen>
     );
   }
@@ -906,6 +1028,7 @@ export function BookIntakeScreen() {
   }
 
   if (mode === "search") {
+    const hasQuery = searchQuery.trim().length > 0;
     return (
       <Screen>
         {dialogNode}
@@ -913,35 +1036,17 @@ export function BookIntakeScreen() {
           <Ionicons name="chevron-back" size={20} color={c.tealDark} />
           <Text style={styles.backButtonText}>All options</Text>
         </Pressable>
+
         <View style={styles.pageHeader}>
-          <Text style={styles.pageEyebrow}>{t("addBook.search")}</Text>
-          <Text style={styles.pageTitle}>{t("addBook.search")}</Text>
+          <Text style={styles.pageEyebrow}>Book lookup</Text>
+          <Text style={styles.pageTitle}>Find your next read</Text>
         </View>
 
-        {/* Mode toggle */}
-        <View style={styles.searchModeRow}>
-          {(["general", "author"] as SearchMode[]).map((m) => (
-            <Pressable
-              key={m}
-              style={[styles.searchModeChip, searchMode === m && styles.searchModeChipActive]}
-              onPress={() => setSearchMode(m)}
-            >
-              <Ionicons
-                name={m === "author" ? "person-outline" : "search-outline"}
-                size={13}
-                color={searchMode === m ? "#FFFFFF" : c.muted}
-              />
-              <Text style={[styles.searchModeText, searchMode === m && styles.searchModeTextActive]}>
-                {m === "author" ? "By author" : "Title / keyword"}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
+        {/* Search bar — auto-detects title vs author name */}
         <View style={styles.searchRow}>
           <TextInput
-            autoFocus
-            placeholder={searchMode === "author" ? "David Baldacci, J.K. Rowling…" : "Dune, Memory Man, ISBN…"}
+            autoFocus={hasQuery}
+            placeholder="Dan Brown, Dune, J.K. Rowling…"
             placeholderTextColor={c.gray}
             style={styles.searchInput}
             value={searchQuery}
@@ -954,9 +1059,74 @@ export function BookIntakeScreen() {
           </Pressable>
         </View>
 
-        <Text style={styles.resultsHint}>
-          Search across Google Books and Open Library. Tap Search to see matches.
-        </Text>
+        {/* Discover content — hidden when user is actively typing */}
+        {!hasQuery ? (
+          <>
+            {/* ── Try searching for ── */}
+            <Text style={styles.discoverSectionTitle}>✨  Try searching for</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRowContent}>
+              {DISCOVER_SUGGESTIONS.map((s) => (
+                <Pressable
+                  key={s}
+                  style={styles.suggestionChip}
+                  onPress={() => void lookupAndShowMatches(s, "search", "query")}
+                >
+                  <Text style={styles.suggestionChipText}>{s}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            {/* ── Browse by genre ── */}
+            <Text style={styles.discoverSectionTitle}>📚  Browse by genre</Text>
+            <View style={styles.genreGrid}>
+              {DISCOVER_GENRES.map((g) => (
+                <Pressable
+                  key={g.label}
+                  style={styles.genreItem}
+                  onPress={() => void lookupAndShowMatches(g.query, "search", "query")}
+                >
+                  <View style={[styles.genreIconCircle, { backgroundColor: g.color + "22" }]}>
+                    <Ionicons name={g.icon} size={19} color={g.color} />
+                  </View>
+                  <Text style={styles.genreLabel} numberOfLines={1}>{g.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* ── Browse by mood ── */}
+            <Text style={styles.discoverSectionTitle}>🎭  Browse by mood</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRowContent}>
+              {DISCOVER_MOODS.map((m) => (
+                <Pressable
+                  key={m}
+                  style={styles.moodChip}
+                  onPress={() => void lookupAndShowMatches(`${m.toLowerCase()} books`, "search", "query")}
+                >
+                  <Text style={styles.moodChipText}>{m}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            {/* ── Popular series ── */}
+            <Text style={styles.discoverSectionTitle}>📖  Popular series</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.chipRowContent, { paddingBottom: spacing.xl }]}>
+              {DISCOVER_SERIES.map((s) => (
+                <Pressable
+                  key={s}
+                  style={styles.seriesChip}
+                  onPress={() => void lookupAndShowMatches(s, "search", "query")}
+                >
+                  <Ionicons name="book-outline" size={13} color={c.gold} />
+                  <Text style={styles.seriesChipText}>{s}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </>
+        ) : (
+          <Text style={styles.resultsHint}>
+            Booklio detects author names automatically. Tap Search or press return.
+          </Text>
+        )}
       </Screen>
     );
   }
@@ -2200,6 +2370,113 @@ function createStyles(c: AppColors, isDark: boolean) {
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "800"
+  },
+  viewEditionsBtn: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: c.teal + "12",
+    borderColor: c.teal + "38",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 11
+  },
+  viewEditionsBtnText: {
+    color: c.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  // ── Discover screen ──────────────────────────────────────────────────────
+  discoverSectionTitle: {
+    color: c.ink,
+    fontFamily: fonts.display,
+    fontSize: 16,
+    fontWeight: "900",
+    marginTop: spacing.lg,
+    marginBottom: spacing.sm
+  },
+  chipRowContent: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingBottom: 4
+  },
+  suggestionChip: {
+    backgroundColor: c.teal + "16",
+    borderColor: c.teal + "40",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 9
+  },
+  suggestionChipText: {
+    color: c.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  genreGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm
+  },
+  genreItem: {
+    alignItems: "center",
+    backgroundColor: c.surface,
+    borderColor: c.border,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    width: "48.5%"
+  },
+  genreIconCircle: {
+    alignItems: "center",
+    borderRadius: 18,
+    height: 36,
+    justifyContent: "center",
+    width: 36
+  },
+  genreLabel: {
+    color: c.ink,
+    flex: 1,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  moodChip: {
+    backgroundColor: c.gold + "16",
+    borderColor: c.gold + "44",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 9
+  },
+  moodChipText: {
+    color: isDark ? c.gold : "#92620A",
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  seriesChip: {
+    alignItems: "center",
+    backgroundColor: c.navy,
+    borderRadius: radii.pill,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9
+  },
+  seriesChipText: {
+    color: "#FFFFFF",
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900"
   }
   });
 }

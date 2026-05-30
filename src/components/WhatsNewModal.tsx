@@ -15,7 +15,7 @@ import { RELEASE_NOTES, ReleaseSection } from "../data/releaseNotes";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
 
-const STORAGE_KEY = "@booklio/whatsNewLastVersion";
+const STORAGE_KEY = "@bookliz/whatsNewLastVersion";
 const APP_VERSION = Constants.expoConfig?.version ?? "1.0.0";
 
 // ─── Section config ───────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ const SECTION_CONFIG = {
   },
 } as const;
 
-const booklioIcon = require("../../assets/brand/booklio-icon.png");
+const booklizIcon = require("../../assets/brand/bookliz-icon.png");
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -130,7 +130,7 @@ export function WhatsNewModal() {
 
         {/* Header */}
         <View style={styles.header}>
-          <Image source={booklioIcon} style={styles.appIcon} />
+          <Image source={booklizIcon} style={styles.appIcon} />
           <Text style={styles.appName}>
             Book<Text style={styles.appNameAccent}>lio</Text>
           </Text>

@@ -8,7 +8,7 @@ import { Badge } from "../components/Badge";
 import { BookCover } from "../components/BookCover";
 import { FilterChip } from "../components/FilterChip";
 import { Screen } from "../components/Screen";
-import { useBooklio } from "../data/BooklioContext";
+import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
 import { useColors } from "../theme/ThemeContext";
@@ -24,7 +24,7 @@ export function SeriesTrackerScreen() {
   const styles = useMemo(() => createStyles(c), [c]);
   const route = useRoute<RouteProp<RootStackParamList, "SeriesTracker">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { books, getAuthor, series } = useBooklio();
+  const { books, getAuthor, series } = useBookliz();
   const [order, setOrder] = useState<OrderMode>("reading");
   const saga = series.find((item) => item.id === route.params.seriesId);
 
