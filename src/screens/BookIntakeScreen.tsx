@@ -305,12 +305,12 @@ export function BookIntakeScreen() {
         {
           name: "MainTabs",
           state: {
-            index: 1, // Library tab (0=Home, 1=Library, 2=Add, 3=Stats, 4=Profile)
+            index: 1, // Library tab (0=Home, 1=Library, 2=Add, 3=Discover, 4=Profile)
             routes: [
               { name: "Home" },
               { name: "Library" },
               { name: "Add" },
-              { name: "Stats" },
+              { name: "Discover" },
               { name: "Profile" }
             ]
           }

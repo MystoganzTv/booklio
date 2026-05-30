@@ -3,6 +3,7 @@ import { NavigationProp, useNavigation } from "@react-navigation/native";
 import { useMemo } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { BookCover } from "../components/BookCover";
+import { HeroRecommendationCard } from "../components/HeroRecommendationCard";
 import { RecommendationCard } from "../components/RecommendationCard";
 import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
@@ -52,6 +53,11 @@ export function HomeScreen() {
     .slice(0, 4);
   const topLocation = overallStats.locationCounts[0]?.label ?? "—";
 
+  // Hero — top recommendation (highest confidence)
+  const heroRec = homeRecommendations[0] ?? null;
+  const heroBook = heroRec?.book ?? null;
+  const heroAuthor = heroBook ? (getAuthor(heroBook.authorId)?.name ?? "") : "";
+
   return (
     <Screen>
       {/* Header */}
@@ -62,6 +68,15 @@ export function HomeScreen() {
           <Text style={styles.name}>{userProfile.name}.</Text>
         </View>
       </View>
+
+      {/* Hero recommendation card */}
+      <HeroRecommendationCard
+        recommendation={heroRec?.recommendation ?? null}
+        book={heroBook}
+        authorName={heroAuthor}
+        onPress={() => heroBook && navigation.navigate("BookDetail", { bookId: heroBook.id })}
+        onDiscoverPress={() => navigation.navigate("Discover")}
+      />
 
       {/* Stats strip */}
       <View style={styles.statsStrip}>
@@ -161,11 +176,11 @@ export function HomeScreen() {
 
       {readingSessions.length > 0 ? (
         <>
-          {homeRecommendations.length > 0 ? (
+          {homeRecommendations.length > 1 ? (
             <>
               <SectionHeader title={t("home.recommended")} />
               <View style={styles.recommendationRail}>
-                {homeRecommendations.map(({ recommendation, book }) => (
+                {homeRecommendations.slice(1).map(({ recommendation, book }) => (
                   <RecommendationCard
                     key={recommendation.id}
                     authorName={getAuthor(book.authorId)?.name ?? ""}

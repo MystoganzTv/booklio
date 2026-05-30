@@ -200,6 +200,12 @@ export function ProfileScreen() {
         </Text>
       </View>
 
+      <Pressable style={styles.statsNavCard} onPress={() => (navigation as any).navigate("Stats")}>
+        <Ionicons name="stats-chart-outline" size={20} color={c.teal} />
+        <Text style={styles.statsNavLabel}>{t("profile.viewStats")}</Text>
+        <Ionicons name="chevron-forward" size={16} color={c.muted} style={{ marginLeft: "auto" }} />
+      </Pressable>
+
       <Pressable style={styles.achievementsCard} onPress={() => navigation.navigate("Achievements")}>
         <View style={styles.achievementsCardTop}>
           <View>
@@ -661,6 +667,25 @@ function createStyles(c: AppColors) {
       fontSize: 12,
       lineHeight: 17,
       marginTop: 6
+    },
+    statsNavCard: {
+      ...shadows.card,
+      alignItems: "center",
+      backgroundColor: c.surface,
+      borderColor: c.border,
+      borderRadius: radii.sm,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.sm,
+      marginBottom: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 14,
+    },
+    statsNavLabel: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 14,
+      fontWeight: "900",
     },
     achievementsCard: {
       ...shadows.card,

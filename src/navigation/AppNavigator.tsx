@@ -13,6 +13,7 @@ import { ProfileScreen } from "../screens/ProfileScreen";
 import { ReadingLogScreen } from "../screens/ReadingLogScreen";
 import { SeriesTrackerScreen } from "../screens/SeriesTrackerScreen";
 import { StatsScreen } from "../screens/StatsScreen";
+import { DiscoverScreen } from "../screens/DiscoverScreen";
 import { EditProfileScreen } from "../screens/EditProfileScreen";
 import { EditBookScreen } from "../screens/EditBookScreen";
 import { AchievementsScreen } from "../screens/AchievementsScreen";
@@ -69,7 +70,7 @@ function MainTabs() {
             Home: focused ? "home" : "home-outline",
             Library: focused ? "library" : "library-outline",
             Add: focused ? "add" : "add-outline",
-            Stats: focused ? "stats-chart" : "stats-chart-outline",
+            Discover: focused ? "compass" : "compass-outline",
             Profile: focused ? "person" : "person-outline"
           };
           const isAdd = route.name === "Add";
@@ -94,7 +95,7 @@ function MainTabs() {
       <Tabs.Screen component={HomeScreen} name="Home" options={{ title: t("nav.tabs.home") }} />
       <Tabs.Screen component={LibraryScreen} name="Library" options={{ title: t("nav.tabs.library") }} />
       <Tabs.Screen component={BookIntakeScreen} name="Add" options={{ title: t("nav.tabs.add") }} />
-      <Tabs.Screen component={StatsScreen} name="Stats" options={{ title: t("nav.tabs.stats") }} />
+      <Tabs.Screen component={DiscoverScreen} name="Discover" options={{ title: t("nav.tabs.discover") }} />
       <Tabs.Screen component={ProfileScreen} name="Profile" options={{ title: t("nav.tabs.profile") }} />
     </Tabs.Navigator>
   );
@@ -148,6 +149,7 @@ export function AppNavigator() {
         <Stack.Screen component={EditBookScreen} name="EditBook" options={{ title: t("nav.stack.editBook") }} />
         <Stack.Screen component={AchievementsScreen} name="Achievements" options={{ title: "" }} />
         <Stack.Screen component={WriteReviewScreen} name="WriteReview" options={{ title: t("nav.stack.writeReview") }} />
+        <Stack.Screen component={StatsScreen} name={"Stats" as any} options={{ title: t("nav.tabs.stats") }} />
       </Stack.Navigator>
       {/* Shown once per app version after onboarding is complete */}
       {onboardingComplete ? <WhatsNewModal /> : null}
