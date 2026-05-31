@@ -47,9 +47,17 @@ const splitList = (v: string) => v.split(",").map((s) => s.trim()).filter(Boolea
 const parseNum  = (v: string) => { const n = Number(v); return Number.isFinite(n) ? n : undefined; };
 
 const FORMAT_OPTIONS: { value: ReadingFormat; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { value: "physical",  label: "Physical",  icon: "book-outline" },
-  { value: "kindle",    label: "E-book",    icon: "tablet-portrait-outline" },
-  { value: "audiobook", label: "Audiobook", icon: "headset-outline" },
+  { value: "paperback",            label: "Paperback",             icon: "book-outline" },
+  { value: "hardcover",            label: "Hardcover",             icon: "book-outline" },
+  { value: "ebook",                label: "Digital book",          icon: "tablet-portrait-outline" },
+  { value: "audiobook",            label: "Audiobook",             icon: "headset-outline" },
+  { value: "mass-market-paperback",label: "Mass market paperback", icon: "book-outline" },
+  { value: "spiral-bound",         label: "Spiral-bound",          icon: "document-text-outline" },
+  { value: "leather-bound",        label: "Leather-bound",         icon: "book-outline" },
+  { value: "magazine",             label: "Magazine",              icon: "newspaper-outline" },
+  { value: "comic-book",           label: "Comic book",            icon: "color-wand-outline" },
+  { value: "graphic-novel",        label: "Graphic novel",         icon: "image-outline" },
+  { value: "manga",                label: "Manga",                 icon: "language-outline" },
 ];
 
 const STATUS_OPTIONS: { value: CoreTrackingStatus; label: string }[] = [

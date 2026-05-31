@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Keyboard, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useI18n } from "../i18n/LocalizationContext";
 import { colors, fonts, radii, spacing } from "../theme/theme";
 
@@ -31,10 +31,14 @@ export function CreateListSheet({ open, initialName = "", initialEmoji = "📚",
 
   const canSave = name.trim().length > 0;
 
+  // Always dismiss keyboard before closing — prevents iOS ScrollView freeze
+  const handleClose = () => { Keyboard.dismiss(); onClose(); };
+  const handleSave  = () => { if (!canSave) return; Keyboard.dismiss(); onSave(name.trim(), emoji); onClose(); };
+
   return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={open} transparent animationType="fade" onRequestClose={handleClose}>
       <View style={styles.overlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
 
         <View style={styles.sheet}>
           <View style={styles.handle} />
@@ -65,24 +69,19 @@ export function CreateListSheet({ open, initialName = "", initialEmoji = "📚",
               onChangeText={setName}
               maxLength={40}
               returnKeyType="done"
-              onSubmitEditing={() => canSave && (onSave(name.trim(), emoji), onClose())}
+              onSubmitEditing={handleSave}
             />
           </View>
 
           <Pressable
             style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]}
-            onPress={() => {
-              if (canSave) {
-                onSave(name.trim(), emoji);
-                onClose();
-              }
-            }}
+            onPress={handleSave}
             disabled={!canSave}
           >
             <Text style={styles.saveBtnText}>{mode === "rename" ? t("lists.renameBtn") : t("lists.createBtn")}</Text>
           </Pressable>
 
-          <Pressable style={styles.cancelBtn} onPress={onClose}>
+          <Pressable style={styles.cancelBtn} onPress={handleClose}>
             <Text style={styles.cancelText}>{t("common.cancel")}</Text>
           </Pressable>
         </View>

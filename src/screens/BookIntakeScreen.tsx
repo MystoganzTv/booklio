@@ -789,6 +789,12 @@ export function BookIntakeScreen() {
             )}
             <Text style={styles.primaryReviewButtonText}>{isSubmittingReview ? "Saving..." : "Add to library"}</Text>
           </Pressable>
+          {reviewBook?.source === "isbn" ? (
+            <Pressable style={styles.scanAgainBtn} onPress={() => { setScanned(false); setMode("isbn"); }}>
+              <Ionicons name="barcode-outline" size={16} color={c.tealDark} />
+              <Text style={styles.scanAgainText}>Wrong book? Scan again</Text>
+            </Pressable>
+          ) : null}
           <Pressable style={styles.secondaryReviewButton} onPress={() => setMode("menu")}>
             <Ionicons name="close-outline" size={18} color={c.muted} />
             <Text style={styles.secondaryReviewButtonText}>Cancel this draft</Text>
@@ -808,7 +814,10 @@ export function BookIntakeScreen() {
     return (
       <Screen>
         {dialogNode}
-        <Pressable style={styles.backButton} onPress={() => setMode(matchReturnMode)}>
+        <Pressable style={styles.backButton} onPress={() => {
+          if (matchReturnMode === "isbn") setScanned(false);
+          setMode(matchReturnMode);
+        }}>
           <Ionicons name="chevron-back" size={20} color={c.tealDark} />
           <Text style={styles.backButtonText}>{backLabel}</Text>
         </Pressable>
@@ -819,6 +828,17 @@ export function BookIntakeScreen() {
             {matchLookupLabel ? `"${matchLookupLabel}"` : "Searching…"}
           </Text>
         </View>
+
+        {/* Scan again shortcut — only when result came from ISBN scanner */}
+        {matchReturnMode === "isbn" && !isBusy && matches.length > 0 ? (
+          <Pressable
+            style={styles.scanAgainBtn}
+            onPress={() => { setScanned(false); setMode("isbn"); }}
+          >
+            <Ionicons name="barcode-outline" size={16} color={c.tealDark} />
+            <Text style={styles.scanAgainText}>Wrong book? Scan again</Text>
+          </Pressable>
+        ) : null}
 
         {isBusy ? (
           <View style={styles.busyRow}>
@@ -2389,6 +2409,25 @@ function createStyles(c: AppColors, isDark: boolean) {
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900"
+  },
+  scanAgainBtn: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: c.coral + "12",
+    borderColor: c.coral + "44",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 9,
+  },
+  scanAgainText: {
+    color: c.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900",
   },
   // ── Discover screen ──────────────────────────────────────────────────────
   discoverSectionTitle: {

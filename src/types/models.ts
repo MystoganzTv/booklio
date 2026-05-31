@@ -8,7 +8,24 @@ export type CoreTrackingStatus =
   | "upcoming-release";
 
 export type OwnershipStatus = "owned" | "not-owned";
-export type ReadingFormat = "physical" | "kindle" | "audiobook";
+export type ReadingFormat =
+  // Physical formats
+  | "paperback"
+  | "hardcover"
+  | "mass-market-paperback"
+  | "spiral-bound"
+  | "leather-bound"
+  // Digital
+  | "ebook"
+  | "audiobook"
+  // Other
+  | "comic-book"
+  | "graphic-novel"
+  | "manga"
+  | "magazine"
+  // Legacy values kept for backward compatibility
+  | "physical"
+  | "kindle";
 export type DifficultyLevel = "easy" | "moderate" | "challenging" | "demanding";
 
 export interface Author {
