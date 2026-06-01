@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
-import { Keyboard, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useI18n } from "../i18n/LocalizationContext";
 import { colors, fonts, radii, spacing } from "../theme/theme";
 
@@ -37,7 +37,7 @@ export function CreateListSheet({ open, initialName = "", initialEmoji = "📚",
 
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={handleClose}>
-      <View style={styles.overlay}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
 
         <View style={styles.sheet}>
@@ -85,7 +85,7 @@ export function CreateListSheet({ open, initialName = "", initialEmoji = "📚",
             <Text style={styles.cancelText}>{t("common.cancel")}</Text>
           </Pressable>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

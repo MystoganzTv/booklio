@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useDeferredValue, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Badge } from "../components/Badge";
 import { BookCover } from "../components/BookCover";
 import { FilterChip } from "../components/FilterChip";
@@ -44,6 +44,18 @@ export function LibraryScreen() {
   const [renamingList, setRenamingList] = useState<{ id: string; name: string; emoji?: string } | null>(null);
   const deferredQuery = useDeferredValue(query);
 
+  const clearFilters = () => {
+    setQuery("");
+    setFilter("all");
+    setGenreFilter(null);
+    setTagFilter(null);
+    setListFilter(null);
+    setSortOpen(false);
+  };
+
+  // Only filter by query when 2+ chars — avoids "no match" flash on first keystroke
+  const effectiveQuery = deferredQuery.trim().length >= 2 ? deferredQuery.trim() : "";
+
   const ownedCount = books.filter((b) => b.userStatus.ownership === "owned").length;
   const readCount = books.filter((b) => b.userStatus.status === "read").length;
   const wishlistCount = books.filter((b) => b.userStatus.wishlist).length;
@@ -84,7 +96,7 @@ export function LibraryScreen() {
   }, [books]);
 
   const filteredBooks = useMemo(() => {
-    const normalized = deferredQuery.trim().toLowerCase();
+    const normalized = effectiveQuery.toLowerCase();
     return books
       .filter((book) => {
         if (filter === "read") return book.userStatus.status === "read";
@@ -135,7 +147,7 @@ export function LibraryScreen() {
         if (sortBy === "mostRecentlyLogged") return (latestLogByBook[b.id] ?? "").localeCompare(latestLogByBook[a.id] ?? "");
         return (a.userStatus.personalRanking ?? 999) - (b.userStatus.personalRanking ?? 999);
       });
-  }, [books, deferredQuery, filter, genreFilter, tagFilter, listFilter, userLists, getAuthor, latestLogByBook, sortBy]);
+  }, [books, effectiveQuery, filter, genreFilter, tagFilter, listFilter, userLists, getAuthor, latestLogByBook, sortBy]);
 
   const collectorShelves = [
     {
@@ -239,6 +251,9 @@ export function LibraryScreen() {
           style={styles.search}
           value={query}
           onChangeText={setQuery}
+          maxLength={60}
+          returnKeyType="search"
+          clearButtonMode="while-editing"
         />
         <Pressable
           style={[styles.viewBtn, viewMode === "grid" && styles.viewBtnActive]}
@@ -347,22 +362,25 @@ export function LibraryScreen() {
       </View>
 
       {filteredBooks.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Ionicons
-            name={books.length === 0 ? "library-outline" : "search-outline"}
-            size={44}
-            color={books.length === 0 ? c.teal : c.muted}
-          />
-          <Text style={styles.emptyTitle}>{books.length === 0 ? t("library.emptyTitle") : t("library.noMatchesTitle")}</Text>
-          <Text style={styles.emptySub}>
-            {books.length === 0 ? t("library.emptyBody") : t("library.noMatchesBody")}
-          </Text>
-          {books.length === 0 ? (
+        books.length === 0 ? (
+          /* ── Library is empty ── */
+          <View style={styles.emptyState}>
+            <Ionicons name="library-outline" size={44} color={c.teal} />
+            <Text style={styles.emptyTitle}>{t("library.emptyTitle")}</Text>
+            <Text style={styles.emptySub}>{t("library.emptyBody")}</Text>
             <Pressable style={styles.emptyButton} onPress={() => navigation.navigate("BookIntake")}>
               <Text style={styles.emptyButtonText}>{t("common.addBook")}</Text>
             </Pressable>
-          ) : null}
-        </View>
+          </View>
+        ) : (
+          /* ── No search/filter matches ── */
+          <NoMatchState
+            query={query}
+            styles={styles}
+            c={c}
+            onClear={clearFilters}
+          />
+        )
       ) : viewMode === "grid" ? (
         <View style={styles.grid}>
           {filteredBooks.map((book) => (
@@ -424,6 +442,51 @@ export function LibraryScreen() {
   );
 }
 
+function NoMatchState({
+  query,
+  styles,
+  c,
+  onClear
+}: {
+  query: string;
+  styles: ReturnType<typeof createStyles>;
+  c: AppColors;
+  onClear: () => void;
+}) {
+  const hasQuery = query.trim().length > 0;
+  return (
+    <View style={styles.noMatchWrap}>
+      {/* Decorative rings */}
+      <View style={styles.noMatchRingOuter}>
+        <View style={styles.noMatchRingInner}>
+          <Image
+            source={require("../../assets/brand/bookliz-icon.png")}
+            style={styles.noMatchIcon}
+            resizeMode="contain"
+          />
+        </View>
+      </View>
+
+      {/* Search badge */}
+      <View style={styles.noMatchBadge}>
+        <Ionicons name="search-outline" size={14} color="#fff" />
+      </View>
+
+      <Text style={styles.noMatchTitle}>Sin resultados</Text>
+      <Text style={styles.noMatchSub}>
+        {hasQuery
+          ? `No encontramos libros para "${query.trim()}"`
+          : "Los filtros activos no tienen coincidencias"}
+      </Text>
+
+      <Pressable style={styles.noMatchClearBtn} onPress={onClear}>
+        <Ionicons name="refresh-outline" size={14} color={c.teal} />
+        <Text style={styles.noMatchClearText}>Limpiar búsqueda y filtros</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function MiniStat({ value, label, styles }: { value: string; label: string; styles: ReturnType<typeof createStyles> }) {
   return (
     <View style={styles.miniStat}>
@@ -435,7 +498,6 @@ function MiniStat({ value, label, styles }: { value: string; label: string; styl
 
 function GridBookTile({
   book,
-  authorName,
   styles,
   onPress
 }: {
@@ -444,19 +506,10 @@ function GridBookTile({
   styles: ReturnType<typeof createStyles>;
   onPress: () => void;
 }) {
-  const { t } = useI18n();
   return (
     <Pressable style={styles.bookTile} onPress={onPress}>
       <BookCover book={book} size="md" style={styles.tileCover} />
       <Text numberOfLines={2} style={styles.bookTitle}>{book.title}</Text>
-      <Text numberOfLines={1} style={styles.bookAuthor}>{t("series.byAuthor").replace("{name}", authorName)}</Text>
-      <View style={styles.tileBadges}>
-        <Badge
-          label={book.userStatus.rating ? t("series.starsRating").replace("{count}", String(book.userStatus.rating)) : formatStatusLabel(book.userStatus.status)}
-          tone={book.userStatus.status === "read" ? "gold" : book.userStatus.status === "reading" ? "teal" : "gray"}
-        />
-        {book.seriesId ? <Badge label={t("series.badgeSaga")} tone="navy" /> : null}
-      </View>
     </Pressable>
   );
 }
@@ -834,35 +887,23 @@ function createStyles(c: AppColors, isDark: boolean) {
     grid: {
       flexDirection: "row",
       flexWrap: "wrap",
-      gap: spacing.lg
+      gap: spacing.md
     },
     bookTile: {
-      width: "46%"
+      width: "47%"
     },
     tileCover: {
-      height: 236,
+      borderRadius: radii.md,
+      height: 230,
       width: "100%"
     },
     bookTitle: {
-      color: c.ink,
-      fontFamily: fonts.display,
-      fontSize: 18,
-      fontWeight: "800",
-      lineHeight: 22,
-      marginTop: spacing.md
-    },
-    bookAuthor: {
       color: c.muted,
-      fontFamily: fonts.bodyRegular,
-      fontSize: 13,
+      fontFamily: fonts.body,
+      fontSize: 12,
       fontWeight: "700",
-      marginTop: 3
-    },
-    tileBadges: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 6,
-      marginTop: 8
+      lineHeight: 17,
+      marginTop: 7
     },
     listWrap: {
       gap: spacing.md
@@ -976,6 +1017,84 @@ function createStyles(c: AppColors, isDark: boolean) {
       color: activeControlText,
       fontFamily: fonts.body,
       fontSize: 13,
+      fontWeight: "900"
+    },
+
+    // ── No-match illustrated state ──
+    noMatchWrap: {
+      alignItems: "center",
+      marginTop: spacing.xl,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.xl
+    },
+    noMatchRingOuter: {
+      alignItems: "center",
+      backgroundColor: c.navy + "18",
+      borderColor: c.teal + "30",
+      borderRadius: 80,
+      borderWidth: 1.5,
+      height: 160,
+      justifyContent: "center",
+      marginBottom: spacing.lg,
+      width: 160
+    },
+    noMatchRingInner: {
+      alignItems: "center",
+      backgroundColor: c.navy,
+      borderRadius: 60,
+      height: 120,
+      justifyContent: "center",
+      width: 120
+    },
+    noMatchIcon: {
+      height: 72,
+      opacity: 0.55,
+      width: 72
+    },
+    noMatchBadge: {
+      alignItems: "center",
+      backgroundColor: c.coral,
+      borderColor: c.surface,
+      borderRadius: 20,
+      borderWidth: 2.5,
+      bottom: spacing.lg + 8,
+      height: 32,
+      justifyContent: "center",
+      position: "absolute",
+      right: "50%",
+      transform: [{ translateX: 44 }],
+      width: 32
+    },
+    noMatchTitle: {
+      color: c.ink,
+      fontFamily: fonts.display,
+      fontSize: 22,
+      fontWeight: "900",
+      marginBottom: spacing.xs,
+      textAlign: "center"
+    },
+    noMatchSub: {
+      color: c.muted,
+      fontFamily: fonts.bodyRegular,
+      fontSize: 14,
+      lineHeight: 20,
+      marginBottom: spacing.lg,
+      textAlign: "center"
+    },
+    noMatchClearBtn: {
+      alignItems: "center",
+      borderColor: c.teal,
+      borderRadius: radii.pill,
+      borderWidth: 1.5,
+      flexDirection: "row",
+      gap: 6,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: 12
+    },
+    noMatchClearText: {
+      color: c.teal,
+      fontFamily: fonts.body,
+      fontSize: 14,
       fontWeight: "900"
     }
   });

@@ -25,6 +25,12 @@ import { parseIsbn } from "../utils/isbnUtils";
 import { normalizeLanguage, isPriorityLanguage, PRIORITY_LANGUAGE_CODES } from "../utils/languageUtils";
 import { ScoringQuery, scoreEdition, scoreWork, tokenize } from "./bookMatchScorer";
 import {
+  lookupByIsbn as knownLookupByIsbn,
+  lookupByTitle as knownLookupByTitle,
+  inferSeriesData,
+  getOriginalTitle,
+} from "../utils/knownWorks";
+import {
   fetchByIsbn as gbFetchByIsbn,
   fetchWorksByQuery as gbFetchByQuery,
   volumeToWork as gbVolumeToWork,
@@ -189,42 +195,140 @@ function buildWork(
   };
 }
 
+// ─── Known-works enrichment ───────────────────────────────────────────────────
+
+/**
+ * Enrich a BookWork with series/translation data from the local known-works catalog.
+ * Called after every API lookup — fills gaps the APIs often miss.
+ */
+function enrichWorkFromCatalog(work: BookWork): BookWork {
+  // Already has series — only fill if missing
+  const needsSeries = !work.seriesName;
+  const needsOriginalTitle = false; // could add a field later
+
+  if (!needsSeries) return work;
+
+  // Try by title first
+  const byTitle = knownLookupByTitle(work.title);
+  if (byTitle?.seriesName) {
+    return {
+      ...work,
+      seriesName: byTitle.seriesName,
+      seriesOrder: byTitle.seriesOrder,
+    };
+  }
+
+  // Try by best edition ISBN
+  const isbn = work.bestEdition?.isbn13 ?? work.bestEdition?.isbn10;
+  if (isbn) {
+    const byIsbn = knownLookupByIsbn(isbn);
+    if (byIsbn?.seriesName) {
+      return {
+        ...work,
+        seriesName: byIsbn.seriesName,
+        seriesOrder: byIsbn.seriesOrder,
+        // Also store original title via description tag if it was translated
+        description: work.description ??
+          (byIsbn.originalTitle !== work.title
+            ? `Originally published as: ${byIsbn.originalTitle}`
+            : undefined),
+      };
+    }
+  }
+
+  // Try author + title matching
+  if (work.authors.length) {
+    const inferred = inferSeriesData(work.title, work.authors[0]!);
+    if (inferred) {
+      return { ...work, seriesName: inferred.seriesName, seriesOrder: inferred.seriesOrder };
+    }
+  }
+
+  return work;
+}
+
 // ─── ISBN lookup ──────────────────────────────────────────────────────────────
 
 /**
- * Full ISBN lookup pipeline.
+ * Full ISBN lookup pipeline — with cascading fallbacks.
  *
- * Returns a WorkLookupResult with the matched work and all its editions.
- * Confidence 95+ means the book can be auto-added without user confirmation
- * (but the UI should still show the match for review).
+ * Pipeline:
+ *   1. Check local known-works catalog (instant, offline)
+ *   2. Parallel: Google Books ISBN + Open Library ISBN
+ *   3. If GB/OL return nothing: try ISBN-10 variant (for 979-prefixed ISBNs)
+ *   4. If still nothing: fall back to title/author search using catalog data
+ *   5. Enrich found work with series/translation data from catalog
+ *
+ * Returns a WorkLookupResult. Never returns null work if the ISBN is a
+ * known book in the catalog.
  */
 export async function lookupByIsbn(rawIsbn: string): Promise<WorkLookupResult> {
   const parsed = parseIsbn(rawIsbn);
   if (!parsed) return { work: null, works: [], flatEditions: [], isbnMatch: false };
 
-  const { isbn13 } = parsed;
+  const { isbn13, isbn10 } = parsed;
   const query: ScoringQuery = { isbn13 };
 
-  // Step 1: Fetch from both sources in parallel
+  // ── Step 1: Check known-works catalog ──────────────────────────────────────
+  const knownMeta = knownLookupByIsbn(isbn13);
+
+  // ── Step 2: Parallel fetch from both API sources ───────────────────────────
   const [olResult, gbEditions] = await Promise.allSettled([
     olFetchEditionByIsbn(isbn13, query),
     gbFetchByIsbn(isbn13),
   ]);
 
   const olEdition = olResult.status === "fulfilled" ? olResult.value : null;
-  const gbEditionList = gbEditions.status === "fulfilled" ? gbEditions.value : [];
+  let gbEditionList = gbEditions.status === "fulfilled" ? gbEditions.value : [];
 
-  // Step 2: Build initial edition list
+  // ── Step 3: If APIs returned nothing, try ISBN-10 variant ─────────────────
+  if (!olEdition && !gbEditionList.length && isbn10) {
+    const [olFallback, gbFallback] = await Promise.allSettled([
+      olFetchEditionByIsbn(isbn10, query),
+      gbFetchByIsbn(isbn10),
+    ]);
+    const olFallbackEdition = olFallback.status === "fulfilled" ? olFallback.value : null;
+    if (olFallbackEdition) {
+      // Use ISBN-10 result but tag it with our ISBN-13
+      olFallbackEdition.edition.isbn13 = isbn13;
+    }
+    gbEditionList = gbFallback.status === "fulfilled" ? gbFallback.value : [];
+    if (gbEditionList[0]) gbEditionList[0].isbn13 = isbn13;
+  }
+
   const initialEditions: BookEdition[] = [
     ...(olEdition ? [olEdition.edition] : []),
     ...gbEditionList,
   ];
 
+  // ── Step 4: If still nothing, fall back to catalog-driven title search ─────
   if (!initialEditions.length) {
+    if (knownMeta) {
+      // We know what this ISBN is — search by original title
+      const fallbackResult = await lookupByQuery(
+        knownMeta.originalTitle,
+        knownMeta.author
+      );
+      if (fallbackResult.work) {
+        const enriched = enrichWorkFromCatalog(fallbackResult.work);
+        // Apply catalog series data (highly reliable)
+        const finalWork: BookWork = {
+          ...enriched,
+          seriesName: knownMeta.seriesName ?? enriched.seriesName,
+          seriesOrder: knownMeta.seriesOrder ?? enriched.seriesOrder,
+        };
+        return {
+          work: finalWork,
+          works: [finalWork],
+          flatEditions: fallbackResult.flatEditions,
+          isbnMatch: true, // we confirmed via catalog
+        };
+      }
+    }
     return { work: null, works: [], flatEditions: [], isbnMatch: false };
   }
 
-  // Step 3: If we have an OL work key, fetch work metadata + all editions
+  // ── Step 5: Fetch OL work metadata + all editions ─────────────────────────
   const workKey = olEdition?.workKey;
   let authorNames: string[] = [];
   let workMeta: Awaited<ReturnType<typeof olFetchWork>> = null;
@@ -241,27 +345,38 @@ export async function lookupByIsbn(rawIsbn: string): Promise<WorkLookupResult> {
     authorNames = authors.status === "fulfilled" ? authors.value : [];
   }
 
-  // Step 4: Merge all editions
-  const allEditions = dedupeEditions([
-    ...initialEditions,
-    ...workEditions,
-  ]);
+  // ── Step 6: Merge all editions ─────────────────────────────────────────────
+  const allEditions = dedupeEditions([...initialEditions, ...workEditions]);
 
-  // Step 5: Build work
+  // ── Step 7: Build work ─────────────────────────────────────────────────────
   const title = workMeta?.title ?? initialEditions[0]?.title ?? "Unknown";
+
+  // Fill authors from catalog if APIs didn't return them
+  const resolvedAuthors = authorNames.length
+    ? authorNames
+    : knownMeta?.author
+      ? [knownMeta.author]
+      : [];
+
   const partialWork: Omit<BookWork, "score" | "confidence" | "bestEdition" | "editions"> = {
     workKey,
     title,
     subtitle: workMeta?.subtitle,
-    authors: authorNames.length ? authorNames : [],
+    authors: resolvedAuthors,
     description: workMeta?.description,
     genres: workMeta?.genres ?? [],
     editionCount: allEditions.length,
     canonicalLanguageCode: allEditions[0]?.languageCode,
     canonicalLanguage: allEditions[0]?.language,
+    // Seed series from catalog — APIs rarely return this for non-English editions
+    seriesName: knownMeta?.seriesName,
+    seriesOrder: knownMeta?.seriesOrder,
   };
 
-  const work = buildWork(partialWork, allEditions, query);
+  let work = buildWork(partialWork, allEditions, query);
+
+  // ── Step 8: Enrich with catalog data ───────────────────────────────────────
+  work = enrichWorkFromCatalog(work);
 
   return {
     work,
@@ -289,20 +404,61 @@ export async function lookupByQuery(
     mode === "auto" ? detectQueryIntent(title) :
     mode === "title" ? "general" : mode;
 
+  // ── Translation-aware query expansion ─────────────────────────────────────
+  // If the query is a known translated title (e.g. "Alas de sangre"),
+  // also search by the original English title ("Fourth Wing") in parallel.
+  let searchTitle = title;
+  let extraSearchTitle: string | null = null;
+
+  if (resolvedMode !== "author") {
+    const originalTitle = getOriginalTitle(title);
+    if (originalTitle) extraSearchTitle = originalTitle;
+
+    // Also check if catalog knows the author for this title
+    const knownMeta = knownLookupByTitle(title);
+    if (knownMeta && !author) {
+      author = knownMeta.author;
+    }
+  }
+
   // In author mode `title` contains the author name; adjust the scoring query accordingly.
   const query: ScoringQuery = resolvedMode === "author"
     ? { author: title }
     : { title, author };
 
-  const [gbResults, olResults] = await Promise.allSettled([
-    gbFetchByQuery(title, author, query, resolvedMode),
-    olFetchByQuery(title, author, query, resolvedMode),
-  ]);
+  // ── Parallel fetch — original title + translated title ────────────────────
+  const fetchPromises: Promise<Parameters<typeof Promise.allSettled>[0] extends ReadonlyArray<infer T> ? T : never>[] = [
+    gbFetchByQuery(searchTitle, author, query, resolvedMode),
+    olFetchByQuery(searchTitle, author, query, resolvedMode),
+  ];
+  if (extraSearchTitle) {
+    const extraQuery: ScoringQuery = { title: extraSearchTitle, author };
+    fetchPromises.push(
+      gbFetchByQuery(extraSearchTitle, author, extraQuery, resolvedMode),
+      olFetchByQuery(extraSearchTitle, author, extraQuery, resolvedMode),
+    );
+  }
 
-  const gbWorks =
-    gbResults.status === "fulfilled" ? gbResults.value : [];
-  const olWorks =
-    olResults.status === "fulfilled" ? olResults.value : [];
+  const allSettled = await Promise.allSettled(fetchPromises);
+  const [gbResults, olResults, gbExtra, olExtra] = allSettled;
+
+  const gbWorks_ = [
+    ...(gbResults?.status === "fulfilled" ? gbResults.value : []),
+    ...(gbExtra?.status === "fulfilled" ? gbExtra.value : []),
+  ];
+  const olWorks_ = [
+    ...(olResults?.status === "fulfilled" ? olResults.value : []),
+    ...(olExtra?.status === "fulfilled" ? olExtra.value : []),
+  ];
+
+  // Re-assign to satisfy remaining code
+  const [gbResults2, olResults2] = [
+    { status: "fulfilled" as const, value: gbWorks_ },
+    { status: "fulfilled" as const, value: olWorks_ },
+  ];
+
+  const gbWorks = gbResults2.value;
+  const olWorks = olResults2.value;
 
   // Build work candidates
   const candidates: BookWork[] = [];
@@ -357,7 +513,11 @@ export async function lookupByQuery(
   }
 
   // Sort by score descending
-  const sorted = candidates.sort((a, b) => b.score - a.score);
+  let sorted = candidates.sort((a, b) => b.score - a.score);
+
+  // Enrich top results with catalog data (series, translation)
+  sorted = sorted.map((w) => enrichWorkFromCatalog(w));
+
   const flatEditions = dedupeEditions(sorted.flatMap((w) => w.editions));
 
   return {

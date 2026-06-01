@@ -59,6 +59,59 @@ function overlapCoeff(a: string[], b: string[]): number {
   return hits / a.length;
 }
 
+/**
+ * Generate bigrams from a string for fuzzy matching.
+ * "fourth" → ["fo", "ou", "ur", "rt", "th"]
+ */
+function bigrams(s: string): Set<string> {
+  const out = new Set<string>();
+  for (let i = 0; i < s.length - 1; i++) {
+    out.add(s.slice(i, i + 2));
+  }
+  return out;
+}
+
+/**
+ * Dice coefficient between two strings: 2 * |bigrams(a) ∩ bigrams(b)| / (|bigrams(a)| + |bigrams(b)|)
+ * Returns 0–1. Handles typos, missing accents, partial words.
+ *
+ * Examples:
+ *   dice("fourth", "fourth")   → 1.0
+ *   dice("fourth", "four")     → 0.6
+ *   dice("yarros", "yarros")   → 1.0
+ *   dice("rebeca", "rebecca")  → 0.73
+ */
+export function dice(a: string, b: string): number {
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return 0;
+  const ba = bigrams(a);
+  const bb = bigrams(b);
+  let intersection = 0;
+  for (const bg of ba) {
+    if (bb.has(bg)) intersection++;
+  }
+  return (2 * intersection) / (ba.size + bb.size);
+}
+
+/**
+ * Fuzzy token overlap: like overlapCoeff but each query token is matched
+ * against all candidate tokens using bigram dice ≥ threshold.
+ * Handles typos like "rebeca" → "rebecca", "four wing" → "fourth wing".
+ */
+export function fuzzyOverlapCoeff(
+  queryTokens: string[],
+  candidateTokens: string[],
+  threshold = 0.75
+): number {
+  if (!queryTokens.length || !candidateTokens.length) return 0;
+  let hits = 0;
+  for (const qt of queryTokens) {
+    const best = Math.max(...candidateTokens.map((ct) => dice(qt, ct)));
+    if (best >= threshold) hits++;
+  }
+  return hits / queryTokens.length;
+}
+
 // ─── Query shape ──────────────────────────────────────────────────────────────
 
 export interface ScoringQuery {
@@ -99,18 +152,23 @@ export function scoreEdition(
 
   let score = 0;
 
-  // ── Title similarity (+25) ──
+  // ── Title similarity (+25, fuzzy) ──
   if (query.title) {
     const qTokens = tokenize(query.title);
     const mTokens = tokenize(edition.title ?? "");
-    score += Math.round(overlapCoeff(qTokens, mTokens) * 25);
+    // Use max of exact overlap and fuzzy overlap so typos still score well
+    const exact = overlapCoeff(qTokens, mTokens);
+    const fuzzy = fuzzyOverlapCoeff(qTokens, mTokens);
+    score += Math.round(Math.max(exact, fuzzy) * 25);
   }
 
-  // ── Author similarity (+25) ──
+  // ── Author similarity (+25, fuzzy) ──
   if (query.author && workContext?.authors?.length) {
     const qTokens = tokenize(query.author);
     const allAuthorTokens = workContext.authors.flatMap((a) => tokenize(a));
-    score += Math.round(overlapCoeff(qTokens, allAuthorTokens) * 25);
+    const exact = overlapCoeff(qTokens, allAuthorTokens);
+    const fuzzy = fuzzyOverlapCoeff(qTokens, allAuthorTokens);
+    score += Math.round(Math.max(exact, fuzzy) * 25);
   }
 
   // ── Same work ID (+40) ──
@@ -173,18 +231,22 @@ export function scoreWork(
     seriesName: work.seriesName,
   });
 
-  // For text queries, also boost based on work-level title/author
+  // For text queries, also boost based on work-level title/author (fuzzy)
   let workBoost = 0;
   if (!query.isbn13) {
     if (query.title) {
       const qTokens = tokenize(query.title);
       const wTokens = tokenize(work.title);
-      workBoost += Math.round(overlapCoeff(qTokens, wTokens) * 10);
+      const exact = overlapCoeff(qTokens, wTokens);
+      const fuzzy = fuzzyOverlapCoeff(qTokens, wTokens);
+      workBoost += Math.round(Math.max(exact, fuzzy) * 10);
     }
     if (query.author && work.authors.length) {
       const qTokens = tokenize(query.author);
       const allAuthorTokens = work.authors.flatMap((a) => tokenize(a));
-      workBoost += Math.round(overlapCoeff(qTokens, allAuthorTokens) * 10);
+      const exact = overlapCoeff(qTokens, allAuthorTokens);
+      const fuzzy = fuzzyOverlapCoeff(qTokens, allAuthorTokens);
+      workBoost += Math.round(Math.max(exact, fuzzy) * 10);
     }
   }
 

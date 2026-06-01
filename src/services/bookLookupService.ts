@@ -18,6 +18,13 @@ import { normalizeBookGenres } from "../utils/genres";
 import { coverUrl as olCoverUrl } from "../utils/bookMetadata";
 import { parseIsbn } from "../utils/isbnUtils";
 import { openLibraryUrl } from "../utils/openLibrary";
+import {
+  lookupByIsbn as knownLookupByIsbn,
+  lookupByTitle as knownLookupByTitle,
+  getOriginalTitle,
+  inferSeriesData,
+} from "../utils/knownWorks";
+import { dice, fuzzyOverlapCoeff } from "./bookMatchScorer";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -115,20 +122,22 @@ export function scoreBookMatch(
     }
   }
 
-  // ── Title similarity (up to 35 pts) ──
+  // ── Title similarity (up to 35 pts, fuzzy) ──
   if (query.title && !query.isbn13) {
     const qTokens = tokenize(query.title);
     const mTokens = tokenize(match.title);
-    const hits = qTokens.filter((t) => mTokens.includes(t)).length;
-    score += Math.round((hits / Math.max(qTokens.length, 1)) * 35);
+    const exact = qTokens.filter((t) => mTokens.includes(t)).length / Math.max(qTokens.length, 1);
+    const fuzzy = fuzzyOverlapCoeff(qTokens, mTokens);
+    score += Math.round(Math.max(exact, fuzzy) * 35);
   }
 
-  // ── Author similarity (up to 30 pts) ──
+  // ── Author similarity (up to 30 pts, fuzzy) ──
   if (query.author && !query.isbn13) {
     const qAuthor = tokenize(query.author);
     const mAuthor = match.authors.flatMap((a) => tokenize(a));
-    const hits = qAuthor.filter((t) => mAuthor.includes(t)).length;
-    score += Math.round((hits / Math.max(qAuthor.length, 1)) * 30);
+    const exact = qAuthor.filter((t) => mAuthor.includes(t)).length / Math.max(qAuthor.length, 1);
+    const fuzzy = fuzzyOverlapCoeff(qAuthor, mAuthor);
+    score += Math.round(Math.max(exact, fuzzy) * 30);
   }
 
   // ── Completeness bonuses ──
@@ -437,47 +446,156 @@ async function fetchOpenLibraryByQuery(
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
+ * Enrich a BookMatch with series/translation data from the known-works catalog.
+ */
+function enrichMatch(match: BookMatch): BookMatch {
+  if (match.seriesName) return match; // already enriched
+
+  // Try by ISBN
+  const byIsbn = match.isbn13 ? knownLookupByIsbn(match.isbn13) : null;
+  if (byIsbn?.seriesName) {
+    return { ...match, seriesName: byIsbn.seriesName, seriesOrder: byIsbn.seriesOrder };
+  }
+
+  // Try by title
+  const byTitle = knownLookupByTitle(match.title);
+  if (byTitle?.seriesName) {
+    return { ...match, seriesName: byTitle.seriesName, seriesOrder: byTitle.seriesOrder };
+  }
+
+  // Try author + title inference
+  if (match.authors.length) {
+    const inferred = inferSeriesData(match.title, match.authors[0]!);
+    if (inferred) {
+      return { ...match, seriesName: inferred.seriesName, seriesOrder: inferred.seriesOrder };
+    }
+  }
+
+  return match;
+}
+
+/**
  * Look up a book by ISBN (10 or 13) across Google Books and Open Library.
- * Results are deduplicated and sorted by confidence score.
+ * Full cascading pipeline:
+ *   1. Known-works catalog check
+ *   2. GB + OL parallel lookup
+ *   3. ISBN-10 variant fallback
+ *   4. Title-based fallback (if catalog has this ISBN)
+ * Results are enriched with series/translation data and sorted by confidence score.
  */
 export async function lookupByIsbn(rawIsbn: string): Promise<BookMatch[]> {
   const parsed = parseIsbn(rawIsbn);
   if (!parsed) return [];
-  const { isbn13 } = parsed;
+  const { isbn13, isbn10 } = parsed;
 
+  // ── Catalog check ──
+  const knownMeta = knownLookupByIsbn(isbn13);
+
+  // ── Parallel API lookup ──
   const [gb, ol] = await Promise.allSettled([
     fetchGoogleBooksByIsbn(isbn13),
     fetchOpenLibraryByIsbn(isbn13),
   ]);
 
-  const all: BookMatch[] = [
+  let all: BookMatch[] = [
     ...(gb.status === "fulfilled" ? gb.value : []),
     ...(ol.status === "fulfilled" ? ol.value : []),
   ];
 
-  return dedupeMatches(all).sort((a, b) => b.score - a.score);
+  // ── ISBN-10 variant fallback ──
+  if (!all.length && isbn10) {
+    const [gbAlt, olAlt] = await Promise.allSettled([
+      fetchGoogleBooksByIsbn(isbn10),
+      fetchOpenLibraryByIsbn(isbn10),
+    ]);
+    all = [
+      ...(gbAlt.status === "fulfilled" ? gbAlt.value : []),
+      ...(olAlt.status === "fulfilled" ? olAlt.value : []),
+    ];
+    // Tag with the ISBN-13 we were looking for
+    all = all.map((m) => ({ ...m, isbn13: isbn13 }));
+  }
+
+  // ── Title-based fallback using catalog ──
+  if (!all.length && knownMeta) {
+    const titleResults = await lookupByQuery(knownMeta.originalTitle, knownMeta.author);
+    if (titleResults.length) {
+      return titleResults.map((m) => ({
+        ...m,
+        isbn13,
+        seriesName: knownMeta.seriesName ?? m.seriesName,
+        seriesOrder: knownMeta.seriesOrder ?? m.seriesOrder,
+      }));
+    }
+  }
+
+  if (!all.length) return [];
+
+  // ── Enrich with series/translation data ──
+  const enriched = dedupeMatches(all)
+    .sort((a, b) => b.score - a.score)
+    .map(enrichMatch);
+
+  // Apply catalog metadata on top (highest reliability)
+  if (knownMeta) {
+    return enriched.map((m) => ({
+      ...m,
+      seriesName: knownMeta.seriesName ?? m.seriesName,
+      seriesOrder: knownMeta.seriesOrder ?? m.seriesOrder,
+    }));
+  }
+
+  return enriched;
 }
 
 /**
  * Look up a book by title and optional author across Google Books and Open Library.
+ * Includes translation-aware expansion (searches original title if translated title detected).
  * Results are deduplicated and sorted by confidence score.
  */
 export async function lookupByQuery(
   title: string,
   author?: string
 ): Promise<BookMatch[]> {
+  // Translation-aware expansion
+  const originalTitle = getOriginalTitle(title);
+  const effectiveAuthor = author ?? (knownLookupByTitle(title)?.author);
+
+  const fetchTitle = async (t: string, a?: string) => {
+    const [gb, ol] = await Promise.allSettled([
+      fetchGoogleBooksByQuery(t, a),
+      fetchOpenLibraryByQuery(t, a),
+    ]);
+    return [
+      ...(gb.status === "fulfilled" ? gb.value : []),
+      ...(ol.status === "fulfilled" ? ol.value : []),
+    ];
+  };
+
+  const primary = await fetchTitle(title, effectiveAuthor);
+  const extra = originalTitle && originalTitle !== title
+    ? await fetchTitle(originalTitle, effectiveAuthor)
+    : [];
+
+  const all = [...primary, ...extra];
+  return dedupeMatches(all)
+    .sort((a, b) => b.score - a.score)
+    .map(enrichMatch);
+}
+
+// Keep the old lookupByQuery signature as lookupByQueryRaw for internal use
+async function _lookupByQueryOld(title: string, author?: string): Promise<BookMatch[]> {
   const [gb, ol] = await Promise.allSettled([
     fetchGoogleBooksByQuery(title, author),
     fetchOpenLibraryByQuery(title, author),
   ]);
-
   const all: BookMatch[] = [
     ...(gb.status === "fulfilled" ? gb.value : []),
     ...(ol.status === "fulfilled" ? ol.value : []),
   ];
-
   return dedupeMatches(all).sort((a, b) => b.score - a.score);
 }
+void _lookupByQueryOld; // suppress unused warning
 
 // ─── Converter ───────────────────────────────────────────────────────────────
 

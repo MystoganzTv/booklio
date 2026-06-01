@@ -14,7 +14,13 @@ export type RootStackParamList = {
   EditBook: { bookId: string };
   Achievements: undefined;
   WriteReview: { bookId: string };
-  GenreBrowse: { genre: string };
+  GenreBrowse: {
+    genre: string;
+    /** Optional display title override (e.g. "Funny Books") */
+    title?: string;
+    /** If provided, does a keyword search instead of subject search */
+    catalogQuery?: string;
+  };
 };
 
 export type MainTabParamList = {

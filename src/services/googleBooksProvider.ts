@@ -198,6 +198,127 @@ export async function fetchByTitle(
   }
 }
 
+// ─── Genre → Google Books subject map ────────────────────────────────────────
+
+const GENRE_TO_SUBJECT: Record<string, string> = {
+  "Fantasy":            "fantasy",
+  "Science Fiction":    "science+fiction",
+  "Mystery":            "mystery",
+  "Thriller":           "thriller",
+  "Romance":            "romance",
+  "Horror":             "horror",
+  "Historical Fiction": "historical+fiction",
+  "Adventure":          "adventure",
+  "Literary Fiction":   "literary+fiction",
+  "Young Adult":        "young+adult",
+  "Children's":         "juvenile+fiction",
+  "Biography":          "biography",
+  "Nonfiction":         "nonfiction",
+  "History":            "history",
+  "Personal Growth":    "self+help",
+  "Poetry":             "poetry",
+  "Comics":             "comics",
+};
+
+export interface GenreBookResult {
+  id: string;
+  title: string;
+  authors: string[];
+  isbn13?: string;
+  coverUrl?: string;
+  publishedYear?: number;
+  pageCount?: number;
+  description?: string;
+  genres: string[];
+  language?: string;
+  googleBooksId: string;
+}
+
+/**
+ * Fetch books from Google Books for a given genre/subject.
+ * Returns paginated results — call with increasing startIndex for more.
+ */
+export async function fetchByGenre(
+  genre: string,
+  startIndex = 0,
+  maxResults = 40
+): Promise<{ books: GenreBookResult[]; totalItems: number }> {
+  try {
+    const subject = GENRE_TO_SUBJECT[genre] ?? encodeURIComponent(genre.toLowerCase());
+    const url = `${GB_BASE}?q=subject:${subject}&startIndex=${startIndex}&maxResults=${maxResults}&orderBy=relevance&printType=books${apiKey()}`;
+    const res = await fetch(url);
+    if (!res.ok) return { books: [], totalItems: 0 };
+    const data = (await res.json()) as GBResponse;
+
+    const books: GenreBookResult[] = (data.items ?? [])
+      .filter((vol) => vol.volumeInfo.title)
+      .map((vol): GenreBookResult => {
+        const info = vol.volumeInfo;
+        const isbn13 = info.industryIdentifiers?.find((x) => x.type === "ISBN_13")?.identifier;
+        const lang = normalizeLanguage(info.language);
+        return {
+          id: `gb:${vol.id}`,
+          title: info.title ?? "Untitled",
+          authors: info.authors ?? [],
+          isbn13,
+          coverUrl: gbCoverUrl(info.imageLinks),
+          publishedYear: parsePublishedYear(info.publishedDate),
+          pageCount: info.pageCount,
+          description: info.description,
+          genres: normalizeBookGenres(info.categories),
+          language: lang?.name,
+          googleBooksId: vol.id,
+        };
+      });
+
+    return { books, totalItems: data.totalItems ?? 0 };
+  } catch {
+    return { books: [], totalItems: 0 };
+  }
+}
+
+/**
+ * Free-text keyword catalog search — used by Discover moods and search bar.
+ * Unlike fetchByGenre (subject:X), this searches across all fields.
+ */
+export async function fetchByKeyword(
+  query: string,
+  startIndex = 0,
+  maxResults = 40
+): Promise<{ books: GenreBookResult[]; totalItems: number }> {
+  try {
+    const url = `${GB_BASE}?q=${encodeURIComponent(query)}&startIndex=${startIndex}&maxResults=${maxResults}&orderBy=relevance&printType=books${apiKey()}`;
+    const res = await fetch(url);
+    if (!res.ok) return { books: [], totalItems: 0 };
+    const data = (await res.json()) as GBResponse;
+
+    const books: GenreBookResult[] = (data.items ?? [])
+      .filter((vol) => vol.volumeInfo.title)
+      .map((vol): GenreBookResult => {
+        const info = vol.volumeInfo;
+        const isbn13 = info.industryIdentifiers?.find((x) => x.type === "ISBN_13")?.identifier;
+        const lang = normalizeLanguage(info.language);
+        return {
+          id: `gb:${vol.id}`,
+          title: info.title ?? "Untitled",
+          authors: info.authors ?? [],
+          isbn13,
+          coverUrl: gbCoverUrl(info.imageLinks),
+          publishedYear: parsePublishedYear(info.publishedDate),
+          pageCount: info.pageCount,
+          description: info.description,
+          genres: normalizeBookGenres(info.categories),
+          language: lang?.name,
+          googleBooksId: vol.id,
+        };
+      });
+
+    return { books, totalItems: data.totalItems ?? 0 };
+  } catch {
+    return { books: [], totalItems: 0 };
+  }
+}
+
 /**
  * Full-text search: returns BookWork-shaped results.
  *

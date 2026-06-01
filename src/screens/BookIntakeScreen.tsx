@@ -3,8 +3,8 @@ import { CameraView, BarcodeScanningResult, useCameraPermissions } from "expo-ca
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useCallback, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Animated, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { BooklizDialog } from "../components/BooklizDialog";
 import { Screen } from "../components/Screen";
 import { useBookliz } from "../data/BooklizContext";
@@ -193,6 +193,44 @@ const DISCOVER_SERIES = [
   "Percy Jackson", "Stormlight Archive", "Sherlock Holmes", "Jack Reacher",
 ];
 
+// ─── Animated scan line ───────────────────────────────────────────────────────
+
+function ScanLine() {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 1800, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 1800, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [anim]);
+
+  return (
+    <Animated.View
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        height: 2,
+        backgroundColor: "#14B8A6",
+        opacity: 0.85,
+        transform: [
+          {
+            translateY: anim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, 100],
+            }),
+          },
+        ],
+      }}
+    />
+  );
+}
+
 export function BookIntakeScreen() {
   const c = useColors();
   const { isDark } = useTheme();
@@ -218,7 +256,11 @@ export function BookIntakeScreen() {
   const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
-  const [scanZoom, setScanZoom] = useState<0 | 0.15 | 0.3>(0);
+  const [scanZoom, setScanZoom] = useState<0 | 0.25 | 0.5>(0);
+  // "camera" = show viewfinder; "manual" = hide camera, show keyboard-friendly input
+  const [isbnInputMode, setIsbnInputMode] = useState<"camera" | "manual">("camera");
+  const scanLineAnim = useRef(new Animated.Value(0)).current;
+  const [scanFeedback, setScanFeedback] = useState<string | null>(null);
   // Book lookup / match confirmation
   const [matches, setMatches] = useState<BookMatch[]>([]);
   const [matchLookupLabel, setMatchLookupLabel] = useState("");
@@ -258,6 +300,8 @@ export function BookIntakeScreen() {
         setIsSubmittingReview(false);
         setTorchOn(false);
         setScanZoom(0);
+        setIsbnInputMode("camera");
+        setScanFeedback(null);
         setMatches([]);
         setMatchLookupLabel("");
         setLookupResult(null);
@@ -939,84 +983,154 @@ export function BookIntakeScreen() {
   }
 
   if (mode === "isbn") {
+    // ── Manual ISBN input (no camera) ──────────────────────────────────────
+    if (isbnInputMode === "manual") {
+      return (
+        <KeyboardAvoidingView
+          style={{ flex: 1, backgroundColor: c.bg }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <Screen>
+            {dialogNode}
+            <Pressable style={styles.backButton} onPress={() => setIsbnInputMode("camera")}>
+              <Ionicons name="chevron-back" size={20} color={c.tealDark} />
+              <Text style={styles.backButtonText}>Scanner</Text>
+            </Pressable>
+            <View style={styles.pageHeader}>
+              <Text style={styles.pageEyebrow}>Enter ISBN</Text>
+              <Text style={styles.pageTitle}>Type or paste ISBN</Text>
+            </View>
+            <Text style={[styles.cardCopy, { marginBottom: spacing.md }]}>
+              Find it on the back cover, above the barcode — 13 digits starting with 978 or 979.
+            </Text>
+            <TextInput
+              autoFocus
+              keyboardType="number-pad"
+              placeholder="9780756404741"
+              placeholderTextColor={c.gray}
+              style={[styles.input, { fontSize: 20, letterSpacing: 2, textAlign: "center", paddingVertical: 18 }]}
+              value={manual.isbn}
+              onChangeText={(isbn) => setManual((current) => ({ ...current, isbn }))}
+              onSubmitEditing={() => { if (manual.isbn) void lookupAndShowMatches(manual.isbn, "isbn", "isbn"); }}
+              returnKeyType="search"
+            />
+            <Pressable
+              style={[styles.primaryButton, { marginTop: spacing.md }]}
+              onPress={() => { if (manual.isbn) void lookupAndShowMatches(manual.isbn, "isbn", "isbn"); }}
+              disabled={isBusy || !manual.isbn}
+            >
+              {isBusy
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={styles.primaryButtonText}>Search by ISBN</Text>
+              }
+            </Pressable>
+          </Screen>
+        </KeyboardAvoidingView>
+      );
+    }
+
+    // ── Camera scanner ─────────────────────────────────────────────────────
     return (
-      <Screen>
+      <View style={{ flex: 1, backgroundColor: "#000" }}>
         {dialogNode}
-        <Pressable style={styles.backButton} onPress={() => { setScanned(false); setMode("menu"); }}>
-          <Ionicons name="chevron-back" size={20} color={c.tealDark} />
-          <Text style={styles.backButtonText}>All options</Text>
+
+        {/* Back button overlay */}
+        <Pressable
+          style={styles.scannerBackBtn}
+          onPress={() => { setScanned(false); setMode("menu"); }}
+        >
+          <Ionicons name="chevron-back" size={22} color="#fff" />
+          <Text style={styles.scannerBackText}>Back</Text>
         </Pressable>
-        <View style={styles.pageHeader}>
-          <Text style={styles.pageEyebrow}>{t("addBook.scanIsbn")}</Text>
-          <Text style={styles.pageTitle}>{t("addBook.scanIsbn")}</Text>
-        </View>
 
         {!permission?.granted ? (
-          <View style={styles.permissionCard}>
+          <View style={[styles.permissionCard, { margin: spacing.md, marginTop: 80 }]}>
             <Text style={styles.cardTitle}>Camera access needed</Text>
-            <Text style={styles.cardCopy}>Allow camera access to scan ISBN codes or photograph physical book covers.</Text>
+            <Text style={styles.cardCopy}>Allow camera access to scan ISBN barcodes.</Text>
             <Pressable style={styles.primaryButton} onPress={requestPermission}>
               <Text style={styles.primaryButtonText}>Allow camera</Text>
             </Pressable>
           </View>
         ) : (
-          <View style={styles.scannerCard}>
-            <CameraView
-              style={styles.camera}
-              facing="back"
-              autofocus="on"
-              enableTorch={torchOn}
-              zoom={scanZoom}
-              onBarcodeScanned={scanned ? undefined : handleBarcode}
-              barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "qr"] }}
-            />
-            <View style={styles.scanFrame} />
-            {/* Torch + zoom overlay */}
-            <View style={styles.scanControls}>
-              <Pressable style={styles.scanControlBtn} onPress={() => setTorchOn((v) => !v)}>
-                <Ionicons
-                  name={torchOn ? "flashlight" : "flashlight-outline"}
-                  size={22}
-                  color={torchOn ? c.gold : "#FFFFFF"}
-                />
-              </Pressable>
-              <View style={styles.zoomRow}>
-                {([0, 0.15, 0.3] as const).map((z, i) => (
-                  <Pressable
-                    key={z}
-                    style={[styles.zoomBtn, scanZoom === z && styles.zoomBtnActive]}
-                    onPress={() => setScanZoom(z)}
-                  >
-                    <Text style={[styles.zoomBtnText, scanZoom === z && styles.zoomBtnTextActive]}>
-                      {i + 1}×
-                    </Text>
-                  </Pressable>
-                ))}
+          <CameraView
+            style={StyleSheet.absoluteFill}
+            facing="back"
+            autofocus="on"
+            enableTorch={torchOn}
+            zoom={scanZoom}
+            onBarcodeScanned={scanned ? undefined : (result) => {
+              setScanFeedback("Barcode found — searching…");
+              handleBarcode(result);
+            }}
+            barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "isbn13", "qr"] }}
+          />
+        )}
+
+        {/* Scan frame */}
+        {permission?.granted && (
+          <View style={styles.scanOverlay}>
+            {/* Top darken */}
+            <View style={styles.scanDim} />
+            {/* Middle row: dim | frame | dim */}
+            <View style={styles.scanMiddleRow}>
+              <View style={styles.scanDim} />
+              <View style={styles.scanFrameBox}>
+                {/* Corner marks */}
+                <View style={[styles.corner, styles.cornerTL]} />
+                <View style={[styles.corner, styles.cornerTR]} />
+                <View style={[styles.corner, styles.cornerBL]} />
+                <View style={[styles.corner, styles.cornerBR]} />
+                {/* Animated scan line */}
+                <ScanLine />
               </View>
+              <View style={styles.scanDim} />
             </View>
+            {/* Bottom darken */}
+            <View style={styles.scanDim} />
           </View>
         )}
 
-        <View style={styles.manualIsbnCard}>
-          <Text style={styles.cardTitle}>You can also paste it</Text>
-          <TextInput
-            keyboardType="number-pad"
-            placeholder="9780756404741"
-            placeholderTextColor={c.gray}
-            style={styles.input}
-            value={manual.isbn}
-            onChangeText={(isbn) => setManual((current) => ({ ...current, isbn }))}
-          />
-          <Pressable style={styles.secondaryButton} onPress={() => addFromIsbn(manual.isbn || "9780756404741")}>
-            <Text style={styles.secondaryButtonText}>{isBusy ? "Searching..." : "Search by ISBN"}</Text>
-          </Pressable>
-          {scanned ? (
-            <Pressable style={styles.ghostButton} onPress={() => setScanned(false)}>
-              <Text style={styles.ghostButtonText}>Scan another code</Text>
+        {/* Feedback label */}
+        {scanFeedback ? (
+          <View style={styles.scanFeedbackBadge}>
+            <ActivityIndicator size="small" color={c.teal} />
+            <Text style={styles.scanFeedbackText}>{scanFeedback}</Text>
+          </View>
+        ) : (
+          <View style={styles.scanHintBadge}>
+            <Text style={styles.scanHintText}>Point at the barcode on the back cover</Text>
+          </View>
+        )}
+
+        {/* Controls: torch + zoom + manual */}
+        {permission?.granted && (
+          <View style={styles.scanControls}>
+            <Pressable style={styles.scanControlBtn} onPress={() => setTorchOn((v) => !v)}>
+              <Ionicons
+                name={torchOn ? "flashlight" : "flashlight-outline"}
+                size={22}
+                color={torchOn ? c.gold : "#FFFFFF"}
+              />
             </Pressable>
-          ) : null}
-        </View>
-      </Screen>
+            <View style={styles.zoomRow}>
+              {([0, 0.25, 0.5] as const).map((z, i) => (
+                <Pressable
+                  key={z}
+                  style={[styles.zoomBtn, scanZoom === z && styles.zoomBtnActive]}
+                  onPress={() => setScanZoom(z)}
+                >
+                  <Text style={[styles.zoomBtnText, scanZoom === z && styles.zoomBtnTextActive]}>
+                    {i + 1}×
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable style={styles.scanControlBtn} onPress={() => setIsbnInputMode("manual")}>
+              <Ionicons name="keypad-outline" size={22} color="#FFFFFF" />
+            </Pressable>
+          </View>
+        )}
+      </View>
     );
   }
 
@@ -1906,75 +2020,141 @@ function createStyles(c: AppColors, isDark: boolean) {
     borderWidth: 1,
     padding: spacing.lg
   },
-  scannerCard: {
-    backgroundColor: c.navy,
-    borderRadius: radii.lg,
-    height: 360,
-    overflow: "hidden"
-  },
-  camera: {
-    flex: 1
-  },
-  scanFrame: {
-    borderColor: c.gold,
-    borderRadius: radii.lg,
-    borderWidth: 3,
-    height: 132,
-    left: "8%",
+  // ── Full-screen scanner overlay ────────────────────────────────────────
+  scannerBackBtn: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 2,
+    left: spacing.md,
     position: "absolute",
-    right: "8%",
-    top: 112
+    top: 60,
+    zIndex: 20,
+  },
+  scannerBackText: {
+    color: "#fff",
+    fontFamily: fonts.body,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  scanOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+  },
+  scanDim: {
+    backgroundColor: "rgba(0,0,0,0.55)",
+    flex: 1,
+  },
+  scanMiddleRow: {
+    flexDirection: "row",
+    height: 120,
+  },
+  scanFrameBox: {
+    borderColor: "rgba(255,255,255,0.0)",
+    overflow: "hidden",
+    width: 280,
+  },
+  corner: {
+    borderColor: "#14B8A6",
+    height: 24,
+    position: "absolute",
+    width: 24,
+  },
+  cornerTL: { borderLeftWidth: 3, borderTopWidth: 3, left: 0, top: 0 },
+  cornerTR: { borderRightWidth: 3, borderTopWidth: 3, right: 0, top: 0 },
+  cornerBL: { borderBottomWidth: 3, borderLeftWidth: 3, bottom: 0, left: 0 },
+  cornerBR: { borderBottomWidth: 3, borderRightWidth: 3, bottom: 0, right: 0 },
+  scanHintBadge: {
+    alignSelf: "center",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: radii.pill,
+    bottom: 130,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    position: "absolute",
+    zIndex: 20,
+  },
+  scanHintText: {
+    color: "rgba(255,255,255,0.85)",
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  scanFeedbackBadge: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "rgba(0,0,0,0.75)",
+    borderColor: "rgba(20,184,166,0.4)",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    bottom: 130,
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    position: "absolute",
+    zIndex: 20,
+  },
+  scanFeedbackText: {
+    color: "#14B8A6",
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "900",
   },
   scanControls: {
     alignItems: "center",
-    bottom: 16,
+    bottom: 56,
     flexDirection: "row",
     gap: spacing.md,
     justifyContent: "center",
     left: 0,
     position: "absolute",
-    right: 0
+    right: 0,
+    zIndex: 20,
   },
   scanControlBtn: {
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.45)",
-    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderColor: "rgba(255,255,255,0.2)",
     borderRadius: 24,
     borderWidth: 1,
-    height: 44,
+    height: 50,
     justifyContent: "center",
-    width: 44
+    width: 50,
   },
   zoomRow: {
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.45)",
-    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderColor: "rgba(255,255,255,0.2)",
     borderRadius: 24,
     borderWidth: 1,
     flexDirection: "row",
     gap: 4,
     paddingHorizontal: 6,
-    paddingVertical: 6
+    paddingVertical: 6,
   },
   zoomBtn: {
     alignItems: "center",
     borderRadius: 18,
-    height: 32,
+    height: 36,
     justifyContent: "center",
-    width: 36
+    width: 40,
   },
   zoomBtnActive: {
-    backgroundColor: c.gold
+    backgroundColor: c.gold,
   },
   zoomBtnText: {
     color: "rgba(255,255,255,0.7)",
     fontFamily: fonts.body,
-    fontSize: 12,
-    fontWeight: "900"
+    fontSize: 13,
+    fontWeight: "900",
   },
   zoomBtnTextActive: {
-    color: c.ink
+    color: c.navy,
   },
+  // Legacy — no longer used but kept to avoid TS errors if referenced
+  scannerCard: { backgroundColor: c.navy, borderRadius: radii.lg, height: 360, overflow: "hidden" },
+  camera: { flex: 1 },
+  scanFrame: { borderColor: c.gold, borderRadius: radii.lg, borderWidth: 3, height: 132, left: "8%", position: "absolute", right: "8%", top: 112 },
   backButton: {
     alignItems: "center",
     alignSelf: "flex-start",

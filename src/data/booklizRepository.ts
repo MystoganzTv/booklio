@@ -247,70 +247,66 @@ export class LocalFirstBooklizRepository implements BooklizRepository {
     if (!supabase) return;
 
     const userId = await this.getSupabaseUserId();
-    if (!userId) {
-      return;
-    }
+    if (!userId) return;
 
-    const profilePayload = mapProfileToRow(userId, snapshot.userProfile);
-    const authorPayload = snapshot.authors.map((author) => mapAuthorToRow(userId, author));
-    const bookPayload = snapshot.books.map((book) => mapBookToRow(userId, book));
-    const sessionPayload = snapshot.readingSessions.map((session) => mapReadingSessionToRow(userId, session));
-    const reviewPayload = (snapshot.reviews ?? []).map((review) => mapReviewToRow(userId, review));
-    const listPayload = (snapshot.userLists ?? []).map((list) => mapUserListToRow(userId, list));
+    // ─── Strategy: upsert-first, then prune orphans ───────────────────────────
+    //
+    // Old approach (delete → insert) had a data-loss window: if the network
+    // dropped after the DELETE but before INSERTs completed, Supabase rows
+    // were gone (local AsyncStorage was safe, but cloud was empty until next sync).
+    //
+    // New approach:
+    //   1. Upsert all current rows  → adds new rows, updates changed rows, never deletes
+    //   2. Delete orphans           → removes rows whose IDs are no longer in the snapshot
+    //
+    // If step 2 fails, we have stale rows in Supabase but zero missing data.
+    // The next successful save will clean them up.
 
-    const { error: profileError } = await supabase.from("booklio_profiles").upsert(profilePayload);
-    if (profileError) {
-      throw new Error(`Supabase profile sync failed: ${profileError.message}`);
-    }
+    // Profile — one row per user, upsert on user_id
+    const { error: profileError } = await supabase
+      .from("booklio_profiles")
+      .upsert(mapProfileToRow(userId, snapshot.userProfile), { onConflict: "user_id" });
+    if (profileError) throw new Error(`Supabase profile sync failed: ${profileError.message}`);
 
-    // Delete + re-insert strategy (same pattern as sessions/books)
-    const { error: deleteListsError } = await supabase.from("booklio_user_lists").delete().eq("user_id", userId);
-    if (deleteListsError) throw new Error(`Supabase list cleanup failed: ${deleteListsError.message}`);
-
-    const { error: deleteReviewsError } = await supabase.from("booklio_reviews").delete().eq("user_id", userId);
-    if (deleteReviewsError) {
-      throw new Error(`Supabase review cleanup failed: ${deleteReviewsError.message}`);
-    }
-
-    const { error: deleteSessionsError } = await supabase.from("booklio_reading_sessions").delete().eq("user_id", userId);
-    if (deleteSessionsError) {
-      throw new Error(`Supabase session cleanup failed: ${deleteSessionsError.message}`);
-    }
-
-    const { error: deleteBooksError } = await supabase.from("booklio_books").delete().eq("user_id", userId);
-    if (deleteBooksError) {
-      throw new Error(`Supabase book cleanup failed: ${deleteBooksError.message}`);
-    }
-
-    const { error: deleteAuthorsError } = await supabase.from("booklio_authors").delete().eq("user_id", userId);
-    if (deleteAuthorsError) {
-      throw new Error(`Supabase author cleanup failed: ${deleteAuthorsError.message}`);
-    }
-
+    // Authors
+    const authorPayload = snapshot.authors.map((a) => mapAuthorToRow(userId, a));
     if (authorPayload.length) {
-      const { error } = await supabase.from("booklio_authors").insert(authorPayload);
+      const { error } = await supabase.from("booklio_authors").upsert(authorPayload, { onConflict: "id" });
       if (error) throw new Error(`Supabase author sync failed: ${error.message}`);
     }
+    await pruneOrphans("booklio_authors", userId, snapshot.authors.map((a) => a.id));
 
+    // Books
+    const bookPayload = snapshot.books.map((b) => mapBookToRow(userId, b));
     if (bookPayload.length) {
-      const { error } = await supabase.from("booklio_books").insert(bookPayload);
+      const { error } = await supabase.from("booklio_books").upsert(bookPayload, { onConflict: "id" });
       if (error) throw new Error(`Supabase book sync failed: ${error.message}`);
     }
+    await pruneOrphans("booklio_books", userId, snapshot.books.map((b) => b.id));
 
+    // Reading sessions
+    const sessionPayload = snapshot.readingSessions.map((s) => mapReadingSessionToRow(userId, s));
     if (sessionPayload.length) {
-      const { error } = await supabase.from("booklio_reading_sessions").insert(sessionPayload);
+      const { error } = await supabase.from("booklio_reading_sessions").upsert(sessionPayload, { onConflict: "id" });
       if (error) throw new Error(`Supabase reading session sync failed: ${error.message}`);
     }
+    await pruneOrphans("booklio_reading_sessions", userId, snapshot.readingSessions.map((s) => s.id));
 
+    // Reviews
+    const reviewPayload = (snapshot.reviews ?? []).map((r) => mapReviewToRow(userId, r));
     if (reviewPayload.length) {
-      const { error } = await supabase.from("booklio_reviews").insert(reviewPayload);
+      const { error } = await supabase.from("booklio_reviews").upsert(reviewPayload, { onConflict: "id" });
       if (error) throw new Error(`Supabase review sync failed: ${error.message}`);
     }
+    await pruneOrphans("booklio_reviews", userId, (snapshot.reviews ?? []).map((r) => r.id));
 
+    // User lists
+    const listPayload = (snapshot.userLists ?? []).map((l) => mapUserListToRow(userId, l));
     if (listPayload.length) {
-      const { error } = await supabase.from("booklio_user_lists").insert(listPayload);
+      const { error } = await supabase.from("booklio_user_lists").upsert(listPayload, { onConflict: "id" });
       if (error) throw new Error(`Supabase user list sync failed: ${error.message}`);
     }
+    await pruneOrphans("booklio_user_lists", userId, (snapshot.userLists ?? []).map((l) => l.id));
   }
 
   private async getSupabaseUserId() {
@@ -347,6 +343,24 @@ function normalizeSnapshot(snapshot?: Partial<BooklizSnapshot> | PersistedBookli
         ? snapshot.updatedAt
         : new Date().toISOString()
   };
+}
+
+/**
+ * Delete rows in `table` for `userId` whose `id` is NOT in `keepIds`.
+ * If `keepIds` is empty, deletes all rows for the user (entity was fully cleared).
+ * Errors here are non-fatal — stale rows are harmless and will be pruned next sync.
+ */
+async function pruneOrphans(table: string, userId: string, keepIds: string[]): Promise<void> {
+  if (!supabase) return;
+  try {
+    if (keepIds.length === 0) {
+      await supabase.from(table).delete().eq("user_id", userId);
+    } else {
+      await supabase.from(table).delete().eq("user_id", userId).not("id", "in", `(${keepIds.join(",")})`);
+    }
+  } catch {
+    // Non-fatal: stale orphan rows will be pruned on the next successful save.
+  }
 }
 
 function isRemotePayload(payload: RemotePayload | BooklizSnapshot | null): payload is RemotePayload {

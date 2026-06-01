@@ -1,7 +1,7 @@
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, KeyboardAvoidingView, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { BookCover } from "../components/BookCover";
 import { Screen } from "../components/Screen";
@@ -50,9 +50,12 @@ export function AddReadingSessionScreen() {
     : selectedBook
       ? Math.max(1, Math.round((selectedBook.userStatus.progressPercent / 100) * selectedBook.pages))
       : 1;
+  // Start at the last tracked page — user adjusts with +/- or taps to type directly
   const [currentPage, setCurrentPage] = useState(
-    editingSession?.endPage ?? (lastPage + 30 > totalPages ? totalPages : lastPage + 30)
+    editingSession?.endPage ?? lastPage
   );
+  const [pageInputOpen, setPageInputOpen] = useState(false);
+  const [pageInputText, setPageInputText] = useState(String(editingSession?.endPage ?? lastPage));
   const pagesRead = Math.max(0, currentPage - lastPage);
   const progressPct = Math.min(100, Math.round((currentPage / totalPages) * 100));
 
@@ -74,6 +77,12 @@ export function AddReadingSessionScreen() {
   const nudgePct = (delta: number) => {
     setCurrentPct((p) => Math.min(100, Math.max(lastPct, p + delta)));
   };
+  const [pctInputOpen, setPctInputOpen] = useState(false);
+  const [pctInputText, setPctInputText] = useState(String(
+    editingSession && selectedBook
+      ? Math.min(100, Math.round((editingSession.endPage / selectedBook.pages) * 100))
+      : lastPct
+  ));
 
   // ── Shared ────────────────────────────────────────────────────────────
   const [minutes, setMinutes] = useState(45);
@@ -214,6 +223,12 @@ export function AddReadingSessionScreen() {
 
   return (
     <Screen>
+      {/* Cancel button */}
+      <Pressable style={styles.cancelBtn} onPress={() => navigation.goBack()}>
+        <Ionicons name="chevron-back" size={18} color={c.tealDark} />
+        <Text style={styles.cancelBtnText}>Cancel</Text>
+      </Pressable>
+
       <View style={styles.pageHeader}>
         <Text style={styles.pageEyebrow}>{isEditing ? t("logSession.eyebrowEdit") : t("logSession.eyebrowNew")}</Text>
         <Text style={styles.pageTitle}>{isEditing ? t("logSession.titleEdit") : t("logSession.titleNew")}</Text>
@@ -299,21 +314,44 @@ export function AddReadingSessionScreen() {
         <View style={styles.stepperCard}>
           <Text style={styles.stepperLabel}>{t("logSession.listenedTo")}</Text>
           <View style={styles.stepper}>
-            <Pressable style={styles.stepBtn} onPress={() => nudgePct(-5)}>
-              <Text style={styles.stepBtnText}>−5%</Text>
+            <Pressable style={styles.stepBtn} onPress={() => { nudgePct(-5); setPctInputText(String(Math.max(lastPct, currentPct - 5))); }}>
+              <Text style={[styles.stepBtnText, { color: c.ink }]}>−5%</Text>
             </Pressable>
-            <Pressable style={styles.stepBtnSm} onPress={() => nudgePct(-1)}>
-              <Ionicons name="remove" size={18} color={c.navy} />
+            <Pressable style={styles.stepBtnSm} onPress={() => { nudgePct(-1); setPctInputText(String(Math.max(lastPct, currentPct - 1))); }}>
+              <Ionicons name="remove" size={18} color={c.ink} />
             </Pressable>
-            <View style={styles.pageDisplay}>
-              <Text style={styles.pageNumber}>{currentPct}%</Text>
-              <Text style={styles.pageOf}>{t("logSession.ofBook")}</Text>
-            </View>
-            <Pressable style={styles.stepBtnSm} onPress={() => nudgePct(1)}>
-              <Ionicons name="add" size={18} color={c.navy} />
+            <Pressable style={styles.pageDisplay} onPress={() => setPctInputOpen(true)}>
+              {pctInputOpen ? (
+                <TextInput
+                  autoFocus
+                  keyboardType="number-pad"
+                  style={[styles.pageNumberInput, { color: c.ink }]}
+                  value={pctInputText}
+                  onChangeText={setPctInputText}
+                  onBlur={() => {
+                    const v = Math.min(100, Math.max(lastPct, parseInt(pctInputText, 10) || lastPct));
+                    setCurrentPct(v);
+                    setPctInputText(String(v));
+                    setPctInputOpen(false);
+                  }}
+                  onSubmitEditing={() => {
+                    const v = Math.min(100, Math.max(lastPct, parseInt(pctInputText, 10) || lastPct));
+                    setCurrentPct(v);
+                    setPctInputText(String(v));
+                    setPctInputOpen(false);
+                  }}
+                  selectTextOnFocus
+                />
+              ) : (
+                <Text style={[styles.pageNumber, { color: c.ink }]}>{currentPct}%</Text>
+              )}
+              <Text style={[styles.pageOf, { color: c.muted }]}>{pctInputOpen ? "tap ✓ to confirm" : t("logSession.ofBook") + " · tap to edit"}</Text>
             </Pressable>
-            <Pressable style={styles.stepBtn} onPress={() => nudgePct(5)}>
-              <Text style={styles.stepBtnText}>+5%</Text>
+            <Pressable style={styles.stepBtnSm} onPress={() => { nudgePct(1); setPctInputText(String(Math.min(100, currentPct + 1))); }}>
+              <Ionicons name="add" size={18} color={c.ink} />
+            </Pressable>
+            <Pressable style={styles.stepBtn} onPress={() => { nudgePct(5); setPctInputText(String(Math.min(100, currentPct + 5))); }}>
+              <Text style={[styles.stepBtnText, { color: c.ink }]}>+5%</Text>
             </Pressable>
           </View>
           {gainedPct > 0 && (
@@ -324,21 +362,47 @@ export function AddReadingSessionScreen() {
         <View style={styles.stepperCard}>
           <Text style={styles.stepperLabel}>{t("logSession.readUpTo")}</Text>
           <View style={styles.stepper}>
-            <Pressable style={styles.stepBtn} onPress={() => nudgePage(-10)}>
-              <Text style={styles.stepBtnText}>−10</Text>
+            <Pressable style={styles.stepBtn} onPress={() => { nudgePage(-10); setPageInputText(String(Math.max(lastPage, currentPage - 10))); }}>
+              <Text style={[styles.stepBtnText, { color: c.ink }]}>−10</Text>
             </Pressable>
-            <Pressable style={styles.stepBtnSm} onPress={() => nudgePage(-1)}>
-              <Ionicons name="remove" size={18} color={c.navy} />
+            <Pressable style={styles.stepBtnSm} onPress={() => { nudgePage(-1); setPageInputText(String(Math.max(lastPage, currentPage - 1))); }}>
+              <Ionicons name="remove" size={18} color={c.ink} />
             </Pressable>
-            <View style={styles.pageDisplay}>
-              <Text style={styles.pageNumber}>{currentPage}</Text>
-              <Text style={styles.pageOf}>/ {totalPages}</Text>
-            </View>
-            <Pressable style={styles.stepBtnSm} onPress={() => nudgePage(1)}>
-              <Ionicons name="add" size={18} color={c.navy} />
+            {/* Tap the big number to type directly */}
+            <Pressable style={styles.pageDisplay} onPress={() => setPageInputOpen(true)}>
+              {pageInputOpen ? (
+                <TextInput
+                  autoFocus
+                  keyboardType="number-pad"
+                  style={[styles.pageNumberInput, { color: c.ink }]}
+                  value={pageInputText}
+                  onChangeText={setPageInputText}
+                  onBlur={() => {
+                    const v = Math.min(totalPages, Math.max(lastPage, parseInt(pageInputText, 10) || lastPage));
+                    setCurrentPage(v);
+                    setPageInputText(String(v));
+                    setPageInputOpen(false);
+                  }}
+                  onSubmitEditing={() => {
+                    const v = Math.min(totalPages, Math.max(lastPage, parseInt(pageInputText, 10) || lastPage));
+                    setCurrentPage(v);
+                    setPageInputText(String(v));
+                    setPageInputOpen(false);
+                  }}
+                  selectTextOnFocus
+                />
+              ) : (
+                <Text style={[styles.pageNumber, { color: c.ink }]}>{currentPage}</Text>
+              )}
+              <Text style={[styles.pageOf, { color: c.muted }]}>
+                {pageInputOpen ? "tap ✓ to confirm" : `/ ${totalPages} · tap to edit`}
+              </Text>
             </Pressable>
-            <Pressable style={styles.stepBtn} onPress={() => nudgePage(10)}>
-              <Text style={styles.stepBtnText}>+10</Text>
+            <Pressable style={styles.stepBtnSm} onPress={() => { nudgePage(1); setPageInputText(String(Math.min(totalPages, currentPage + 1))); }}>
+              <Ionicons name="add" size={18} color={c.ink} />
+            </Pressable>
+            <Pressable style={styles.stepBtn} onPress={() => { nudgePage(10); setPageInputText(String(Math.min(totalPages, currentPage + 10))); }}>
+              <Text style={[styles.stepBtnText, { color: c.ink }]}>+10</Text>
             </Pressable>
           </View>
           {pagesRead > 0 && (
@@ -572,7 +636,7 @@ function createStyles(c: AppColors) {
     fontWeight: "800"
   },
   bookChipTextActive: {
-    color: c.card
+    color: "#fff"
   },
   bookHero: {
     ...shadows.card,
@@ -753,7 +817,7 @@ function createStyles(c: AppColors) {
     fontWeight: "900"
   },
   minuteChipTextActive: {
-    color: c.card
+    color: "#fff"
   },
   customInput: {
     backgroundColor: c.surfaceAlt,
@@ -808,7 +872,7 @@ function createStyles(c: AppColors) {
     fontWeight: "900"
   },
   formatChipTextActive: {
-    color: c.card
+    color: "#fff"
   },
   locationCard: {
     backgroundColor: c.surface,
@@ -844,7 +908,7 @@ function createStyles(c: AppColors) {
     fontWeight: "900"
   },
   locationChipTextActive: {
-    color: c.card
+    color: "#fff"
   },
   locationSummary: {
     color: c.muted,
@@ -949,6 +1013,27 @@ function createStyles(c: AppColors) {
     fontSize: 14,
     fontWeight: "900",
     textAlign: "center"
-  }
+  },
+  cancelBtn: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    gap: 2,
+    marginBottom: spacing.sm,
+  },
+  cancelBtnText: {
+    color: c.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  pageNumberInput: {
+    fontFamily: fonts.display,
+    fontSize: 52,
+    fontWeight: "900",
+    lineHeight: 56,
+    minWidth: 90,
+    textAlign: "center",
+  },
   });
 }

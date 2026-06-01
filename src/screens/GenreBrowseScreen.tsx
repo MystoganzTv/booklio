@@ -1,156 +1,206 @@
 /**
  * GenreBrowseScreen
  *
- * Audible-style genre deep-dive:
+ * Audible-style genre catalog browse:
  *   • Sub-genre chips (horizontal scroll)
- *   • "Top picks" 2-column grid (highest-rated books in genre)
- *   • "All titles" 2-column grid (everything else)
+ *   • "In your library" section (books already added)
+ *   • Catalog results from Google Books — paginated, infinite scroll
+ *
+ * Books already in the user's library are highlighted with a badge.
+ * Tapping a catalog book navigates to BookIntake with the ISBN pre-filled.
  */
 import { Ionicons } from "@expo/vector-icons";
 import { RouteProp, useRoute, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { BookCover } from "../components/BookCover";
 import { useBookliz } from "../data/BooklizContext";
 import { RootStackParamList } from "../navigation/types";
-import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { fetchByGenre, fetchByKeyword, GenreBookResult } from "../services/googleBooksProvider";
+import { AppColors, fonts, radii, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
 import { Book } from "../types/models";
 
-// ─── Sub-genre mapping ────────────────────────────────────────────────────────
+// ─── Sub-genre chips ──────────────────────────────────────────────────────────
 
 const SUB_GENRES: Record<string, string[]> = {
-  "Fantasy":            ["Epic Fantasy", "Historical Fiction", "Young Adult", "Science Fiction", "Horror"],
-  "Science Fiction":    ["Thriller", "Adventure", "Literary Fiction", "Fantasy", "Nonfiction"],
-  "Mystery":            ["Thriller", "Horror", "Literary Fiction", "Historical Fiction", "Romance"],
-  "Thriller":           ["Mystery", "Horror", "Science Fiction", "Literary Fiction", "Adventure"],
-  "Historical Fiction": ["Literary Fiction", "Romance", "Biography", "Mystery", "Adventure"],
-  "Romance":            ["Young Adult", "Literary Fiction", "Historical Fiction", "Fantasy", "Mystery"],
-  "Horror":             ["Thriller", "Mystery", "Fantasy", "Literary Fiction", "Science Fiction"],
-  "Adventure":          ["Fantasy", "Science Fiction", "Thriller", "Historical Fiction", "Young Adult"],
-  "Literary Fiction":   ["Historical Fiction", "Romance", "Nonfiction", "Mystery", "Biography"],
-  "Young Adult":        ["Fantasy", "Romance", "Science Fiction", "Adventure", "Mystery"],
-  "Biography":          ["Nonfiction", "History", "Literary Fiction", "Personal Growth"],
-  "Nonfiction":         ["Biography", "History", "Personal Growth", "Science Fiction"],
-  "History":            ["Biography", "Historical Fiction", "Nonfiction", "Literary Fiction"],
-  "Personal Growth":    ["Nonfiction", "Biography"],
+  "Fantasy":            ["Epic Fantasy", "Dark Fantasy", "Urban Fantasy", "Historical Fiction", "Science Fiction"],
+  "Science Fiction":    ["Space Opera", "Cyberpunk", "Dystopian", "Hard Sci-Fi", "Fantasy"],
+  "Mystery":            ["Cozy Mystery", "Detective", "Thriller", "Crime", "Historical Fiction"],
+  "Thriller":           ["Psychological", "Legal", "Political", "Mystery", "Horror"],
+  "Historical Fiction": ["Ancient", "Medieval", "World War", "Victorian", "Romance"],
+  "Romance":            ["Contemporary", "Historical", "Paranormal", "Fantasy", "Young Adult"],
+  "Horror":             ["Psychological", "Supernatural", "Gothic", "Thriller", "Dark Fantasy"],
+  "Adventure":          ["Action", "Survival", "Travel", "Fantasy", "Science Fiction"],
+  "Literary Fiction":   ["Contemporary", "Historical Fiction", "Coming of Age", "Nonfiction", "Mystery"],
+  "Young Adult":        ["Fantasy", "Romance", "Science Fiction", "Adventure", "Horror"],
+  "Biography":          ["Memoir", "Autobiography", "History", "Nonfiction", "Personal Growth"],
+  "Nonfiction":         ["History", "Science", "Biography", "Personal Growth", "Business"],
+  "History":            ["Ancient", "Modern", "Biography", "Military", "World History"],
+  "Personal Growth":    ["Productivity", "Psychology", "Wellness", "Business", "Nonfiction"],
 };
 
-function getSubGenres(genre: string): string[] {
-  return SUB_GENRES[genre] ?? [];
-}
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type RouteProps = RouteProp<RootStackParamList, "GenreBrowse">;
+type NavProps = NativeStackNavigationProp<RootStackParamList>;
+
+const PAGE_SIZE = 40;
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
-type RouteProps = RouteProp<RootStackParamList, "GenreBrowse">;
-
 export function GenreBrowseScreen() {
   const { params } = useRoute<RouteProps>();
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<NavProps>();
   const c = useColors();
-  const { books, authors } = useBookliz();
+  const { books } = useBookliz();
   const styles = useMemo(() => createStyles(c), [c]);
 
   const [activeSubGenre, setActiveSubGenre] = useState<string | null>(null);
+  const [catalogBooks, setCatalogBooks] = useState<GenreBookResult[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [totalItems, setTotalItems] = useState(0);
+  const startIndexRef = useRef(0);
+  const currentGenreRef = useRef<string>("");
 
-  // Set the nav title
-  useLayoutEffect(() => {
-    navigation.setOptions({ title: params.genre });
-  }, [navigation, params.genre]);
-
+  const isKeywordMode = !!params.catalogQuery;
   const currentGenre = activeSubGenre ?? params.genre;
+  const displayTitle = params.title ?? params.genre;
+  // Sub-genre chips only make sense in genre mode
+  const subGenres = isKeywordMode ? [] : (SUB_GENRES[params.genre] ?? []);
 
-  // All books in current genre
-  const genreBooks = useMemo(
+  // Set nav title
+  useLayoutEffect(() => {
+    navigation.setOptions({ title: displayTitle });
+  }, [navigation, displayTitle]);
+
+  // Build a set of ISBNs already in library for quick lookup
+  const libraryIsbnSet = useMemo(
+    () => new Set(books.map((b) => b.isbn).filter(Boolean) as string[]),
+    [books]
+  );
+
+  // Books from library matching current genre
+  const libraryBooks = useMemo(
     () => books.filter((b) => b.genre.includes(currentGenre)),
     [books, currentGenre]
   );
 
-  // Top picks: rated 4+ first, then reading, then want-to-read — max 6
-  const topPicks = useMemo(() => {
-    const rated = genreBooks
-      .filter((b) => b.userStatus.status === "read" && (b.userStatus.rating ?? 0) >= 4)
-      .sort((a, b) => (b.userStatus.rating ?? 0) - (a.userStatus.rating ?? 0));
-    const reading = genreBooks.filter((b) => b.userStatus.status === "reading");
-    const wtr = genreBooks.filter((b) => b.userStatus.status === "want-to-read");
-    const combined = [...rated, ...reading, ...wtr];
-    const seen = new Set<string>();
-    const deduped: Book[] = [];
-    for (const b of combined) {
-      if (!seen.has(b.id)) { seen.add(b.id); deduped.push(b); }
+  // Load catalog books
+  const loadGenre = useCallback(async (genre: string, reset = true) => {
+    if (reset) {
+      setLoading(true);
+      setCatalogBooks([]);
+      startIndexRef.current = 0;
+      currentGenreRef.current = genre;
+    } else {
+      setLoadingMore(true);
     }
-    return deduped.slice(0, 6);
-  }, [genreBooks]);
 
-  const topPickIds = useMemo(() => new Set(topPicks.map((b) => b.id)), [topPicks]);
+    try {
+      const fetcher = params.catalogQuery
+        ? fetchByKeyword(params.catalogQuery, reset ? 0 : startIndexRef.current, PAGE_SIZE)
+        : fetchByGenre(genre, reset ? 0 : startIndexRef.current, PAGE_SIZE);
+      const { books: fetched, totalItems: total } = await fetcher;
+      startIndexRef.current += fetched.length;
+      setTotalItems(total);
+      setCatalogBooks((prev) => reset ? fetched : [...prev, ...fetched]);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }, []);
 
-  // All titles: everything not in top picks
-  const allTitles = useMemo(
-    () => genreBooks.filter((b) => !topPickIds.has(b.id)),
-    [genreBooks, topPickIds]
-  );
+  useEffect(() => {
+    loadGenre(currentGenre, true);
+  }, [currentGenre, loadGenre]);
 
-  const subGenres = useMemo(() => getSubGenres(params.genre), [params.genre]);
-
-  function authorName(book: Book) {
-    return authors.find((a) => a.id === book.authorId)?.name ?? "";
+  function handleLoadMore() {
+    if (loadingMore || loading || catalogBooks.length >= totalItems) return;
+    if (currentGenreRef.current !== currentGenre) return;
+    loadGenre(currentGenre, false);
   }
 
-  function ratingStars(book: Book) {
-    const r = book.userStatus.rating;
-    if (!r) return null;
-    return "★".repeat(r) + "☆".repeat(5 - r);
+  function isInLibrary(book: GenreBookResult): boolean {
+    return !!book.isbn13 && libraryIsbnSet.has(book.isbn13);
   }
 
-  function navigateToBook(bookId: string) {
-    navigation.navigate("BookDetail", { bookId });
+  function getLibraryBook(catalogBook: GenreBookResult): Book | undefined {
+    if (!catalogBook.isbn13) return undefined;
+    return books.find((b) => b.isbn === catalogBook.isbn13);
   }
 
-  function navigateToSubGenre(genre: string) {
-    if (genre === currentGenre) return;
-    setActiveSubGenre(genre === params.genre ? null : genre);
+  function handleBookPress(book: GenreBookResult) {
+    const libBook = getLibraryBook(book);
+    if (libBook) {
+      navigation.navigate("BookDetail", { bookId: libBook.id });
+    } else {
+      // Navigate to Add screen — in the future could pre-fill ISBN
+      navigation.navigate("BookIntake");
+    }
   }
 
-  // ── Book card (used in both sections) ───────────────────────────────────────
-  function renderBookCard(book: Book, showRating = false) {
-    const stars = ratingStars(book);
+  // ── Book card ──────────────────────────────────────────────────────────────
+  function renderCatalogCard({ item }: { item: GenreBookResult }) {
+    const inLibrary = isInLibrary(item);
     return (
       <Pressable
-        style={[styles.bookCard, { backgroundColor: c.surface }]}
-        onPress={() => navigateToBook(book.id)}
+        style={[styles.bookCard, inLibrary && { opacity: 0.85 }]}
+        onPress={() => handleBookPress(item)}
       >
-        <BookCover book={book} size="lg" style={styles.bookCover} />
+        {/* Cover */}
+        <View style={styles.coverWrap}>
+          {item.coverUrl ? (
+            <Image
+              source={{ uri: item.coverUrl }}
+              style={styles.cover}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={[styles.cover, styles.coverPlaceholder, { backgroundColor: c.surfaceAlt }]}>
+              <Ionicons name="book-outline" size={28} color={c.border} />
+            </View>
+          )}
+          {inLibrary && (
+            <View style={[styles.libraryBadge, { backgroundColor: c.teal }]}>
+              <Ionicons name="checkmark" size={10} color="#fff" />
+            </View>
+          )}
+        </View>
+
+        {/* Meta */}
         <Text numberOfLines={2} style={[styles.bookTitle, { color: c.ink }]}>
-          {book.title}
+          {item.title}
         </Text>
-        <Text numberOfLines={1} style={[styles.bookAuthor, { color: c.muted }]}>
-          {authorName(book)}
-        </Text>
-        {showRating && stars && (
-          <Text style={[styles.bookStars, { color: c.gold }]}>{stars}</Text>
+        {item.authors[0] && (
+          <Text numberOfLines={1} style={[styles.bookAuthor, { color: c.muted }]}>
+            {item.authors[0]}
+          </Text>
         )}
-        {!showRating && book.pages > 0 && (
-          <Text style={[styles.bookPages, { color: c.muted }]}>
-            {book.pages} pages
+        {item.publishedYear && (
+          <Text style={[styles.bookYear, { color: c.muted }]}>
+            {item.publishedYear}
           </Text>
         )}
       </Pressable>
     );
   }
 
-  const isEmpty = genreBooks.length === 0;
+  const hasMore = catalogBooks.length < totalItems;
 
   return (
     <View style={[styles.root, { backgroundColor: c.bg }]}>
-      {/* ── Sub-genre chips ─────────────────────────────────────────────── */}
+      {/* Sub-genre chips */}
       {subGenres.length > 0 && (
         <ScrollView
           horizontal
@@ -158,7 +208,6 @@ export function GenreBrowseScreen() {
           style={[styles.chipsScroll, { borderBottomColor: c.border }]}
           contentContainerStyle={styles.chipsContent}
         >
-          {/* "All" chip to reset */}
           <Pressable
             style={[
               styles.chip,
@@ -171,7 +220,6 @@ export function GenreBrowseScreen() {
               All {params.genre}
             </Text>
           </Pressable>
-
           {subGenres.map((sg) => {
             const isActive = activeSubGenre === sg;
             return (
@@ -182,7 +230,7 @@ export function GenreBrowseScreen() {
                   { borderColor: c.border, backgroundColor: c.surface },
                   isActive && { backgroundColor: c.teal, borderColor: c.teal },
                 ]}
-                onPress={() => navigateToSubGenre(sg)}
+                onPress={() => setActiveSubGenre(isActive ? null : sg)}
               >
                 <Text style={[styles.chipText, { color: isActive ? "#fff" : c.ink }]}>
                   {sg}
@@ -193,90 +241,106 @@ export function GenreBrowseScreen() {
         </ScrollView>
       )}
 
-      {/* ── Main content ────────────────────────────────────────────────── */}
-      {isEmpty ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="library-outline" size={48} color={c.border} />
-          <Text style={[styles.emptyTitle, { color: c.ink }]}>
-            Nothing here yet
+      {/* Main catalog list */}
+      {loading ? (
+        <View style={styles.loadingState}>
+          <ActivityIndicator size="large" color={c.teal} />
+          <Text style={[styles.loadingText, { color: c.muted }]}>
+            Finding {currentGenre.toLowerCase()} books…
           </Text>
-          <Text style={[styles.emptySub, { color: c.muted }]}>
-            Add {currentGenre.toLowerCase()} books to your library to see them here.
-          </Text>
-          <Pressable
-            style={[styles.emptyBtn, { backgroundColor: c.teal }]}
-            onPress={() => navigation.navigate("BookIntake")}
-          >
-            <Ionicons name="search-outline" size={15} color="#fff" />
-            <Text style={styles.emptyBtnText}>Search for books</Text>
-          </Pressable>
         </View>
       ) : (
         <FlatList
-          data={allTitles}
+          data={catalogBooks}
           keyExtractor={(item) => item.id}
           numColumns={2}
           columnWrapperStyle={styles.row}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.4}
+          renderItem={renderCatalogCard}
           ListHeaderComponent={
             <>
-              {/* Top picks */}
-              {topPicks.length > 0 && (
+              {/* Library section — only in genre mode, not keyword/mood mode */}
+              {!isKeywordMode && libraryBooks.length > 0 && (
                 <View style={styles.section}>
                   <Text style={[styles.sectionTitle, { color: c.ink }]}>
-                    Top picks for you in {currentGenre}
+                    In your library
                   </Text>
-                  <View style={styles.topPicksGrid}>
-                    {topPicks.map((book) => (
-                      <View key={book.id} style={styles.topPickCell}>
-                        {renderBookCard(book, true)}
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              )}
-
-              {/* Sub-niche shortcuts */}
-              {subGenres.length > 0 && !activeSubGenre && (
-                <View style={styles.section}>
-                  <Text style={[styles.sectionTitle, { color: c.ink }]}>
-                    Find your {params.genre.toLowerCase()} niche
-                  </Text>
-                  <View style={styles.nicheGrid}>
-                    {subGenres.slice(0, 4).map((sg) => (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.libraryRow}
+                  >
+                    {libraryBooks.map((book) => (
                       <Pressable
-                        key={sg}
-                        style={[styles.nicheBtn, { backgroundColor: c.surface, borderColor: c.border }]}
-                        onPress={() => navigateToSubGenre(sg)}
+                        key={book.id}
+                        style={styles.libraryCard}
+                        onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
                       >
-                        <Text style={[styles.nicheBtnText, { color: c.ink }]}>{sg}</Text>
+                        <View style={styles.libraryCoverWrap}>
+                          {book.coverImageUri ? (
+                            <Image
+                              source={{ uri: book.coverImageUri }}
+                              style={styles.libraryCover}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <View style={[styles.libraryCover, { backgroundColor: c.surfaceAlt, alignItems: "center", justifyContent: "center" }]}>
+                              <Ionicons name="book-outline" size={22} color={c.border} />
+                            </View>
+                          )}
+                          <View style={[styles.libraryBadgeLarge, { backgroundColor: c.teal }]}>
+                            <Ionicons name="checkmark" size={11} color="#fff" />
+                          </View>
+                        </View>
+                        <Text numberOfLines={2} style={[styles.libraryTitle, { color: c.ink }]}>
+                          {book.title}
+                        </Text>
                       </Pressable>
                     ))}
-                  </View>
+                  </ScrollView>
                 </View>
               )}
 
-              {/* All titles header */}
-              {allTitles.length > 0 && (
-                <Text style={[styles.allTitlesHeader, { color: c.ink }]}>
+              {/* Catalog header */}
+              <View style={styles.catalogHeader}>
+                <Text style={[styles.sectionTitle, { color: c.ink }]}>
                   All titles
                 </Text>
-              )}
+                {totalItems > 0 && (
+                  <Text style={[styles.totalCount, { color: c.muted }]}>
+                    {totalItems.toLocaleString()} books
+                  </Text>
+                )}
+              </View>
             </>
           }
-          renderItem={({ item }) => (
-            <View style={styles.allTitleCell}>
-              {renderBookCard(item, false)}
-            </View>
-          )}
-          ListEmptyComponent={
-            topPicks.length > 0 ? null : (
-              <View style={styles.emptyState}>
-                <Ionicons name="library-outline" size={48} color={c.border} />
-                <Text style={[styles.emptyTitle, { color: c.ink }]}>No more titles</Text>
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.footer}>
+                <ActivityIndicator size="small" color={c.teal} />
               </View>
-            )
+            ) : hasMore ? (
+              <Pressable
+                style={[styles.loadMoreBtn, { borderColor: c.border }]}
+                onPress={handleLoadMore}
+              >
+                <Text style={[styles.loadMoreText, { color: c.teal }]}>Load more</Text>
+              </Pressable>
+            ) : null
+          }
+          ListEmptyComponent={
+            !loading ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="search-outline" size={40} color={c.border} />
+                <Text style={[styles.emptyTitle, { color: c.ink }]}>No results</Text>
+                <Text style={[styles.emptySub, { color: c.muted }]}>
+                  Try a different genre or check your connection.
+                </Text>
+              </View>
+            ) : null
           }
         />
       )}
@@ -288,176 +352,106 @@ export function GenreBrowseScreen() {
 
 function createStyles(c: AppColors) {
   return StyleSheet.create({
-    root: {
-      flex: 1,
-    },
+    root: { flex: 1 },
 
-    // ── Sub-genre chips ────────────────────────────────────────────────────
-    chipsScroll: {
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      flexGrow: 0,
-    },
-    chipsContent: {
+    // ── Chips ──────────────────────────────────────────────────────────────
+    chipsScroll: { borderBottomWidth: StyleSheet.hairlineWidth, flexGrow: 0 },
+    chipsContent: { gap: 8, paddingHorizontal: spacing.md, paddingVertical: 12 },
+    chip: { borderRadius: radii.pill, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 7 },
+    chipText: { fontFamily: fonts.body, fontSize: 13, fontWeight: "800" },
+
+    // ── Loading ────────────────────────────────────────────────────────────
+    loadingState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
+    loadingText: { fontFamily: fonts.body, fontSize: 14, fontWeight: "700" },
+
+    // ── List ───────────────────────────────────────────────────────────────
+    listContent: { paddingBottom: 40 },
+    row: { gap: 0 },
+
+    // ── Section headers ────────────────────────────────────────────────────
+    section: { paddingTop: spacing.lg, marginBottom: spacing.sm },
+    catalogHeader: {
+      flexDirection: "row",
+      alignItems: "baseline",
       gap: 8,
       paddingHorizontal: spacing.md,
-      paddingVertical: 12,
-    },
-    chip: {
-      borderRadius: radii.pill,
-      borderWidth: 1,
-      paddingHorizontal: 14,
-      paddingVertical: 7,
-    },
-    chipText: {
-      fontFamily: fonts.body,
-      fontSize: 13,
-      fontWeight: "800",
-    },
-
-    // ── Main list ──────────────────────────────────────────────────────────
-    listContent: {
-      paddingBottom: 40,
-    },
-    row: {
-      gap: 0,
-    },
-
-    // ── Section ────────────────────────────────────────────────────────────
-    section: {
-      paddingHorizontal: spacing.md,
       paddingTop: spacing.lg,
-      marginBottom: spacing.sm,
+      paddingBottom: spacing.sm,
     },
     sectionTitle: {
       fontFamily: fonts.display,
       fontSize: 20,
       fontWeight: "900",
-      lineHeight: 26,
-      marginBottom: spacing.md,
-    },
-
-    // ── Top picks 2-col grid ───────────────────────────────────────────────
-    topPicksGrid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-    },
-    topPickCell: {
-      width: "50%",
-      paddingRight: spacing.sm,
-      paddingBottom: spacing.md,
-    },
-
-    // ── Niche buttons ──────────────────────────────────────────────────────
-    nicheGrid: {
-      gap: 10,
-    },
-    nicheBtn: {
-      borderRadius: radii.sm,
-      borderWidth: 1,
-      alignItems: "center",
-      justifyContent: "center",
-      paddingVertical: 20,
-      marginBottom: 2,
-    },
-    nicheBtnText: {
-      fontFamily: fonts.display,
-      fontSize: 17,
-      fontWeight: "900",
-    },
-
-    // ── All titles header ──────────────────────────────────────────────────
-    allTitlesHeader: {
-      fontFamily: fonts.display,
-      fontSize: 20,
-      fontWeight: "900",
-      marginTop: spacing.lg,
-      marginBottom: spacing.sm,
       paddingHorizontal: spacing.md,
+      marginBottom: spacing.sm,
+    },
+    totalCount: { fontFamily: fonts.body, fontSize: 13, fontWeight: "700" },
+
+    // ── Library horizontal strip ───────────────────────────────────────────
+    libraryRow: { gap: 12, paddingHorizontal: spacing.md },
+    libraryCard: { width: 96 },
+    libraryCoverWrap: { position: "relative", marginBottom: 6 },
+    libraryCover: { width: 96, height: 140, borderRadius: radii.sm },
+    libraryBadgeLarge: {
+      position: "absolute", bottom: 6, right: 6,
+      borderRadius: 10, width: 20, height: 20,
+      alignItems: "center", justifyContent: "center",
+    },
+    libraryTitle: {
+      fontFamily: fonts.body, fontSize: 11, fontWeight: "800", lineHeight: 15,
     },
 
-    // ── All titles cell ────────────────────────────────────────────────────
-    allTitleCell: {
+    // ── Catalog 2-col grid ─────────────────────────────────────────────────
+    bookCard: {
       width: "50%",
       paddingLeft: spacing.md,
       paddingRight: spacing.sm,
       paddingBottom: spacing.md,
     },
-
-    // ── Book card ──────────────────────────────────────────────────────────
-    bookCard: {
-      borderRadius: radii.sm,
-      overflow: "hidden",
-    },
-    bookCover: {
+    coverWrap: { position: "relative", marginBottom: 7 },
+    cover: {
       width: "100%",
       aspectRatio: 0.67,
       borderRadius: radii.sm,
-      marginBottom: 8,
+    },
+    coverPlaceholder: {
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    libraryBadge: {
+      position: "absolute", top: 6, right: 6,
+      borderRadius: 8, width: 16, height: 16,
+      alignItems: "center", justifyContent: "center",
     },
     bookTitle: {
-      fontFamily: fonts.body,
-      fontSize: 13,
-      fontWeight: "800",
-      lineHeight: 18,
-      paddingHorizontal: 2,
+      fontFamily: fonts.body, fontSize: 13, fontWeight: "800",
+      lineHeight: 18, paddingHorizontal: 2,
     },
     bookAuthor: {
-      fontFamily: fonts.body,
-      fontSize: 11,
-      fontWeight: "700",
-      marginTop: 2,
-      paddingHorizontal: 2,
+      fontFamily: fonts.body, fontSize: 11, fontWeight: "700",
+      marginTop: 2, paddingHorizontal: 2,
     },
-    bookStars: {
-      fontFamily: fonts.body,
-      fontSize: 11,
-      marginTop: 3,
-      paddingHorizontal: 2,
-    },
-    bookPages: {
-      fontFamily: fonts.body,
-      fontSize: 11,
-      fontWeight: "700",
-      marginTop: 3,
-      paddingHorizontal: 2,
+    bookYear: {
+      fontFamily: fonts.body, fontSize: 10, fontWeight: "700",
+      marginTop: 2, paddingHorizontal: 2, opacity: 0.6,
     },
 
-    // ── Empty state ────────────────────────────────────────────────────────
+    // ── Footer ────────────────────────────────────────────────────────────
+    footer: { paddingVertical: 20, alignItems: "center" },
+    loadMoreBtn: {
+      alignSelf: "center", borderWidth: 1, borderRadius: radii.pill,
+      paddingHorizontal: 24, paddingVertical: 10, marginVertical: 16,
+    },
+    loadMoreText: { fontFamily: fonts.body, fontSize: 14, fontWeight: "800" },
+
+    // ── Empty ──────────────────────────────────────────────────────────────
     emptyState: {
-      alignItems: "center",
-      flex: 1,
-      gap: 12,
-      justifyContent: "center",
-      paddingHorizontal: spacing.xl,
-      paddingVertical: 80,
+      alignItems: "center", gap: 10, paddingHorizontal: spacing.xl, paddingVertical: 60,
     },
-    emptyTitle: {
-      fontFamily: fonts.display,
-      fontSize: 20,
-      fontWeight: "900",
-      textAlign: "center",
-    },
+    emptyTitle: { fontFamily: fonts.display, fontSize: 18, fontWeight: "900" },
     emptySub: {
-      fontFamily: fonts.body,
-      fontSize: 13,
-      fontWeight: "700",
-      lineHeight: 20,
-      textAlign: "center",
-    },
-    emptyBtn: {
-      alignItems: "center",
-      borderRadius: radii.pill,
-      flexDirection: "row",
-      gap: 8,
-      marginTop: 8,
-      paddingHorizontal: 20,
-      paddingVertical: 12,
-    },
-    emptyBtnText: {
-      color: "#fff",
-      fontFamily: fonts.body,
-      fontSize: 14,
-      fontWeight: "900",
+      fontFamily: fonts.body, fontSize: 13, fontWeight: "700",
+      lineHeight: 19, textAlign: "center",
     },
   });
 }
