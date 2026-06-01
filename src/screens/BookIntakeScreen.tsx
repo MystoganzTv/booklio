@@ -256,7 +256,7 @@ export function BookIntakeScreen() {
   const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
-  const [scanZoom, setScanZoom] = useState<0 | 0.25 | 0.5>(0);
+  const [scanZoom, setScanZoom] = useState<0 | 0.05 | 0.12>(0);
   // "camera" = show viewfinder; "manual" = hide camera, show keyboard-friendly input
   const [isbnInputMode, setIsbnInputMode] = useState<"camera" | "manual">("camera");
   const scanLineAnim = useRef(new Animated.Value(0)).current;
@@ -460,13 +460,20 @@ export function BookIntakeScreen() {
     setMatchLookupLabel(query);
     setMatchReturnMode(returnMode);
     setMode("matches");
+    setScanFeedback(null); // clear scanner badge when moving to results
     setIsBusy(true);
+
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("timeout")), 15_000)
+    );
+
     try {
-      // "auto" mode: the aggregator's detectQueryIntent() decides whether to
-      // search by author name or by title/keyword based on what was typed.
-      const result = type === "isbn"
-        ? await aggregatorLookupByIsbn(query)
-        : await aggregatorLookupByQuery(query);
+      const result = await Promise.race([
+        type === "isbn"
+          ? aggregatorLookupByIsbn(query)
+          : aggregatorLookupByQuery(query),
+        timeout
+      ]);
       setLookupResult(result);
       // Convert BookEdition[] → BookMatch[] so the existing MatchCard renders correctly.
       const legacyMatches: BookMatch[] = result.flatEditions.map((ed) => ({
@@ -491,15 +498,19 @@ export function BookIntakeScreen() {
         confidence: ed.score >= 90 ? "high" : ed.score >= 70 ? "medium" : "low",
       }));
       setMatches(legacyMatches);
-    } catch {
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.message === "timeout";
       openDialog(
-        "Connection issue",
-        Platform.OS === "web"
+        isTimeout ? "Búsqueda tardó demasiado" : "Sin conexión",
+        isTimeout
+          ? "Las bases de datos no respondieron a tiempo. Intenta de nuevo."
+          : Platform.OS === "web"
           ? "Couldn't reach book databases. In the web demo, start `npm run metadata-proxy` or try again."
-          : "Couldn't reach book databases right now. Check your internet connection."
+          : "No pudimos conectar con las bases de libros. Revisa tu conexión."
       );
     } finally {
       setIsBusy(false);
+      setScanFeedback(null); // always clear on finish
     }
   };
 
@@ -891,16 +902,47 @@ export function BookIntakeScreen() {
           </View>
         ) : matches.length === 0 ? (
           <View style={styles.noMatchCard}>
-            <Ionicons name="search-outline" size={32} color={c.muted} />
-            <Text style={[styles.cardTitle, { marginTop: spacing.sm }]}>No matches found</Text>
-            <Text style={styles.cardCopy}>
-              Try searching by a different title or author, or add the book manually.
+            {/* Decorative rings + icon — badge anchored to this container */}
+            <View style={styles.noMatchIconWrap}>
+              <View style={styles.noMatchRingOuter}>
+                <View style={styles.noMatchRingInner}>
+                  <Image
+                    source={require("../../assets/brand/bookliz-icon.png")}
+                    style={styles.noMatchIcon}
+                    resizeMode="contain"
+                  />
+                </View>
+              </View>
+              <View style={styles.noMatchBadge}>
+                <Ionicons name="search-outline" size={13} color="#fff" />
+              </View>
+            </View>
+
+            <Text style={styles.noMatchTitle}>Sin resultados</Text>
+            <Text style={styles.noMatchSub}>
+              {matchLookupLabel
+                ? `No encontramos "${matchLookupLabel}" en nuestras fuentes`
+                : "Prueba con un título, autor diferente, o agrégalo manualmente"}
             </Text>
-            <Pressable style={styles.primaryButton} onPress={() => setMode("manual")}>
-              <Text style={styles.primaryButtonText}>Enter details manually</Text>
+            <Pressable
+              style={[styles.primaryButton, { alignSelf: "stretch", marginTop: spacing.sm }]}
+              onPress={() => {
+                setMatches([]);
+                setMatchLookupLabel("");
+                setLookupResult(null);
+                if (matchReturnMode === "isbn") {
+                  setIsbnInputMode("camera");
+                  setScanned(false);
+                  setMode("isbn");
+                } else {
+                  setMode("search");
+                }
+              }}
+            >
+              <Text style={styles.primaryButtonText}>Buscar de nuevo</Text>
             </Pressable>
-            <Pressable style={[styles.ghostButton, { marginTop: spacing.sm }]} onPress={() => setMode("search")}>
-              <Text style={styles.ghostButtonText}>Try a different search</Text>
+            <Pressable style={[styles.ghostButton, { alignSelf: "stretch" }]} onPress={() => setMode("manual")}>
+              <Text style={styles.ghostButtonText}>Agregar manualmente</Text>
             </Pressable>
           </View>
         ) : (
@@ -1010,14 +1052,28 @@ export function BookIntakeScreen() {
               placeholderTextColor={c.gray}
               style={[styles.input, { fontSize: 20, letterSpacing: 2, textAlign: "center", paddingVertical: 18 }]}
               value={manual.isbn}
-              onChangeText={(isbn) => setManual((current) => ({ ...current, isbn }))}
-              onSubmitEditing={() => { if (manual.isbn) void lookupAndShowMatches(manual.isbn, "isbn", "isbn"); }}
-              returnKeyType="search"
+              maxLength={13}
+              onChangeText={(raw) => {
+                // Strip everything except digits (and X for ISBN-10 check digit)
+                const clean = raw.replace(/[^0-9X]/gi, "").slice(0, 13);
+                setManual((current) => ({ ...current, isbn: clean }));
+              }}
+              returnKeyType="done"
             />
+            {/* Live validation hint */}
+            {manual.isbn.length > 0 && manual.isbn.length !== 10 && manual.isbn.length !== 13 ? (
+              <Text style={styles.isbnHint}>
+                {manual.isbn.length}/13 — ISBN must be 10 or 13 digits
+              </Text>
+            ) : manual.isbn.length === 10 || manual.isbn.length === 13 ? (
+              <Text style={[styles.isbnHint, { color: c.tealDark }]}>
+                ✓ Valid ISBN length
+              </Text>
+            ) : null}
             <Pressable
-              style={[styles.primaryButton, { marginTop: spacing.md }]}
-              onPress={() => { if (manual.isbn) void lookupAndShowMatches(manual.isbn, "isbn", "isbn"); }}
-              disabled={isBusy || !manual.isbn}
+              style={[styles.primaryButton, { marginTop: spacing.sm }]}
+              onPress={() => { if (manual.isbn.length === 10 || manual.isbn.length === 13) void lookupAndShowMatches(manual.isbn, "isbn", "isbn"); }}
+              disabled={isBusy || (manual.isbn.length !== 10 && manual.isbn.length !== 13)}
             >
               {isBusy
                 ? <ActivityIndicator size="small" color="#fff" />
@@ -1059,6 +1115,7 @@ export function BookIntakeScreen() {
             enableTorch={torchOn}
             zoom={scanZoom}
             onBarcodeScanned={scanned ? undefined : (result) => {
+              setScanned(true); // lock immediately — prevents re-fire while lookup runs
               setScanFeedback("Barcode found — searching…");
               handleBarcode(result);
             }}
@@ -1113,7 +1170,7 @@ export function BookIntakeScreen() {
               />
             </Pressable>
             <View style={styles.zoomRow}>
-              {([0, 0.25, 0.5] as const).map((z, i) => (
+              {([0, 0.05, 0.12] as const).map((z, i) => (
                 <Pressable
                   key={z}
                   style={[styles.zoomBtn, scanZoom === z && styles.zoomBtnActive]}
@@ -2417,11 +2474,77 @@ function createStyles(c: AppColors, isDark: boolean) {
     alignItems: "center",
     backgroundColor: c.surfaceAlt,
     borderColor: c.border,
-    borderRadius: radii.lg,
+    borderRadius: 24,
     borderWidth: 1,
     gap: spacing.sm,
     marginTop: spacing.md,
-    padding: spacing.lg
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.lg
+  },
+  noMatchIconWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.xs
+  },
+  noMatchRingOuter: {
+    alignItems: "center",
+    backgroundColor: c.navy + "14",
+    borderColor: c.teal + "30",
+    borderRadius: 64,
+    borderWidth: 1.5,
+    height: 128,
+    justifyContent: "center",
+    width: 128
+  },
+  noMatchRingInner: {
+    alignItems: "center",
+    backgroundColor: c.navy,
+    borderRadius: 48,
+    height: 96,
+    justifyContent: "center",
+    width: 96
+  },
+  noMatchIcon: {
+    height: 56,
+    opacity: 0.6,
+    width: 56
+  },
+  noMatchBadge: {
+    alignItems: "center",
+    backgroundColor: c.coral,
+    borderColor: c.surfaceAlt,
+    borderRadius: 14,
+    borderWidth: 2.5,
+    bottom: 4,
+    height: 28,
+    justifyContent: "center",
+    position: "absolute",
+    right: 4,
+    width: 28
+  },
+  noMatchTitle: {
+    color: c.ink,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "900",
+    textAlign: "center"
+  },
+  noMatchSub: {
+    color: c.muted,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: spacing.xs,
+    textAlign: "center"
+  },
+  isbnHint: {
+    color: c.muted,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: spacing.xs,
+    textAlign: "center"
   },
   matchCard: {
     backgroundColor: c.surface,

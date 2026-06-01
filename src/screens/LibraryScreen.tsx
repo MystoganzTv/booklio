@@ -178,11 +178,11 @@ export function LibraryScreen() {
 
   return (
     <Screen>
+      {/* ── Header ── */}
       <View style={styles.headerRow}>
         <View style={styles.headerText}>
           <Text style={styles.eyebrow}>{t("library.eyebrow")}</Text>
           <Text style={styles.title}>{t("library.title")}</Text>
-          <Text style={styles.subtitle}>{t("library.subtitle")}</Text>
         </View>
         <View style={styles.miniStats}>
           <MiniStat value={String(books.length)} label={t("library.tracked")} styles={styles} />
@@ -191,59 +191,36 @@ export function LibraryScreen() {
         </View>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.shelfRail}>
-        {collectorShelves.map((item) => (
-          <View key={item.title} style={styles.shelfCard}>
-            <Text style={[styles.shelfValue, { color: item.accent }]}>{item.value}</Text>
-            <Text style={styles.shelfTitle}>{item.title}</Text>
-            <Text style={styles.shelfNote}>{item.note}</Text>
-          </View>
-        ))}
-      </ScrollView>
-
-      {/* Custom lists rail */}
+      {/* ── Lists rail — compact pills ── */}
       {userLists.length > 0 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.listsRail} contentContainerStyle={styles.listsRailContent}>
-          {/* "All books" clear-filter card */}
           <Pressable
-            style={[styles.listCard, !listFilter && styles.listCardActive]}
+            style={[styles.listPill, !listFilter && styles.listPillActive]}
             onPress={() => setListFilter(null)}
           >
-            <Text style={styles.listCardEmoji}>📖</Text>
-            <Text style={[styles.listCardName, !listFilter && styles.listCardNameActive]} numberOfLines={1}>All</Text>
-            <Text style={[styles.listCardCount, !listFilter && styles.listCardCountActive]}>{books.length}</Text>
+            <Text style={[styles.listPillText, !listFilter && styles.listPillTextActive]}>All</Text>
           </Pressable>
-
           {userLists.map((list) => {
             const active = listFilter === list.id;
             return (
               <Pressable
                 key={list.id}
-                style={[styles.listCard, active && styles.listCardActive]}
+                style={[styles.listPill, active && styles.listPillActive]}
                 onPress={() => setListFilter(active ? null : list.id)}
                 onLongPress={() => setRenamingList({ id: list.id, name: list.name, emoji: list.emoji })}
               >
-                <Text style={styles.listCardEmoji}>{list.emoji ?? "📚"}</Text>
-                <Text style={[styles.listCardName, active && styles.listCardNameActive]} numberOfLines={1}>{list.name}</Text>
-                <Text style={[styles.listCardCount, active && styles.listCardCountActive]}>{list.bookIds.length}</Text>
+                <Text style={styles.listPillEmoji}>{list.emoji ?? "📚"}</Text>
+                <Text style={[styles.listPillText, active && styles.listPillTextActive]} numberOfLines={1}>{list.name}</Text>
               </Pressable>
             );
           })}
-
-          {/* "+" create new list */}
-          <Pressable style={styles.listCardNew} onPress={() => setCreateListOpen(true)}>
-            <Ionicons name="add" size={20} color={c.teal} />
-            <Text style={styles.listCardNewText}>New</Text>
+          <Pressable style={styles.listPillNew} onPress={() => setCreateListOpen(true)}>
+            <Ionicons name="add" size={14} color={c.teal} />
           </Pressable>
         </ScrollView>
-      ) : (
-        <Pressable style={styles.listsRailEmpty} onPress={() => setCreateListOpen(true)}>
-          <Ionicons name="bookmarks-outline" size={14} color={c.teal} />
-          <Text style={styles.listsRailEmptyText}>{t("lists.createPrompt")}</Text>
-          <Ionicons name="add-circle-outline" size={14} color={c.teal} />
-        </Pressable>
-      )}
+      ) : null}
 
+      {/* ── Search + controls ── */}
       <View style={styles.searchRow}>
         <TextInput
           placeholder={t("library.searchPlaceholder")}
@@ -255,23 +232,23 @@ export function LibraryScreen() {
           returnKeyType="search"
           clearButtonMode="while-editing"
         />
+        {/* Single view toggle */}
         <Pressable
-          style={[styles.viewBtn, viewMode === "grid" && styles.viewBtnActive]}
-          onPress={() => setViewMode("grid")}
+          style={styles.controlBtn}
+          onPress={() => setViewMode((v) => v === "grid" ? "list" : "grid")}
         >
-          <Ionicons name="grid-outline" size={16} color={viewMode === "grid" ? activeControlTextColor : c.ink} />
+          <Ionicons
+            name={viewMode === "grid" ? "grid-outline" : "reorder-three-outline"}
+            size={17}
+            color={c.ink}
+          />
         </Pressable>
+        {/* Sort / filter */}
         <Pressable
-          style={[styles.viewBtn, viewMode === "list" && styles.viewBtnActive]}
-          onPress={() => setViewMode("list")}
-        >
-          <Ionicons name="reorder-three-outline" size={18} color={viewMode === "list" ? activeControlTextColor : c.ink} />
-        </Pressable>
-        <Pressable
-          style={[styles.sortBtn, sortOpen && styles.sortBtnActive]}
+          style={[styles.controlBtn, sortOpen && styles.controlBtnActive]}
           onPress={() => setSortOpen((v) => !v)}
         >
-          <Ionicons name="funnel-outline" size={16} color={sortOpen ? activeControlTextColor : c.ink} />
+          <Ionicons name="options-outline" size={17} color={sortOpen ? activeControlTextColor : c.ink} />
         </Pressable>
       </View>
 
@@ -352,14 +329,6 @@ export function LibraryScreen() {
         ))}
       </ScrollView>
 
-      <View style={styles.resultsMeta}>
-        <Text style={styles.resultsCount}>{t("library.booksOnShelf", { count: filteredBooks.length })}</Text>
-        <Text style={styles.activeSort}>· {t(`library.sorts.${sortBy}`)}</Text>
-        {listFilter ? <Text style={styles.activeSort}>· {userLists.find((l) => l.id === listFilter)?.emoji} {userLists.find((l) => l.id === listFilter)?.name}</Text> : null}
-        {genreFilter ? <Text style={styles.activeSort}>· {genreFilter}</Text> : null}
-        {tagFilter ? <Text style={styles.activeSort}>· #{tagFilter}</Text> : null}
-        <Text style={styles.activeSort}>· {viewMode === "grid" ? t("library.coverWall") : t("library.spineList")}</Text>
-      </View>
 
       {filteredBooks.length === 0 ? (
         books.length === 0 ? (
@@ -456,20 +425,20 @@ function NoMatchState({
   const hasQuery = query.trim().length > 0;
   return (
     <View style={styles.noMatchWrap}>
-      {/* Decorative rings */}
-      <View style={styles.noMatchRingOuter}>
-        <View style={styles.noMatchRingInner}>
-          <Image
-            source={require("../../assets/brand/bookliz-icon.png")}
-            style={styles.noMatchIcon}
-            resizeMode="contain"
-          />
+      {/* Icon + badge anchored together */}
+      <View style={styles.noMatchIconWrap}>
+        <View style={styles.noMatchRingOuter}>
+          <View style={styles.noMatchRingInner}>
+            <Image
+              source={require("../../assets/brand/bookliz-icon.png")}
+              style={styles.noMatchIcon}
+              resizeMode="contain"
+            />
+          </View>
         </View>
-      </View>
-
-      {/* Search badge */}
-      <View style={styles.noMatchBadge}>
-        <Ionicons name="search-outline" size={14} color="#fff" />
+        <View style={styles.noMatchBadge}>
+          <Ionicons name="search-outline" size={14} color="#fff" />
+        </View>
       </View>
 
       <Text style={styles.noMatchTitle}>Sin resultados</Text>
@@ -602,7 +571,7 @@ function createStyles(c: AppColors, isDark: boolean) {
       fontSize: 13,
       lineHeight: 19,
       marginTop: 6
-    },
+    }, // kept for i18n references, not rendered
     miniStats: {
       alignItems: "flex-end",
       flexDirection: "row",
@@ -625,122 +594,50 @@ function createStyles(c: AppColors, isDark: boolean) {
       fontWeight: "800",
       textTransform: "uppercase"
     },
-    shelfRail: {
-      marginBottom: spacing.md
-    },
-    shelfCard: {
-      ...shadows.card,
-      backgroundColor: c.surfaceAlt,
-      borderColor: c.border,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      marginRight: spacing.sm,
-      minHeight: 116,
-      padding: spacing.md,
-      width: 164
-    },
-    shelfValue: {
-      fontFamily: fonts.display,
-      fontSize: 28,
-      fontWeight: "900"
-    },
-    shelfTitle: {
-      color: c.ink,
-      fontFamily: fonts.body,
-      fontSize: 13,
-      fontWeight: "900",
-      marginTop: 3
-    },
-    shelfNote: {
-      color: c.muted,
-      fontFamily: fonts.bodyRegular,
-      fontSize: 12,
-      lineHeight: 17,
-      marginTop: 6
-    },
     listsRail: {
-      marginBottom: spacing.sm
+      marginBottom: spacing.sm,
+      marginTop: spacing.xs
     },
     listsRailContent: {
-      gap: spacing.sm,
-      paddingRight: spacing.sm
+      gap: spacing.xs,
+      paddingRight: spacing.sm,
+      alignItems: "center"
     },
-    listCard: {
+    listPill: {
       alignItems: "center",
-      backgroundColor: c.surfaceAlt,
       borderColor: c.border,
-      borderRadius: radii.lg,
+      borderRadius: radii.pill,
       borderWidth: 1,
-      minWidth: 72,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.sm
+      flexDirection: "row",
+      gap: 5,
+      paddingHorizontal: 14,
+      paddingVertical: 7
     },
-    listCardActive: {
+    listPillActive: {
       backgroundColor: c.navy,
       borderColor: c.navy
     },
-    listCardEmoji: {
-      fontSize: 22,
-      marginBottom: 4
+    listPillEmoji: {
+      fontSize: 13
     },
-    listCardName: {
+    listPillText: {
       color: c.ink,
       fontFamily: fonts.body,
-      fontSize: 11,
-      fontWeight: "900",
-      textAlign: "center"
+      fontSize: 12,
+      fontWeight: "800"
     },
-    listCardNameActive: {
+    listPillTextActive: {
       color: "#FFFFFF"
     },
-    listCardCount: {
-      color: c.muted,
-      fontFamily: fonts.bodyRegular,
-      fontSize: 11,
-      marginTop: 2,
-      textAlign: "center"
-    },
-    listCardCountActive: {
-      color: "rgba(255,255,255,0.65)"
-    },
-    listCardNew: {
+    listPillNew: {
       alignItems: "center",
-      backgroundColor: c.teal + "12",
-      borderColor: c.teal,
-      borderRadius: radii.lg,
-      borderStyle: "dashed",
-      borderWidth: 1.5,
-      justifyContent: "center",
-      minWidth: 58,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.sm
-    },
-    listCardNewText: {
-      color: c.teal,
-      fontFamily: fonts.body,
-      fontSize: 11,
-      fontWeight: "900",
-      marginTop: 2
-    },
-    listsRailEmpty: {
-      alignItems: "center",
-      backgroundColor: c.teal + "10",
-      borderColor: c.teal,
+      borderColor: c.teal + "60",
       borderRadius: radii.pill,
       borderStyle: "dashed",
       borderWidth: 1,
-      flexDirection: "row",
-      gap: spacing.xs,
+      height: 32,
       justifyContent: "center",
-      marginBottom: spacing.sm,
-      paddingHorizontal: spacing.md,
-      paddingVertical: 10
-    },
-    listsRailEmptyText: {
-      color: c.teal,
-      fontFamily: fonts.body,
-      fontSize: 13,
-      fontWeight: "800"
+      width: 32
     },
     searchRow: {
       alignItems: "center",
@@ -762,7 +659,7 @@ function createStyles(c: AppColors, isDark: boolean) {
       paddingHorizontal: spacing.md,
       paddingVertical: 12
     },
-    viewBtn: {
+    controlBtn: {
       alignItems: "center",
       backgroundColor: c.surfaceAlt,
       borderColor: c.border,
@@ -772,21 +669,7 @@ function createStyles(c: AppColors, isDark: boolean) {
       justifyContent: "center",
       width: 44
     },
-    viewBtnActive: {
-      backgroundColor: activeControlBackground,
-      borderColor: activeControlBorder
-    },
-    sortBtn: {
-      alignItems: "center",
-      backgroundColor: c.surfaceAlt,
-      borderColor: c.border,
-      borderRadius: radii.pill,
-      borderWidth: 1,
-      height: 44,
-      justifyContent: "center",
-      width: 44
-    },
-    sortBtnActive: {
+    controlBtnActive: {
       backgroundColor: activeControlBackground,
       borderColor: activeControlBorder
     },
@@ -864,25 +747,6 @@ function createStyles(c: AppColors, isDark: boolean) {
     },
     chipRail: {
       marginTop: spacing.sm
-    },
-    resultsMeta: {
-      alignItems: "center",
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 4,
-      marginBottom: spacing.sm,
-      marginTop: spacing.md
-    },
-    resultsCount: {
-      color: c.muted,
-      fontFamily: fonts.body,
-      fontSize: 12,
-      fontWeight: "800"
-    },
-    activeSort: {
-      color: c.muted,
-      fontFamily: fonts.body,
-      fontSize: 12
     },
     grid: {
       flexDirection: "row",
@@ -1027,6 +891,11 @@ function createStyles(c: AppColors, isDark: boolean) {
       paddingHorizontal: spacing.lg,
       paddingBottom: spacing.xl
     },
+    noMatchIconWrap: {
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: spacing.lg
+    },
     noMatchRingOuter: {
       alignItems: "center",
       backgroundColor: c.navy + "18",
@@ -1035,7 +904,6 @@ function createStyles(c: AppColors, isDark: boolean) {
       borderWidth: 1.5,
       height: 160,
       justifyContent: "center",
-      marginBottom: spacing.lg,
       width: 160
     },
     noMatchRingInner: {
@@ -1055,14 +923,13 @@ function createStyles(c: AppColors, isDark: boolean) {
       alignItems: "center",
       backgroundColor: c.coral,
       borderColor: c.surface,
-      borderRadius: 20,
+      borderRadius: 16,
       borderWidth: 2.5,
-      bottom: spacing.lg + 8,
+      bottom: 4,
       height: 32,
       justifyContent: "center",
       position: "absolute",
-      right: "50%",
-      transform: [{ translateX: 44 }],
+      right: 4,
       width: 32
     },
     noMatchTitle: {
