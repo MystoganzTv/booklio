@@ -14,6 +14,7 @@ export type RootStackParamList = {
   EditBook: { bookId: string };
   Achievements: undefined;
   WriteReview: { bookId: string };
+  GenreBrowse: { genre: string };
 };
 
 export type MainTabParamList = {

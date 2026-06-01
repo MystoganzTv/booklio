@@ -9,9 +9,11 @@ import {
   Nunito_900Black
 } from "@expo-google-fonts/nunito";
 import { BooklizProvider } from "./src/data/BooklizContext";
+import { ReadingTimerProvider } from "./src/data/ReadingTimerContext";
 import { ThemeProvider, useTheme } from "./src/theme/ThemeContext";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { LocalizationProvider } from "./src/i18n/LocalizationContext";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 function Root() {
   const { isDark } = useTheme();
@@ -36,12 +38,16 @@ export default function App() {
   if (!fontsLoaded) return null;
 
   return (
-    <LocalizationProvider>
-      <ThemeProvider>
-        <BooklizProvider>
-          <Root />
-        </BooklizProvider>
-      </ThemeProvider>
-    </LocalizationProvider>
+    <SafeAreaProvider>
+      <LocalizationProvider>
+        <ThemeProvider>
+          <BooklizProvider>
+            <ReadingTimerProvider>
+              <Root />
+            </ReadingTimerProvider>
+          </BooklizProvider>
+        </ThemeProvider>
+      </LocalizationProvider>
+    </SafeAreaProvider>
   );
 }

@@ -3,12 +3,13 @@ import { NavigationProp, useNavigation } from "@react-navigation/native";
 import { useMemo } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { BookCover } from "../components/BookCover";
-import { HeroRecommendationCard } from "../components/HeroRecommendationCard";
+
 import { RecommendationCard } from "../components/RecommendationCard";
 import { Screen } from "../components/Screen";
 import { SectionHeader } from "../components/SectionHeader";
 import { SessionRow } from "../components/SessionRow";
 import { useBookliz } from "../data/BooklizContext";
+import { formatElapsed, useReadingTimer } from "../data/ReadingTimerContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { MainTabParamList, RootStackParamList } from "../navigation/types";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
@@ -43,7 +44,9 @@ export function HomeScreen() {
   const { books, getAuthor, getBook, overallStats, readingSessions, recommendations, userProfile } = useBookliz();
   const logoSource = isDark ? booklizLogoDark : booklizLogoLight;
 
+  const { isRunning, bookId: timerBookId, elapsedMs, start: startTimer, stop: stopTimer } = useReadingTimer();
   const continueBook = books.find((b) => b.userStatus.status === "reading") ?? null;
+  const timerIsForContinue = isRunning && continueBook && timerBookId === continueBook.id;
   const goalPct = Math.min(100, Math.round((overallStats.booksReadThisYear / userProfile.yearlyGoal) * 100));
   const remaining = userProfile.yearlyGoal - overallStats.booksReadThisYear;
   const streakMsg = getStreakMessage(overallStats.currentStreak, c, t);
@@ -52,11 +55,6 @@ export function HomeScreen() {
     .filter((item): item is { recommendation: typeof recommendations[number]; book: NonNullable<ReturnType<typeof getBook>> } => Boolean(item.book))
     .slice(0, 4);
   const topLocation = overallStats.locationCounts[0]?.label ?? "—";
-
-  // Hero — top recommendation (highest confidence)
-  const heroRec = homeRecommendations[0] ?? null;
-  const heroBook = heroRec?.book ?? null;
-  const heroAuthor = heroBook ? (getAuthor(heroBook.authorId)?.name ?? "") : "";
 
   return (
     <Screen>
@@ -68,15 +66,6 @@ export function HomeScreen() {
           <Text style={styles.name}>{userProfile.name}.</Text>
         </View>
       </View>
-
-      {/* Hero recommendation card */}
-      <HeroRecommendationCard
-        recommendation={heroRec?.recommendation ?? null}
-        book={heroBook}
-        authorName={heroAuthor}
-        onPress={() => heroBook && navigation.navigate("BookDetail", { bookId: heroBook.id })}
-        onDiscoverPress={() => navigation.navigate("Discover")}
-      />
 
       {/* Stats strip */}
       <View style={styles.statsStrip}>
@@ -157,13 +146,35 @@ export function HomeScreen() {
               </View>
               <Text style={styles.progressMiniPct}>{continueBook.userStatus.progressPercent}%</Text>
             </View>
-            <Pressable
-              style={styles.primaryButton}
-              onPress={() => navigation.navigate("AddReadingSession", { bookId: continueBook.id })}
-            >
-              <Ionicons name="pencil" size={13} color={c.navText} style={{ marginRight: 6 }} />
-              <Text style={styles.primaryButtonText}>{t("home.logSession")}</Text>
-            </Pressable>
+            <View style={styles.continueActions}>
+              <Pressable
+                style={styles.primaryButton}
+                onPress={() => navigation.navigate("AddReadingSession", { bookId: continueBook.id })}
+              >
+                <Ionicons name="pencil" size={13} color={c.navText} style={{ marginRight: 6 }} />
+                <Text style={styles.primaryButtonText}>{t("home.logSession")}</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.timerButton, timerIsForContinue && { backgroundColor: c.coral + "22", borderColor: c.coral }]}
+                onPress={() => {
+                  if (timerIsForContinue) {
+                    const mins = stopTimer();
+                    navigation.navigate("AddReadingSession", { bookId: continueBook.id, prefillMinutes: mins } as any);
+                  } else {
+                    startTimer(continueBook.id);
+                  }
+                }}
+              >
+                <Ionicons
+                  name={timerIsForContinue ? "stop-circle" : "timer-outline"}
+                  size={15}
+                  color={timerIsForContinue ? c.coral : c.ink}
+                />
+                <Text style={[styles.timerButtonText, timerIsForContinue && { color: c.coral }]}>
+                  {timerIsForContinue ? formatElapsed(elapsedMs) : "Timer"}
+                </Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       ) : (
@@ -176,11 +187,11 @@ export function HomeScreen() {
 
       {readingSessions.length > 0 ? (
         <>
-          {homeRecommendations.length > 1 ? (
+          {homeRecommendations.length > 0 ? (
             <>
               <SectionHeader title={t("home.recommended")} />
               <View style={styles.recommendationRail}>
-                {homeRecommendations.slice(1).map(({ recommendation, book }) => (
+                {homeRecommendations.map(({ recommendation, book }) => (
                   <RecommendationCard
                     key={recommendation.id}
                     authorName={getAuthor(book.authorId)?.name ?? ""}
@@ -395,13 +406,26 @@ function createStyles(c: AppColors) {
       alignItems: "center",
       backgroundColor: c.navy,
       borderRadius: radii.pill,
+      flex: 1,
       flexDirection: "row",
       justifyContent: "center",
-      marginTop: spacing.md,
       paddingHorizontal: spacing.md,
       paddingVertical: 10,
     },
     primaryButtonText: { color: "#FFFFFF", fontFamily: fonts.body, fontSize: 12, fontWeight: "900" },
+    continueActions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
+    timerButton: {
+      alignItems: "center",
+      backgroundColor: c.surface,
+      borderColor: c.border,
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 5,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 10,
+    },
+    timerButtonText: { color: c.ink, fontFamily: fonts.body, fontSize: 12, fontWeight: "900" },
     emptyCard: {
       alignItems: "center",
       backgroundColor: c.surface,

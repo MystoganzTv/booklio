@@ -22,6 +22,7 @@ import { BookStatusSheet } from "../components/BookStatusSheet";
 import { BookListSheet } from "../components/BookListSheet";
 import { SessionRow } from "../components/SessionRow";
 import { useBookliz } from "../data/BooklizContext";
+import { useReadingTimer } from "../data/ReadingTimerContext";
 import { RootStackParamList } from "../navigation/types";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useTheme } from "../theme/ThemeContext";
@@ -50,6 +51,7 @@ export function BookDetailScreen() {
     getRecommendationsForBook, updateBookStatus, getReviewForBook,
   } = useBookliz();
 
+  const { isRunning, bookId: timerBookId, start: startTimer, stop: stopTimer } = useReadingTimer();
   const book = getBook(route.params.bookId);
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
   const [statusSheetOpen, setStatusSheetOpen] = useState(false);
@@ -176,6 +178,24 @@ export function BookDetailScreen() {
           <Pressable style={styles.iconBtn} onPress={() => setListSheetOpen(true)}>
             <Ionicons name="bookmarks-outline" size={20} color={c.ink} />
           </Pressable>
+          {/* Timer button — start or stop */}
+          <Pressable
+            style={[styles.iconBtn, isRunning && timerBookId === book.id && { backgroundColor: c.coral + "22", borderColor: c.coral }]}
+            onPress={() => {
+              if (isRunning && timerBookId === book.id) {
+                const minutes = stopTimer();
+                navigation.navigate("AddReadingSession", { bookId: book.id, prefillMinutes: minutes } as any);
+              } else {
+                startTimer(book.id);
+              }
+            }}
+          >
+            <Ionicons
+              name={isRunning && timerBookId === book.id ? "stop-circle" : "timer-outline"}
+              size={20}
+              color={isRunning && timerBookId === book.id ? c.coral : c.ink}
+            />
+          </Pressable>
         </View>
 
         {/* ── PROGRESS ─────────────────────────────────────────────────────── */}
@@ -299,6 +319,41 @@ export function BookDetailScreen() {
                 onPress={() => navigation.navigate("AddReadingSession", { bookId: book.id, sessionId: session.id })}
               />
             ))}
+          </View>
+        ) : null}
+
+        {/* ── NOTES ────────────────────────────────────────────────────────── */}
+        {book.userStatus.notes ? (
+          <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
+            <View style={styles.sectionBlockHeader}>
+              <Text style={styles.sectionTitle}>Your notes</Text>
+              <Pressable onPress={() => navigation.navigate("EditBook", { bookId: book.id })}>
+                <Text style={styles.sectionAction}>Edit</Text>
+              </Pressable>
+            </View>
+            <View style={styles.card}>
+              <Text style={styles.notesText}>{book.userStatus.notes}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        {/* ── QUOTES ───────────────────────────────────────────────────────── */}
+        {book.userStatus.favoriteQuotes.length > 0 ? (
+          <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
+            <View style={styles.sectionBlockHeader}>
+              <Text style={styles.sectionTitle}>Favourite quotes</Text>
+              <Pressable onPress={() => navigation.navigate("EditBook", { bookId: book.id })}>
+                <Text style={styles.sectionAction}>Edit</Text>
+              </Pressable>
+            </View>
+            <View style={{ gap: spacing.sm }}>
+              {book.userStatus.favoriteQuotes.map((quote, i) => (
+                <View key={i} style={styles.quoteCard}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={18} color={c.gold} style={styles.quoteIcon} />
+                  <Text style={styles.quoteText}>{quote}</Text>
+                </View>
+              ))}
+            </View>
           </View>
         ) : null}
 
@@ -477,5 +532,20 @@ function createStyles(c: AppColors) {
 
     // Shared small text
     mutedSm: { color: c.muted, fontFamily: fonts.body, fontSize: 11, fontWeight: "700" },
+    notesText: { color: c.ink, fontFamily: fonts.bodyRegular, fontSize: 14, lineHeight: 22 },
+    quoteCard: {
+      ...shadows.card,
+      backgroundColor: c.surface,
+      borderColor: c.gold + "44",
+      borderLeftColor: c.gold,
+      borderLeftWidth: 3,
+      borderRadius: radii.sm,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.sm,
+      padding: spacing.md,
+    },
+    quoteIcon: { marginTop: 2 },
+    quoteText: { color: c.ink, flex: 1, fontFamily: fonts.bodyRegular, fontSize: 14, fontStyle: "italic", lineHeight: 22 },
   });
 }
