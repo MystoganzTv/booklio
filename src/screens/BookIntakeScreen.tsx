@@ -1,10 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, BarcodeScanningResult, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
-import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { RouteProp, useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Animated, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { BooklizDialog } from "../components/BooklizDialog";
 import { Screen } from "../components/Screen";
 import { useBookliz } from "../data/BooklizContext";
@@ -43,6 +43,8 @@ import { parseIsbn, formatIsbn13 } from "../utils/isbnUtils";
 
 type IntakeMode = "menu" | "isbn" | "manual" | "search" | "matches" | "review";
 type IconName = keyof typeof Ionicons.glyphMap;
+type DiscoverSearchIntent = "auto" | "author" | "series";
+type BookIntakeRouteProp = RouteProp<RootStackParamList, "BookIntake">;
 
 const booklizLogo = require("../../assets/brand/bookliz-logo.png");
 
@@ -153,47 +155,6 @@ const sourceLabel: Record<NewBookInput["source"], string> = {
   search: "Book search"
 };
 
-// ─── Discover data ───────────────────────────────────────────────────────────
-
-const DISCOVER_GENRES: { label: string; icon: IconName; color: string; query: string }[] = [
-  { label: "Fantasy",         icon: "sparkles-outline",     color: "#14B8A6", query: "fantasy novels" },
-  { label: "Science Fiction", icon: "planet-outline",        color: "#6366F1", query: "science fiction" },
-  { label: "Mystery",         icon: "search-outline",        color: "#F59E0B", query: "mystery thriller" },
-  { label: "Romance",         icon: "heart-outline",         color: "#EC4899", query: "romance novels" },
-  { label: "Historical",      icon: "time-outline",          color: "#8B5CF6", query: "historical fiction" },
-  { label: "Horror",          icon: "moon-outline",          color: "#EF4444", query: "horror books" },
-  { label: "Nonfiction",      icon: "newspaper-outline",     color: "#10B981", query: "nonfiction bestsellers" },
-  { label: "Biography",       icon: "person-outline",        color: "#F97316", query: "biography memoir" },
-  { label: "Thriller",        icon: "warning-outline",       color: "#DC2626", query: "psychological thriller" },
-  { label: "Self-Help",       icon: "trending-up-outline",   color: "#0EA5E9", query: "self improvement" },
-  { label: "Adventure",       icon: "compass-outline",       color: "#06B6D4", query: "adventure novels" },
-  { label: "Crime",           icon: "shield-outline",        color: "#64748B", query: "crime fiction" },
-];
-
-const DISCOVER_SUGGESTIONS = [
-  "Epic fantasy sagas",
-  "Cozy mysteries",
-  "Historical thrillers",
-  "Sci-fi classics",
-  "Feel-good romance",
-  "True crime",
-  "Award-winning novels",
-  "Dark academia",
-  "Coming of age",
-  "Psychological thrillers",
-];
-
-const DISCOVER_MOODS = [
-  "Exciting", "Heartfelt", "Thought-provoking",
-  "Funny", "Scary", "Inspiring", "Feel-good", "Gripping",
-];
-
-const DISCOVER_SERIES = [
-  "Harry Potter", "Lord of the Rings", "Dune Saga",
-  "A Court of Thorns and Roses", "The Witcher", "Mistborn",
-  "Percy Jackson", "Stormlight Archive", "Sherlock Holmes", "Jack Reacher",
-];
-
 // ─── Animated scan line ───────────────────────────────────────────────────────
 
 function ScanLine() {
@@ -238,6 +199,7 @@ export function BookIntakeScreen() {
   const { t } = useI18n();
   const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<BookIntakeRouteProp>();
   const { addBook } = useBookliz();
   const [permission, requestPermission] = useCameraPermissions();
   const [mode, setMode] = useState<IntakeMode>("menu");
@@ -266,7 +228,9 @@ export function BookIntakeScreen() {
   const [matches, setMatches] = useState<BookMatch[]>([]);
   const [matchLookupLabel, setMatchLookupLabel] = useState("");
   const [matchReturnMode, setMatchReturnMode] = useState<"menu" | "isbn" | "search">("menu");
-  // True when the last search was an author query — adapts result headings and badges.
+  // Sort order for search results
+  const [sortOrder, setSortOrder] = useState<"relevance" | "year_desc" | "year_asc" | "rating">("relevance");
+  const [showSortSheet, setShowSortSheet] = useState(false);
   const isAuthorQuery = useMemo(
     () => detectQueryIntent(matchLookupLabel) === "author",
     [matchLookupLabel]
@@ -277,6 +241,7 @@ export function BookIntakeScreen() {
   const [isLoadingEditions, setIsLoadingEditions] = useState(false);
   // Debounce: prevents re-processing the same barcode within 2 s
   const lastScanRef = useRef<number>(0);
+  const initialSearchRequestRef = useRef<string | null>(null);
   const [manual, setManual] = useState({
     title: "",
     authorName: "",
@@ -285,12 +250,14 @@ export function BookIntakeScreen() {
     genre: "",
     publisher: ""
   });
+  const launchedFromDiscover = Boolean(route.params?.initialMode || route.params?.initialBookSelection);
 
   // Reset everything when the user navigates away mid-flow (taps another tab, etc.)
   // so that returning to the Add tab always shows the main menu, never a stuck mode.
   useFocusEffect(
     useCallback(() => {
       return () => {
+        initialSearchRequestRef.current = null;
         setMode("menu");
         setScanned(false);
         setCoverUri(undefined);
@@ -353,7 +320,7 @@ export function BookIntakeScreen() {
       index: 1,
       routes: [
         {
-          name: "MainTabs",
+          name: "AppTabs",
           state: {
             index: 1, // Library tab (0=Home, 1=Library, 2=Add, 3=Discover, 4=Profile)
             routes: [
@@ -402,6 +369,35 @@ export function BookIntakeScreen() {
     if (!searchQuery.trim()) return;
     await lookupAndShowMatches(searchQuery.trim(), "search", "query");
   };
+
+  useEffect(() => {
+    const request = route.params;
+    if (!request?.initialMode && !request?.initialBookSelection) return;
+
+    const requestKey = JSON.stringify(request);
+    if (initialSearchRequestRef.current === requestKey) return;
+    initialSearchRequestRef.current = requestKey;
+
+    if (request.initialBookSelection) {
+      void stageBook(
+        {
+          ...request.initialBookSelection,
+          source: "search",
+        },
+        "Picked from Discover."
+      );
+      return;
+    }
+
+    const initialQuery = request.initialQuery?.trim() ?? "";
+
+    setMode(request.initialMode ?? "search");
+    setSearchQuery(initialQuery);
+
+    if (request.initialMode === "search" && request.autoRun && initialQuery) {
+      void lookupAndShowMatches(initialQuery, "search", "query", request.initialSearchIntent ?? "auto");
+    }
+  }, [route.params]);
 
   const loadMoreResults = async () => {
     if (isLoadingMore) return;
@@ -459,7 +455,8 @@ export function BookIntakeScreen() {
   const lookupAndShowMatches = async (
     query: string,
     returnMode: "menu" | "isbn" | "search",
-    type: "isbn" | "query" = "query"
+    type: "isbn" | "query" = "query",
+    forcedIntent: DiscoverSearchIntent = "auto"
   ) => {
     setMatches([]);
     setLookupResult(null);
@@ -477,17 +474,21 @@ export function BookIntakeScreen() {
       const result = await Promise.race([
         type === "isbn"
           ? aggregatorLookupByIsbn(query)
-          : aggregatorLookupByQuery(query),
+          : aggregatorLookupByQuery(
+              query,
+              undefined,
+              forcedIntent === "author" ? "author" : forcedIntent === "series" ? "title" : "auto"
+            ),
         timeout
       ]);
       setLookupResult(result);
       // One match card per unique BookWork (different books), using each
       // work's own author, title, and best edition — not flatEditions which
       // mixes all editions from all books with the wrong author.
-      const isAuthor = detectQueryIntent(query) === "author";
+      const isAuthor = forcedIntent === "author" || (forcedIntent === "auto" && detectQueryIntent(query) === "author");
       const works = result.works.length ? result.works : result.work ? [result.work] : [];
       // For author queries show ALL results (full catalog); for title queries cap at 8.
-      const sliced = isAuthor ? works : works.slice(0, 8);
+      const sliced = works; // no cap — show all results
       const legacyMatches: BookMatch[] = sliced
         .map((work) => {
           const best = work.bestEdition ?? work.editions[0];
@@ -509,11 +510,30 @@ export function BookIntakeScreen() {
             sourceId: best?.editionKey ?? best?.googleBooksId,
             workKey: work.workKey,
             editionKey: best?.editionKey,
+            seriesName: work.seriesName,
+            seriesOrder: work.seriesOrder,
+            averageRating: work.averageRating,
+            ratingsCount: work.ratingsCount,
             score: work.score,
             confidence: work.score >= 90 ? "high" : work.score >= 70 ? "medium" : "low",
           };
         });
-      setMatches(legacyMatches);
+
+      // For author queries, sort by publication year descending (most recent first).
+      // The aggregator's relevance ranking already surfaced the right books;
+      // within that set, readers expect newer releases at the top.
+      if (isAuthor) {
+        legacyMatches.sort((a, b) => {
+          const ya = a.publishedDate ? parseInt(a.publishedDate.slice(0, 4), 10) : 0;
+          const yb = b.publishedDate ? parseInt(b.publishedDate.slice(0, 4), 10) : 0;
+          return yb - ya;
+        });
+      }
+
+      const dedupedMatches = legacyMatches.filter((match, index, all) => (
+        all.findIndex((candidate) => candidate.id === match.id) === index
+      ));
+      setMatches(dedupedMatches);
     } catch (err) {
       const isTimeout = err instanceof Error && err.message === "timeout";
       openDialog(
@@ -730,6 +750,15 @@ export function BookIntakeScreen() {
     return (
       <Screen>
       {dialogNode}
+      {/* Back to results */}
+      <Pressable
+        style={styles.reviewBackBtn}
+        onPress={() => setMode("matches")}
+        hitSlop={8}
+      >
+        <Ionicons name="chevron-back" size={18} color={c.tealDark} />
+        <Text style={styles.reviewBackText}>Back to results</Text>
+      </Pressable>
       <View style={styles.reviewHeader}>
           {reviewBook.coverImageUri ? (
             <Image source={{ uri: reviewBook.coverImageUri }} style={styles.reviewCover} />
@@ -874,22 +903,43 @@ export function BookIntakeScreen() {
   }
 
   if (mode === "matches") {
-    const primaryMatch = matches[0];
-    const otherMatches = matches.slice(1, 7);
+    // Apply sort to a copy of matches (preserving original order as "relevance")
+    const sortedMatches = [...matches].sort((a, b) => {
+      if (sortOrder === "year_desc") {
+        const ya = a.publishedDate ? parseInt(a.publishedDate.slice(0, 4), 10) : 0;
+        const yb = b.publishedDate ? parseInt(b.publishedDate.slice(0, 4), 10) : 0;
+        return yb - ya;
+      }
+      if (sortOrder === "year_asc") {
+        const ya = a.publishedDate ? parseInt(a.publishedDate.slice(0, 4), 10) : 9999;
+        const yb = b.publishedDate ? parseInt(b.publishedDate.slice(0, 4), 10) : 9999;
+        return ya - yb;
+      }
+      if (sortOrder === "rating") {
+        return (b.averageRating ?? 0) - (a.averageRating ?? 0);
+      }
+      return 0; // "relevance" — keep original order
+    });
+
+    const primaryMatch = sortedMatches[0];
+    // For author queries show every result; for title/ISBN queries cap at 6 secondary cards.
+    const otherMatches = sortedMatches.slice(1); // no cap
     const backLabel =
       matchReturnMode === "isbn" ? "Scanner" :
-      matchReturnMode === "search" ? "Search" : "All options";
+      matchReturnMode === "search" ? "Search" : "Add book";
 
     return (
       <Screen>
         {dialogNode}
-        <Pressable style={styles.backButton} onPress={() => {
-          if (matchReturnMode === "isbn") setScanned(false);
-          setMode(matchReturnMode);
-        }}>
-          <Ionicons name="chevron-back" size={20} color={c.tealDark} />
-          <Text style={styles.backButtonText}>{backLabel}</Text>
-        </Pressable>
+        {!launchedFromDiscover ? (
+          <Pressable style={styles.backButton} onPress={() => {
+            if (matchReturnMode === "isbn") setScanned(false);
+            setMode(matchReturnMode);
+          }}>
+            <Ionicons name="chevron-back" size={20} color={c.tealDark} />
+            <Text style={styles.backButtonText}>{backLabel}</Text>
+          </Pressable>
+        ) : null}
 
         <View style={styles.pageHeader}>
           {/* Editable query — tap to refine and re-search without going back */}
@@ -988,24 +1038,29 @@ export function BookIntakeScreen() {
           </View>
         ) : (
           <>
-            {/* Author query: "Books by [Name]" heading; title query: count + confidence label */}
-            {isAuthorQuery ? (
-              <Text style={styles.reviewSectionTitle}>
-                {`Books by ${matchLookupLabel}`}
+            {/* Results header: count + sort button */}
+            <View style={styles.resultsHeader}>
+              <Text style={styles.resultsHeaderTitle}>
+                {isAuthorQuery
+                  ? `Books by ${matchLookupLabel}`
+                  : matches.length === 1 ? "1 result" : `${matches.length} results`}
               </Text>
-            ) : (
-              <Text style={styles.matchCount}>
-                {matches.length === 1 ? "1 result" : `${matches.length} results`}
-                {" · sorted by confidence"}
-              </Text>
-            )}
+              <Pressable style={styles.sortButton} onPress={() => setShowSortSheet(true)}>
+                <Ionicons name="funnel-outline" size={14} color={c.tealDark} />
+                <Text style={styles.sortButtonText}>
+                  {sortOrder === "relevance" ? "Sort" :
+                   sortOrder === "year_desc" ? "Newest" :
+                   sortOrder === "year_asc" ? "Oldest" : "Top rated"}
+                </Text>
+              </Pressable>
+            </View>
 
             {/* Primary (top) result */}
             {primaryMatch ? (
               <MatchCard
                 match={primaryMatch}
                 isPrimary
-                hideConfidence={isAuthorQuery}
+                hideConfidence
                 onSelect={() => selectMatch(primaryMatch)}
               />
             ) : null}
@@ -1013,14 +1068,11 @@ export function BookIntakeScreen() {
             {/* Secondary results */}
             {otherMatches.length > 0 ? (
               <>
-                {!isAuthorQuery && (
-                  <Text style={styles.reviewSectionTitle}>Other editions</Text>
-                )}
-                {otherMatches.map((match) => (
+                {otherMatches.map((match, index) => (
                   <MatchCard
-                    key={match.id}
+                    key={`${match.id}-${index}`}
                     match={match}
-                    hideConfidence={isAuthorQuery}
+                    hideConfidence
                     onSelect={() => selectMatch(match)}
                   />
                 ))}
@@ -1049,6 +1101,38 @@ export function BookIntakeScreen() {
             </Pressable>
           </>
         )}
+
+        {/* Sort bottom sheet — uses Modal so it overlays correctly over ScrollView */}
+        <Modal
+          visible={showSortSheet}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowSortSheet(false)}
+        >
+          <Pressable style={styles.sortSheetOverlay} onPress={() => setShowSortSheet(false)}>
+            <Pressable style={styles.sortSheet} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.sortSheetHandle} />
+              <Text style={styles.sortSheetTitle}>Sort by</Text>
+              {(["relevance", "year_desc", "year_asc", "rating"] as const).map((option) => (
+                <Pressable
+                  key={option}
+                  style={[styles.sortOption, sortOrder === option && styles.sortOptionActive]}
+                  onPress={() => { setSortOrder(option); setShowSortSheet(false); }}
+                >
+                  <Text style={[styles.sortOptionText, sortOrder === option && styles.sortOptionTextActive]}>
+                    {option === "relevance" ? "Relevance" :
+                     option === "year_desc" ? "Release date: Newest first" :
+                     option === "year_asc" ? "Release date: Oldest first" :
+                     "Top rated"}
+                  </Text>
+                  {sortOrder === option ? (
+                    <Ionicons name="checkmark" size={16} color={c.tealDark} />
+                  ) : null}
+                </Pressable>
+              ))}
+            </Pressable>
+          </Pressable>
+        </Modal>
 
         <BookEditionsSheet
           visible={isEditionsSheetVisible}
@@ -1251,7 +1335,7 @@ export function BookIntakeScreen() {
         {dialogNode}
         <Pressable style={styles.backButton} onPress={() => setMode("menu")}>
           <Ionicons name="chevron-back" size={20} color={c.tealDark} />
-          <Text style={styles.backButtonText}>All options</Text>
+          <Text style={styles.backButtonText}>Add book</Text>
         </Pressable>
         <View style={styles.pageHeader}>
           <Text style={styles.pageEyebrow}>{t("addBook.manual")}</Text>
@@ -1277,20 +1361,24 @@ export function BookIntakeScreen() {
     return (
       <Screen>
         {dialogNode}
-        <Pressable style={styles.backButton} onPress={() => setMode("menu")}>
-          <Ionicons name="chevron-back" size={20} color={c.tealDark} />
-          <Text style={styles.backButtonText}>All options</Text>
-        </Pressable>
+        {!launchedFromDiscover ? (
+          <Pressable style={styles.backButton} onPress={() => setMode("menu")}>
+            <Ionicons name="chevron-back" size={20} color={c.tealDark} />
+            <Text style={styles.backButtonText}>Add book</Text>
+          </Pressable>
+        ) : null}
 
         <View style={styles.pageHeader}>
-          <Text style={styles.pageTitle}>Find your next read</Text>
+          <Text style={styles.pageTitle}>Search for a book</Text>
+          <Text style={styles.pageSubtitle}>
+            Search by title, author, or series. Use Discover when you want to browse.
+          </Text>
         </View>
 
-        {/* Search bar — auto-detects title vs author name */}
         <View style={styles.searchRow}>
           <TextInput
             autoFocus={hasQuery}
-            placeholder="Dan Brown, Dune, J.K. Rowling…"
+            placeholder="Fourth Wing, Rebecca Yarros, Red Rising..."
             placeholderTextColor={c.gray}
             style={styles.searchInput}
             value={searchQuery}
@@ -1303,73 +1391,21 @@ export function BookIntakeScreen() {
           </Pressable>
         </View>
 
-        {/* Discover content — hidden when user is actively typing */}
         {!hasQuery ? (
-          <>
-            {/* ── Try searching for ── */}
-            <Text style={styles.discoverSectionTitle}>✨  Try searching for</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRowContent}>
-              {DISCOVER_SUGGESTIONS.map((s) => (
-                <Pressable
-                  key={s}
-                  style={styles.suggestionChip}
-                  onPress={() => void lookupAndShowMatches(s, "search", "query")}
-                >
-                  <Text style={styles.suggestionChipText}>{s}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-
-            {/* ── Browse by genre ── */}
-            <Text style={styles.discoverSectionTitle}>📚  Browse by genre</Text>
-            <View style={styles.genreGrid}>
-              {DISCOVER_GENRES.map((g) => (
-                <Pressable
-                  key={g.label}
-                  style={styles.genreItem}
-                  onPress={() => void lookupAndShowMatches(g.query, "search", "query")}
-                >
-                  <View style={[styles.genreIconCircle, { backgroundColor: g.color + "22" }]}>
-                    <Ionicons name={g.icon} size={19} color={g.color} />
-                  </View>
-                  <Text style={styles.genreLabel} numberOfLines={1}>{g.label}</Text>
-                </Pressable>
-              ))}
+          <View style={styles.searchHelperCard}>
+            <Ionicons name="search-outline" size={18} color={c.tealDark} />
+            <View style={styles.searchHelperCopy}>
+              <Text style={styles.searchHelperTitle}>Add Book is now the direct path</Text>
+              <Text style={styles.searchHelperText}>
+                Search for the exact book you want to add. For moods, genres, and trends, use Discover.
+              </Text>
+              <Text style={styles.searchHelperExamples}>
+                Try: <Text style={styles.searchHelperExamplesStrong}>Fourth Wing</Text>, <Text style={styles.searchHelperExamplesStrong}>Rebecca Yarros</Text>, <Text style={styles.searchHelperExamplesStrong}>Red Rising</Text>
+              </Text>
             </View>
-
-            {/* ── Browse by mood ── */}
-            <Text style={styles.discoverSectionTitle}>🎭  Browse by mood</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRowContent}>
-              {DISCOVER_MOODS.map((m) => (
-                <Pressable
-                  key={m}
-                  style={styles.moodChip}
-                  onPress={() => void lookupAndShowMatches(`${m.toLowerCase()} books`, "search", "query")}
-                >
-                  <Text style={styles.moodChipText}>{m}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-
-            {/* ── Popular series ── */}
-            <Text style={styles.discoverSectionTitle}>📖  Popular series</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.chipRowContent, { paddingBottom: spacing.xl }]}>
-              {DISCOVER_SERIES.map((s) => (
-                <Pressable
-                  key={s}
-                  style={styles.seriesChip}
-                  onPress={() => void lookupAndShowMatches(s, "search", "query")}
-                >
-                  <Ionicons name="book-outline" size={13} color={c.gold} />
-                  <Text style={styles.seriesChipText}>{s}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </>
+          </View>
         ) : (
-          <Text style={styles.resultsHint}>
-            Booklio detects author names automatically. Tap Search or press return.
-          </Text>
+          <Text style={styles.resultsHint}>We&apos;ll detect whether you&apos;re searching by title, author, or series.</Text>
         )}
       </Screen>
     );
@@ -1577,6 +1613,29 @@ const SOURCE_LABELS: Record<string, string> = {
   "open-library": "Open Library",
 };
 
+/** Renders 1–5 star glyphs for a 1–5 rating. Partial star not rendered. */
+function StarRating({ rating, count }: { rating: number; count?: number }) {
+  const c = useColors();
+  const fullStars = Math.round(rating);
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <Ionicons
+          key={i}
+          name={i <= fullStars ? "star" : "star-outline"}
+          size={11}
+          color={i <= fullStars ? c.gold : c.muted}
+        />
+      ))}
+      {count !== undefined && count > 0 ? (
+        <Text style={{ color: c.muted, fontFamily: "System", fontSize: 11, marginLeft: 4 }}>
+          {count >= 1000 ? `${(count / 1000).toFixed(1)}k` : count.toString()}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 function MatchCard({
   match,
   onSelect,
@@ -1586,86 +1645,63 @@ function MatchCard({
   match: BookMatch;
   onSelect: () => void;
   isPrimary?: boolean;
-  /** When true, suppresses the confidence dot/badge (e.g. for author queries). */
   hideConfidence?: boolean;
 }) {
   const c = useColors();
   const { isDark } = useTheme();
   const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
-  const confidenceColor = CONFIDENCE_COLORS[match.confidence] ?? CONFIDENCE_COLORS.low;
   const year = match.publishedDate ? match.publishedDate.slice(0, 4) : null;
-  const isbnDisplay = match.isbn13
-    ? formatIsbn13(match.isbn13)
-    : match.isbn10 ?? null;
 
   return (
-    <View style={[styles.matchCard, isPrimary && styles.matchCardPrimary]}>
+    <Pressable style={styles.matchCard} onPress={onSelect}>
       {/* Cover */}
       <View style={styles.matchCoverWrap}>
         {match.coverUrl ? (
-          <Image source={{ uri: match.coverUrl }} style={styles.matchCover} />
+          <Image source={{ uri: match.coverUrl }} style={styles.matchCover} resizeMode="cover" />
         ) : (
           <View style={styles.matchCoverFallback}>
-            <Ionicons name="book-outline" size={24} color="rgba(255,255,255,0.6)" />
+            <Ionicons name="book-outline" size={26} color="rgba(255,255,255,0.5)" />
           </View>
         )}
       </View>
 
       {/* Info */}
       <View style={styles.matchInfo}>
-        {/* Badges */}
-        <View style={styles.matchBadgeRow}>
-          {!hideConfidence ? (
-            <View style={[styles.matchConfidenceBadge, { backgroundColor: confidenceColor + "22", borderColor: confidenceColor + "55" }]}>
-              <View style={[styles.matchConfidenceDot, { backgroundColor: confidenceColor }]} />
-              <Text style={[styles.matchConfidenceText, { color: confidenceColor }]}>
-                {match.confidence.toUpperCase()}
-              </Text>
-            </View>
-          ) : null}
-          <View style={styles.matchSourceBadge}>
-            <Text style={styles.matchSourceText}>
-              {SOURCE_LABELS[match.source] ?? match.source}
-            </Text>
-          </View>
-        </View>
-
-        {/* Title & author */}
-        <Text style={styles.matchTitle} numberOfLines={2}>{match.title}</Text>
-        {match.subtitle ? (
-          <Text style={styles.matchSubtitle} numberOfLines={1}>{match.subtitle}</Text>
-        ) : null}
-        <Text style={styles.matchAuthor} numberOfLines={1}>
-          {match.authors.join(", ") || "Unknown author"}
-        </Text>
-
-        {/* Metadata row */}
-        <Text style={styles.matchMeta} numberOfLines={2}>
-          {[
-            match.language,
-            match.publisher,
-            year,
-            match.pageCount ? `${match.pageCount} pp` : null,
-          ].filter(Boolean).join(" · ")}
-        </Text>
-
-        {isbnDisplay ? (
-          <Text style={styles.matchIsbn}>ISBN {isbnDisplay}</Text>
-        ) : null}
-
-        {/* CTA */}
-        <Pressable style={[styles.matchSelectBtn, isPrimary && styles.matchSelectBtnPrimary]} onPress={onSelect}>
-          <Ionicons
-            name="library-outline"
-            size={14}
-            color={isPrimary ? "#FFFFFF" : c.tealDark}
-          />
-          <Text style={[styles.matchSelectText, isPrimary && styles.matchSelectTextPrimary]}>
-            {isPrimary ? "Add this edition" : "Select"}
+        {/* Series */}
+        {match.seriesName ? (
+          <Text style={styles.matchSeries} numberOfLines={1}>
+            {match.seriesOrder ? `Book ${match.seriesOrder} · ` : ""}{match.seriesName}
           </Text>
-        </Pressable>
+        ) : null}
+
+        {/* Title */}
+        <Text style={styles.matchTitle} numberOfLines={2}>{match.title}</Text>
+
+        {/* Author */}
+        <Text style={styles.matchAuthor} numberOfLines={1}>
+          By {match.authors.join(", ") || "Unknown author"}
+        </Text>
+
+        {/* Ratings */}
+        {match.averageRating ? (
+          <View style={{ marginTop: 4 }}>
+            <StarRating rating={match.averageRating} count={match.ratingsCount} />
+          </View>
+        ) : null}
+
+        {/* Year · pages */}
+        <Text style={styles.matchMeta} numberOfLines={1}>
+          {[year, match.pageCount ? `${match.pageCount} pages` : null].filter(Boolean).join(" · ")}
+        </Text>
       </View>
-    </View>
+
+      {/* Add button */}
+      <Pressable style={styles.matchAddBtn} onPress={onSelect} hitSlop={8}>
+        <View style={styles.matchAddCircle}>
+          <Ionicons name="add" size={18} color="#fff" />
+        </View>
+      </Pressable>
+    </Pressable>
   );
 }
 
@@ -1714,6 +1750,13 @@ function createStyles(c: AppColors, isDark: boolean) {
     fontSize: 26,
     fontWeight: "900",
     marginTop: 2
+  },
+  pageSubtitle: {
+    color: c.muted,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: spacing.xs,
   },
   inlineSearchRow: {
     alignItems: "center",
@@ -1764,6 +1807,19 @@ function createStyles(c: AppColors, isDark: boolean) {
     justifyContent: "center",
     marginBottom: spacing.sm,
     width: 44
+  },
+  reviewBackBtn: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 2,
+    marginBottom: spacing.sm,
+    alignSelf: "flex-start",
+  },
+  reviewBackText: {
+    color: c.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    fontWeight: "800",
   },
   reviewHeader: {
     ...shadows.card,
@@ -2446,35 +2502,6 @@ function createStyles(c: AppColors, isDark: boolean) {
     justifyContent: "center",
     width: 50
   },
-  searchModeRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    marginBottom: spacing.sm
-  },
-  searchModeChip: {
-    alignItems: "center",
-    backgroundColor: c.surfaceAlt,
-    borderColor: c.border,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 6,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 9
-  },
-  searchModeChipActive: {
-    backgroundColor: isDark ? darkInteractiveFill : c.navy,
-    borderColor: isDark ? darkInteractiveBorder : c.navy
-  },
-  searchModeText: {
-    color: c.muted,
-    fontFamily: fonts.body,
-    fontSize: 13,
-    fontWeight: "900"
-  },
-  searchModeTextActive: {
-    color: isDark ? darkInteractiveText : "#FFFFFF"
-  },
   busyRow: {
     alignItems: "center",
     flexDirection: "row",
@@ -2520,6 +2547,46 @@ function createStyles(c: AppColors, isDark: boolean) {
     fontSize: 13,
     marginBottom: spacing.md,
     textAlign: "center"
+  },
+  searchHelperCard: {
+    backgroundColor: c.surface,
+    borderColor: c.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    padding: spacing.md,
+  },
+  searchHelperCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  searchHelperTitle: {
+    color: c.ink,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  searchHelperText: {
+    color: c.muted,
+    fontFamily: fonts.bodyRegular,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  searchHelperExamples: {
+    color: c.muted,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  searchHelperExamplesStrong: {
+    color: c.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    fontWeight: "900",
   },
   languageGrid: {
     flexDirection: "row",
@@ -2632,138 +2699,155 @@ function createStyles(c: AppColors, isDark: boolean) {
     marginTop: spacing.xs,
     textAlign: "center"
   },
+  // ── Search result cards (Audible-style) ──────────────────────────────────
   matchCard: {
+    alignItems: "center",
     backgroundColor: c.surface,
-    borderColor: c.border,
-    borderRadius: radii.lg,
-    borderWidth: 1,
+    borderBottomColor: c.border,
+    borderBottomWidth: 1,
     flexDirection: "row",
     gap: spacing.md,
-    marginBottom: spacing.md,
-    padding: spacing.md
-  },
-  matchCardPrimary: {
-    ...shadows.card,
-    borderColor: c.teal + "55",
-    borderWidth: 2
+    paddingHorizontal: 0,
+    paddingVertical: spacing.md,
   },
   matchCoverWrap: {
-    flexShrink: 0
+    flexShrink: 0,
   },
   matchCover: {
-    borderRadius: radii.md,
-    height: 120,
-    width: 80
+    borderRadius: radii.sm,
+    height: 90,
+    width: 62,
   },
   matchCoverFallback: {
     alignItems: "center",
     backgroundColor: c.navy,
-    borderRadius: radii.md,
-    height: 120,
+    borderRadius: radii.sm,
+    height: 90,
     justifyContent: "center",
-    width: 80
+    width: 62,
   },
   matchInfo: {
     flex: 1,
-    gap: 4
+    gap: 3,
   },
-  matchBadgeRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    marginBottom: 4
-  },
-  matchConfidenceBadge: {
-    alignItems: "center",
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 4
-  },
-  matchConfidenceDot: {
-    borderRadius: 4,
-    height: 6,
-    width: 6
-  },
-  matchConfidenceText: {
+  matchSeries: {
+    color: c.tealDark,
     fontFamily: fonts.body,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 0.6
-  },
-  matchSourceBadge: {
-    backgroundColor: c.surfaceAlt,
-    borderColor: c.border,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 4
-  },
-  matchSourceText: {
-    color: c.muted,
-    fontFamily: fonts.body,
-    fontSize: 10,
-    fontWeight: "800"
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.2,
   },
   matchTitle: {
     color: c.ink,
-    fontFamily: fonts.display,
-    fontSize: 17,
+    fontFamily: fonts.body,
+    fontSize: 15,
     fontWeight: "900",
-    lineHeight: 22
-  },
-  matchSubtitle: {
-    color: c.muted,
-    fontFamily: fonts.bodyRegular,
-    fontSize: 12
+    lineHeight: 20,
   },
   matchAuthor: {
-    color: c.tealDark,
-    fontFamily: fonts.body,
+    color: c.muted,
+    fontFamily: fonts.bodyRegular,
     fontSize: 13,
-    fontWeight: "900"
   },
   matchMeta: {
     color: c.muted,
     fontFamily: fonts.bodyRegular,
     fontSize: 11,
-    lineHeight: 16
+    marginTop: 2,
   },
-  matchIsbn: {
-    color: c.muted,
-    fontFamily: fonts.body,
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.4,
-    marginTop: 2
-  },
-  matchSelectBtn: {
+  matchAddBtn: {
     alignItems: "center",
-    alignSelf: "flex-start",
-    backgroundColor: c.teal + "18",
-    borderColor: c.teal + "44",
+    justifyContent: "center",
+    paddingLeft: spacing.sm,
+  },
+  matchAddCircle: {
+    alignItems: "center",
+    backgroundColor: c.teal,
+    borderRadius: 16,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
+  // Sort header
+  resultsHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  resultsHeaderTitle: {
+    color: c.ink,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  sortButton: {
+    alignItems: "center",
+    backgroundColor: c.teal + "14",
+    borderColor: c.teal + "33",
     borderRadius: radii.pill,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 6,
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8
+    gap: 5,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
   },
-  matchSelectBtnPrimary: {
-    backgroundColor: c.navy,
-    borderColor: c.navy
-  },
-  matchSelectText: {
+  sortButtonText: {
     color: c.tealDark,
     fontFamily: fonts.body,
     fontSize: 12,
-    fontWeight: "900"
+    fontWeight: "800",
   },
-  matchSelectTextPrimary: {
-    color: "#FFFFFF"
+  // Sort sheet
+  sortSheetOverlay: {
+    backgroundColor: "rgba(0,0,0,0.5)",
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  sortSheet: {
+    backgroundColor: c.surface,
+    borderTopLeftRadius: radii.lg,
+    borderTopRightRadius: radii.lg,
+    paddingBottom: 40,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+  },
+  sortSheetHandle: {
+    alignSelf: "center",
+    backgroundColor: c.border,
+    borderRadius: 2,
+    height: 4,
+    marginBottom: spacing.md,
+    width: 40,
+  },
+  sortSheetTitle: {
+    color: c.ink,
+    fontFamily: fonts.display,
+    fontSize: 18,
+    fontWeight: "900",
+    marginBottom: spacing.sm,
+  },
+  sortOption: {
+    alignItems: "center",
+    borderRadius: radii.md,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 14,
+  },
+  sortOptionActive: {
+    backgroundColor: c.teal + "12",
+  },
+  sortOptionText: {
+    color: c.ink,
+    fontFamily: fonts.body,
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  sortOptionTextActive: {
+    color: c.tealDark,
+    fontWeight: "900",
   },
   editManuallyBtn: {
     alignItems: "center",
@@ -2818,93 +2902,5 @@ function createStyles(c: AppColors, isDark: boolean) {
     fontSize: 13,
     fontWeight: "900",
   },
-  // ── Discover screen ──────────────────────────────────────────────────────
-  discoverSectionTitle: {
-    color: c.ink,
-    fontFamily: fonts.display,
-    fontSize: 16,
-    fontWeight: "900",
-    marginTop: spacing.lg,
-    marginBottom: spacing.sm
-  },
-  chipRowContent: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    paddingBottom: 4
-  },
-  suggestionChip: {
-    backgroundColor: c.teal + "16",
-    borderColor: c.teal + "40",
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 9
-  },
-  suggestionChipText: {
-    color: c.tealDark,
-    fontFamily: fonts.body,
-    fontSize: 13,
-    fontWeight: "900"
-  },
-  genreGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm
-  },
-  genreItem: {
-    alignItems: "center",
-    backgroundColor: c.surface,
-    borderColor: c.border,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    width: "48.5%"
-  },
-  genreIconCircle: {
-    alignItems: "center",
-    borderRadius: 18,
-    height: 36,
-    justifyContent: "center",
-    width: 36
-  },
-  genreLabel: {
-    color: c.ink,
-    flex: 1,
-    fontFamily: fonts.body,
-    fontSize: 13,
-    fontWeight: "900"
-  },
-  moodChip: {
-    backgroundColor: c.gold + "16",
-    borderColor: c.gold + "44",
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 9
-  },
-  moodChipText: {
-    color: isDark ? c.gold : "#92620A",
-    fontFamily: fonts.body,
-    fontSize: 13,
-    fontWeight: "900"
-  },
-  seriesChip: {
-    alignItems: "center",
-    backgroundColor: c.navy,
-    borderRadius: radii.pill,
-    flexDirection: "row",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 9
-  },
-  seriesChipText: {
-    color: "#FFFFFF",
-    fontFamily: fonts.body,
-    fontSize: 13,
-    fontWeight: "900"
-  }
   });
 }

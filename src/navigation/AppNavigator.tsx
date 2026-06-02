@@ -35,7 +35,7 @@ import { FloatingTimer } from "../components/FloatingTimer";
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 
-function MainTabs() {
+function AppTabs() {
   const { colors: c, isDark } = useTheme();
   const { t } = useI18n();
   const addFrameBase = isDark ? "rgba(255,200,87,0.16)" : c.surfaceAlt;
@@ -125,6 +125,7 @@ export function AppNavigator() {
       <Stack.Navigator
         screenOptions={{
           contentStyle: { backgroundColor: c.bg },
+          headerBackButtonDisplayMode: "minimal",
           headerShadowVisible: false,
           headerStyle: { backgroundColor: c.navBg },
           headerTintColor: c.navText,
@@ -138,13 +139,20 @@ export function AppNavigator() {
             <Stack.Screen component={OnboardingGenresScreen} name="OnboardingGenres" options={{ headerShown: false, animation: "slide_from_right" }} />
           </>
         ) : (
-          <Stack.Screen component={MainTabs} name="MainTabs" options={{ headerShown: false }} />
+          <Stack.Screen component={AppTabs} name="AppTabs" options={{ headerShown: false, title: "" }} />
         )}
         <Stack.Screen component={WelcomeScreen} name="Welcome" options={{ headerShown: false }} />
         <Stack.Screen component={BookDetailScreen} name="BookDetail" options={{ title: "" }} />
         <Stack.Screen component={ReadingLogScreen} name="ReadingLog" options={{ title: "" }} />
         <Stack.Screen component={AddReadingSessionScreen} name="AddReadingSession" options={{ title: "" }} />
-        <Stack.Screen component={BookIntakeScreen} name="BookIntake" options={{ title: t("nav.stack.addBook") }} />
+        <Stack.Screen
+          component={BookIntakeScreen}
+          name="BookIntake"
+          options={{
+            title: t("nav.stack.addBook"),
+            headerBackButtonDisplayMode: "minimal",
+          }}
+        />
         <Stack.Screen component={SeriesTrackerScreen} name="SeriesTracker" options={{ title: "" }} />
         <Stack.Screen component={EditProfileScreen} name="EditProfile" options={{ title: t("nav.stack.editProfile") }} />
         <Stack.Screen component={SettingsScreen} name="Settings" options={{ title: t("nav.stack.settings") }} />

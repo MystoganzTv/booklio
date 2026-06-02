@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { NavigationProp, useNavigation } from "@react-navigation/native";
-import { useMemo } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { BookCover } from "../components/BookCover";
 
 import { RecommendationCard } from "../components/RecommendationCard";
@@ -12,6 +12,7 @@ import { useBookliz } from "../data/BooklizContext";
 import { formatElapsed, useReadingTimer } from "../data/ReadingTimerContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { MainTabParamList, RootStackParamList } from "../navigation/types";
+import { fetchByGenre, GenreBookResult } from "../services/googleBooksProvider";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors, useTheme } from "../theme/ThemeContext";
 
@@ -35,6 +36,48 @@ function getStreakMessage(streak: number, c: AppColors, t: (key: string, vars?: 
   return { headline: t("home.streakLegendTitle", { count: streak }), sub: t("home.streakLegendBody"), accent: c.gold };
 }
 
+/**
+ * Fetch a small set of suggested books based on the user's favorite genres.
+ * Only fires when the user has fewer than 8 books (new-user experience).
+ * Results are cached in a ref so they don't re-fetch on every render.
+ */
+function useGenreSuggestions(
+  favoriteGenres: string[],
+  ownedTitleKeys: Set<string>
+): GenreBookResult[] {
+  const [suggestions, setSuggestions] = useState<GenreBookResult[]>([]);
+  const fetched = useRef(false);
+
+  useEffect(() => {
+    if (fetched.current || favoriteGenres.length === 0) return;
+    fetched.current = true;
+
+    // Pick up to 2 genres, fetch 12 books each, then merge + filter
+    const genresToFetch = favoriteGenres.slice(0, 2);
+    Promise.all(genresToFetch.map((g) => fetchByGenre(g, 0, 12))).then((results) => {
+      const seen = new Set<string>();
+      const merged: GenreBookResult[] = [];
+      for (const { books } of results) {
+        for (const book of books) {
+          const key = book.googleBooksId;
+          if (seen.has(key)) continue;
+          if (!book.coverUrl) continue;                              // must have cover
+          if (!["English", "Spanish"].includes(book.language ?? "")) continue; // en/es only
+          if (ownedTitleKeys.has(book.title.trim().toLowerCase())) continue;   // not in library
+          seen.add(key);
+          merged.push(book);
+          if (merged.length >= 10) break;
+        }
+        if (merged.length >= 10) break;
+      }
+      setSuggestions(merged);
+    }).catch(() => {/* silent fail */});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);                                                            // run once on mount
+
+  return suggestions;
+}
+
 export function HomeScreen() {
   const navigation = useNavigation<NavigationProp<RootStackParamList & MainTabParamList>>();
   const c = useColors();
@@ -55,6 +98,19 @@ export function HomeScreen() {
     .filter((item): item is { recommendation: typeof recommendations[number]; book: NonNullable<ReturnType<typeof getBook>> } => Boolean(item.book))
     .slice(0, 4);
   const topLocation = overallStats.locationCounts[0]?.label ?? "—";
+
+  // Genre suggestions — for new users who haven't filled their library yet
+  const isNewUser = books.length < 8;
+  // Use normalized title keys to avoid suggesting books the user already owns
+  const ownedTitleKeys = useMemo(
+    () => new Set(books.map((b) => b.title.trim().toLowerCase())),
+    [books]
+  );
+  const genreSuggestions = useGenreSuggestions(
+    isNewUser ? userProfile.favoriteGenres : [],
+    ownedTitleKeys
+  );
+  const showGenreSuggestions = isNewUser && genreSuggestions.length > 0;
 
   return (
     <Screen>
@@ -185,26 +241,65 @@ export function HomeScreen() {
         </Pressable>
       )}
 
+      {/* Genre-based suggestions — shown for new users based on onboarding genres */}
+      {showGenreSuggestions ? (
+        <>
+          <SectionHeader
+            title="Based on your interests"
+            actionLabel="Browse"
+            onAction={() =>
+              navigation.navigate("GenreBrowse", { genre: userProfile.favoriteGenres[0]! })
+            }
+          />
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.genreRailContent}
+            style={styles.genreRail}
+          >
+            {genreSuggestions.map((book) => (
+              <Pressable
+                key={book.googleBooksId}
+                style={styles.genreCard}
+                onPress={() =>
+                  navigation.navigate("GenreBrowse", {
+                    genre: userProfile.favoriteGenres[0]!,
+                  })
+                }
+              >
+                <Image source={{ uri: book.coverUrl }} style={styles.genreCover} resizeMode="cover" />
+                <Text style={styles.genreCardTitle} numberOfLines={2}>{book.title}</Text>
+                <Text style={styles.genreCardAuthor} numberOfLines={1}>
+                  {book.authors[0] ?? ""}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </>
+      ) : null}
+
+      {/* Library-based recommendations */}
+      {homeRecommendations.length > 0 ? (
+        <>
+          <SectionHeader title={t("home.recommended")} />
+          <View style={styles.recommendationRail}>
+            {homeRecommendations.map(({ recommendation, book }) => (
+              <RecommendationCard
+                key={recommendation.id}
+                authorName={getAuthor(book.authorId)?.name ?? ""}
+                book={book}
+                compact
+                recommendation={recommendation}
+                onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
+              />
+            ))}
+          </View>
+        </>
+      ) : null}
+
+      {/* Recent sessions */}
       {readingSessions.length > 0 ? (
         <>
-          {homeRecommendations.length > 0 ? (
-            <>
-              <SectionHeader title={t("home.recommended")} />
-              <View style={styles.recommendationRail}>
-                {homeRecommendations.map(({ recommendation, book }) => (
-                  <RecommendationCard
-                    key={recommendation.id}
-                    authorName={getAuthor(book.authorId)?.name ?? ""}
-                    book={book}
-                    compact
-                    recommendation={recommendation}
-                    onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
-                  />
-                ))}
-              </View>
-            </>
-          ) : null}
-
           <SectionHeader
             title={t("home.recentSessions")}
             actionLabel={t("home.viewAll")}
@@ -440,5 +535,29 @@ function createStyles(c: AppColors) {
     emptyTitle: { color: c.ink, fontFamily: fonts.display, fontSize: 18, fontWeight: "900", marginTop: spacing.xs },
     emptySubtitle: { color: c.muted, fontFamily: fonts.body, fontSize: 13, textAlign: "center" },
     recommendationRail: { marginBottom: spacing.md },
+    genreRail: { marginBottom: spacing.md },
+    genreRailContent: { gap: spacing.sm, paddingRight: spacing.md },
+    genreCard: {
+      width: 110,
+    },
+    genreCover: {
+      borderRadius: radii.md,
+      height: 160,
+      width: 110,
+      marginBottom: spacing.xs,
+    },
+    genreCardTitle: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "800",
+      lineHeight: 16,
+    },
+    genreCardAuthor: {
+      color: c.muted,
+      fontFamily: fonts.body,
+      fontSize: 11,
+      marginTop: 2,
+    },
   });
 }

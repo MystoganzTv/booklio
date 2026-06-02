@@ -62,6 +62,32 @@ const TITLE_STARTERS = new Set([
 ]);
 
 /**
+ * Words that look letter-only but are clearly NOT person names.
+ * If any word in a 2–3 word query is in this list, treat as general/title search.
+ * Covers genres, common nouns, adjectives, and Spanish/English content words.
+ */
+const NON_NAME_WORDS = new Set([
+  // genres & content categories
+  "fantasy", "fiction", "nonfiction", "mystery", "thriller", "romance", "horror",
+  "biography", "memoir", "history", "science", "adventure", "poetry", "comics",
+  "novel", "novels", "book", "books", "series", "saga", "story", "stories",
+  "literary", "classic", "classics", "anthology", "collection",
+  // common descriptors that appear in titles
+  "dark", "light", "black", "white", "red", "blue", "green", "golden", "silver",
+  "great", "little", "big", "old", "new", "lost", "last", "first", "final",
+  "magic", "magical", "dragon", "dragons", "fire", "ice", "blood", "shadow",
+  "night", "day", "world", "land", "kingdom", "empire", "war", "rise", "fall",
+  "love", "death", "life", "time", "power", "heart", "soul", "mind", "game",
+  // Spanish content words
+  "libros", "libro", "novela", "novelas", "saga", "historia", "amor",
+]);
+
+function isLikelyTitle(query: string): boolean {
+  const words = query.trim().toLowerCase().split(/\s+/);
+  return words.some((w) => NON_NAME_WORDS.has(w));
+}
+
+/**
  * Heuristic: does the raw query look like a person's name (→ author search)
  * or a book title / keyword (→ general search)?
  *
@@ -82,6 +108,7 @@ export function detectQueryIntent(query: string): "author" | "general" {
   if (/\d/.test(query)) return "general";
   if (TITLE_STARTERS.has(words[0]!.toLowerCase())) return "general";
   if (/[&:—–,]/.test(query)) return "general";
+  if (isLikelyTitle(query)) return "general";
 
   // A name part is:
   //   - A word made of letters only (any case, including accented), optionally
@@ -213,11 +240,19 @@ function pickBestEdition(
       score: 0,
     };
   }
+  // Priority languages: English and Spanish are always preferred when no
+  // explicit preferLang is set. This ensures we don't surface German/French
+  // editions as the "best" just because they happen to have a higher OL score.
+  const PREFERRED_LANGS = ["en", "es"];
   return [...editions].sort((a, b) => {
-    const langA = preferLang && a.languageCode === preferLang ? 8 : 0;
-    const langB = preferLang && b.languageCode === preferLang ? 8 : 0;
-    const coverA = a.coverUrl ? 3 : 0;
-    const coverB = b.coverUrl ? 3 : 0;
+    const langA = preferLang
+      ? (a.languageCode === preferLang ? 12 : PREFERRED_LANGS.includes(a.languageCode ?? "") ? 4 : 0)
+      : (PREFERRED_LANGS.includes(a.languageCode ?? "") ? 4 : 0);
+    const langB = preferLang
+      ? (b.languageCode === preferLang ? 12 : PREFERRED_LANGS.includes(b.languageCode ?? "") ? 4 : 0)
+      : (PREFERRED_LANGS.includes(b.languageCode ?? "") ? 4 : 0);
+    const coverA = a.coverUrl ? 8 : 0;   // was 3 — cover is now a strong signal
+    const coverB = b.coverUrl ? 8 : 0;
     const completeA = (a.publisher ? 1 : 0) + (a.pageCount ? 1 : 0) + (a.publishedDate ? 1 : 0);
     const completeB = (b.publisher ? 1 : 0) + (b.pageCount ? 1 : 0) + (b.publishedDate ? 1 : 0);
     const lpA = !allowLargePrint && isLargePrintEdition(a) ? -10 : 0;
@@ -726,10 +761,49 @@ export async function lookupByQuery(
     }
   }
 
+  // Helper: merge a GB result into an existing candidate or create a new one.
+  function ingestGBResult(
+    partialWork: GBItem["work"],
+    edition: GBItem["edition"],
+    bucket: number,
+    gbRank: number,
+    queryForScoring: ScoringQuery = scoringQuery
+  ): void {
+    const existingIdx = findMergeableIdx(candidates, partialWork.title, partialWork.authors);
+    if (existingIdx !== -1) {
+      const c = candidates[existingIdx]!;
+      const mergedEditions = dedupeEditions([...c.work.editions, edition]);
+      const best = pickBestEdition(mergedEditions, queryLang);
+      const { score, confidence } = scoreWork(c.work, best, queryForScoring);
+      candidates[existingIdx] = {
+        bucket: Math.max(c.bucket, bucket),
+        gbRank: Math.min(c.gbRank, gbRank),
+        work: {
+          ...c.work,
+          description: c.work.description ?? partialWork.description,
+          genres: c.work.genres.length ? c.work.genres : (partialWork.genres ?? []),
+          workKey: c.work.workKey ?? partialWork.workKey,
+          googleBooksId: c.work.googleBooksId ?? partialWork.googleBooksId,
+          editionCount: c.work.editionCount ?? partialWork.editionCount,
+          averageRating: c.work.averageRating ?? partialWork.averageRating,
+          ratingsCount: c.work.ratingsCount ?? partialWork.ratingsCount,
+          seriesName: c.work.seriesName ?? partialWork.seriesName,
+          seriesOrder: c.work.seriesOrder ?? partialWork.seriesOrder,
+          editions: mergedEditions,
+          bestEdition: best,
+          score,
+          confidence,
+        },
+      };
+    } else {
+      const work = buildWork(partialWork, [edition], queryForScoring, queryLang);
+      candidates.push({ work, bucket, gbRank });
+    }
+  }
+
   // ── Process Google Books primary results (highest priority) ──────────────
   for (const { work: partial, edition, gbRank } of gbPrimary) {
-    const work = buildWork(partial, [edition], scoringQuery, queryLang);
-    candidates.push({ work, bucket: primaryBucket, gbRank });
+    ingestGBResult(partial, edition, primaryBucket, gbRank);
   }
 
   // ── Process Open Library primary results (merge or add) ──────────────────
@@ -742,23 +816,8 @@ export async function lookupByQuery(
   // the user typed a translated title (e.g. "Alas de sangre"). They rank
   // slightly below primary results but above fuzzy-only matches.
   for (const { work: partial, edition, gbRank } of gbExtra) {
-    const existingIdx = findMergeableIdx(candidates, partial.title, partial.authors);
-    if (existingIdx !== -1) {
-      // Same work found via both primary and translation queries — keep higher
-      // bucket (primary stays). Just add the edition for metadata richness.
-      const c = candidates[existingIdx]!;
-      const mergedEditions = dedupeEditions([...c.work.editions, edition]);
-      const best = pickBestEdition(mergedEditions, queryLang);
-      const { score, confidence } = scoreWork(c.work, best, scoringQuery);
-      candidates[existingIdx] = {
-        ...c,
-        work: { ...c.work, editions: mergedEditions, bestEdition: best, score, confidence },
-      };
-    } else {
-      const extraQuery: ScoringQuery = { title: extraTitle!, author };
-      const work = buildWork(partial, [edition], extraQuery, queryLang);
-      candidates.push({ work, bucket: BUCKET_TRANSLATION, gbRank });
-    }
+    const extraQuery: ScoringQuery = { title: extraTitle!, author };
+    ingestGBResult(partial, edition, BUCKET_TRANSLATION, gbRank, extraQuery);
   }
 
   // ── Process Open Library translation-expansion results ───────────────────
@@ -778,8 +837,37 @@ export async function lookupByQuery(
     return a.gbRank - b.gbRank;
   });
 
+  // ── 7b. Post-sort filters ──────────────────────────────────────────────────
+
+  // Filter 1 (hard): Remove box sets, omnibus collections, and multi-book bundles.
+  // These are not individual books and confuse the user.
+  const COLLECTION_PATTERN = /\b(box\s*set|boxed\s*set|collection|omnibus|complete\s*works?|complete\s*series|books?\s*set|bundle|anthology|collected\s*works?|volumes?\s*\d|komplett|gesammelte)\b/i;
+  const candidatesFiltered = candidates.filter(({ work }) => {
+    if (COLLECTION_PATTERN.test(work.title)) {
+      console.log(`  [FILTER-OUT collection] "${work.title}"`);
+      return false;
+    }
+    return true;
+  });
+  // Only apply if we didn't accidentally wipe everything
+  const candidatesAfterCollection = candidatesFiltered.length > 0 ? candidatesFiltered : candidates;
+
+  // Filter 2 (soft): Prefer books with a cover image.
+  // A work "has cover" if its bestEdition has a coverUrl OR any of its editions
+  // (preferably en/es) has one. Only drop no-cover entries if ≥3 would remain.
+  const COVER_LANGS = ["en", "es"];
+  const workHasCover = (work: BookWork): boolean => {
+    if (work.bestEdition?.coverUrl) return true;
+    // Check if any en/es edition has a cover
+    return work.editions.some(
+      (e) => e.coverUrl && COVER_LANGS.includes(e.languageCode ?? "")
+    );
+  };
+  const withCover = candidatesAfterCollection.filter(({ work }) => workHasCover(work));
+  const finalCandidates = withCover.length >= 3 ? withCover : candidatesAfterCollection;
+
   // ── 8. Enrich with series/translation data from local catalog ─────────────
-  const sorted = candidates.map((c) => enrichWorkFromCatalog(c.work));
+  const sorted = finalCandidates.map((c) => enrichWorkFromCatalog(c.work));
 
   const flatEditions = dedupeEditions(sorted.flatMap((w) => w.editions));
 

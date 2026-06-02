@@ -198,7 +198,7 @@ export function EditBookScreen() {
         { text: t("common.cancel"), style: "cancel" },
         { text: t("editBook.deleteConfirm"), style: "destructive", onPress: () => {
           deleteBook(book.id);
-          navigation.reset({ index: 0, routes: [{ name: "MainTabs" }] });
+          navigation.reset({ index: 0, routes: [{ name: "AppTabs" }] });
         }},
       ]
     );

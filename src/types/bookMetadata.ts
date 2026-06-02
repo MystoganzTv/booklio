@@ -78,6 +78,10 @@ export interface BookWork {
   seriesOrder?: number;
   /** Total edition count reported by the API (may exceed fetched editions) */
   editionCount?: number;
+  /** Google Books community rating (1–5) */
+  averageRating?: number;
+  /** Number of ratings on Google Books */
+  ratingsCount?: number;
   /** All fetched editions, sorted by score descending */
   editions: BookEdition[];
   /**

@@ -2,7 +2,6 @@
  * GenreBrowseScreen
  *
  * Audible-style genre catalog browse:
- *   • Sub-genre chips (horizontal scroll)
  *   • "In your library" section (books already added)
  *   • Catalog results from Google Books — paginated, infinite scroll
  *
@@ -30,25 +29,6 @@ import { AppColors, fonts, radii, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
 import { Book } from "../types/models";
 
-// ─── Sub-genre chips ──────────────────────────────────────────────────────────
-
-const SUB_GENRES: Record<string, string[]> = {
-  "Fantasy":            ["Epic Fantasy", "Dark Fantasy", "Urban Fantasy", "Historical Fiction", "Science Fiction"],
-  "Science Fiction":    ["Space Opera", "Cyberpunk", "Dystopian", "Hard Sci-Fi", "Fantasy"],
-  "Mystery":            ["Cozy Mystery", "Detective", "Thriller", "Crime", "Historical Fiction"],
-  "Thriller":           ["Psychological", "Legal", "Political", "Mystery", "Horror"],
-  "Historical Fiction": ["Ancient", "Medieval", "World War", "Victorian", "Romance"],
-  "Romance":            ["Contemporary", "Historical", "Paranormal", "Fantasy", "Young Adult"],
-  "Horror":             ["Psychological", "Supernatural", "Gothic", "Thriller", "Dark Fantasy"],
-  "Adventure":          ["Action", "Survival", "Travel", "Fantasy", "Science Fiction"],
-  "Literary Fiction":   ["Contemporary", "Historical Fiction", "Coming of Age", "Nonfiction", "Mystery"],
-  "Young Adult":        ["Fantasy", "Romance", "Science Fiction", "Adventure", "Horror"],
-  "Biography":          ["Memoir", "Autobiography", "History", "Nonfiction", "Personal Growth"],
-  "Nonfiction":         ["History", "Science", "Biography", "Personal Growth", "Business"],
-  "History":            ["Ancient", "Modern", "Biography", "Military", "World History"],
-  "Personal Growth":    ["Productivity", "Psychology", "Wellness", "Business", "Nonfiction"],
-};
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type RouteProps = RouteProp<RootStackParamList, "GenreBrowse">;
@@ -65,7 +45,6 @@ export function GenreBrowseScreen() {
   const { books } = useBookliz();
   const styles = useMemo(() => createStyles(c), [c]);
 
-  const [activeSubGenre, setActiveSubGenre] = useState<string | null>(null);
   const [catalogBooks, setCatalogBooks] = useState<GenreBookResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -74,10 +53,8 @@ export function GenreBrowseScreen() {
   const currentGenreRef = useRef<string>("");
 
   const isKeywordMode = !!params.catalogQuery;
-  const currentGenre = activeSubGenre ?? params.genre;
+  const currentGenre = params.genre;
   const displayTitle = params.title ?? params.genre;
-  // Sub-genre chips only make sense in genre mode
-  const subGenres = isKeywordMode ? [] : (SUB_GENRES[params.genre] ?? []);
 
   // Set nav title
   useLayoutEffect(() => {
@@ -97,6 +74,8 @@ export function GenreBrowseScreen() {
   );
 
   // Load catalog books
+  const COLLECTION_PATTERN = /\b(box\s*set|boxed\s*set|collection|omnibus|complete\s*works?|complete\s*series|books?\s*set|bundle|anthology|collected\s*works?|volumes?\s*\d|komplett|gesammelte)\b/i;
+
   const loadGenre = useCallback(async (genre: string, reset = true) => {
     if (reset) {
       setLoading(true);
@@ -112,9 +91,27 @@ export function GenreBrowseScreen() {
         ? fetchByKeyword(params.catalogQuery, reset ? 0 : startIndexRef.current, PAGE_SIZE)
         : fetchByGenre(genre, reset ? 0 : startIndexRef.current, PAGE_SIZE);
       const { books: fetched, totalItems: total } = await fetcher;
+
+      // Filter 1 (hard): remove box sets and multi-book collections
+      const noCollections = fetched.filter((b) => !COLLECTION_PATTERN.test(b.title));
+
+      // Filter 2 (soft): prefer books with a cover image plus some signal of quality/recency.
+      const withStrongCover = noCollections.filter((b) =>
+        !!b.coverUrl && (
+          (b.ratingsCount ?? 0) > 0 ||
+          (b.averageRating ?? 0) > 0 ||
+          (b.publishedYear ?? 0) >= 1990
+        )
+      );
+      const withCover = noCollections.filter((b) => !!b.coverUrl);
+      const filtered =
+        withStrongCover.length >= 3 ? withStrongCover :
+        withCover.length >= 3 ? withCover :
+        noCollections;
+
       startIndexRef.current += fetched.length;
       setTotalItems(total);
-      setCatalogBooks((prev) => reset ? fetched : [...prev, ...fetched]);
+      setCatalogBooks((prev) => reset ? filtered : [...prev, ...filtered]);
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -153,6 +150,13 @@ export function GenreBrowseScreen() {
   // ── Book card ──────────────────────────────────────────────────────────────
   function renderCatalogCard({ item }: { item: GenreBookResult }) {
     const inLibrary = isInLibrary(item);
+    const fullStars = item.averageRating ? Math.round(item.averageRating) : 0;
+    const ratingCount = item.ratingsCount
+      ? item.ratingsCount >= 1000
+        ? `${(item.ratingsCount / 1000).toFixed(1)}k`
+        : String(item.ratingsCount)
+      : null;
+
     return (
       <Pressable
         style={[styles.bookCard, inLibrary && { opacity: 0.85 }]}
@@ -184,14 +188,29 @@ export function GenreBrowseScreen() {
         </Text>
         {item.authors[0] && (
           <Text numberOfLines={1} style={[styles.bookAuthor, { color: c.muted }]}>
-            {item.authors[0]}
+            By {item.authors[0]}
           </Text>
         )}
-        {item.publishedYear && (
+        {/* Ratings row */}
+        {fullStars > 0 ? (
+          <View style={styles.ratingRow}>
+            {[1,2,3,4,5].map((i) => (
+              <Ionicons
+                key={i}
+                name={i <= fullStars ? "star" : "star-outline"}
+                size={10}
+                color={i <= fullStars ? "#F5A623" : c.muted}
+              />
+            ))}
+            {ratingCount ? (
+              <Text style={[styles.ratingCount, { color: c.muted }]}>{ratingCount}</Text>
+            ) : null}
+          </View>
+        ) : item.publishedYear ? (
           <Text style={[styles.bookYear, { color: c.muted }]}>
             {item.publishedYear}
           </Text>
-        )}
+        ) : null}
       </Pressable>
     );
   }
@@ -200,47 +219,6 @@ export function GenreBrowseScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: c.bg }]}>
-      {/* Sub-genre chips */}
-      {subGenres.length > 0 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={[styles.chipsScroll, { borderBottomColor: c.border }]}
-          contentContainerStyle={styles.chipsContent}
-        >
-          <Pressable
-            style={[
-              styles.chip,
-              { borderColor: c.border, backgroundColor: c.surface },
-              !activeSubGenre && { backgroundColor: c.teal, borderColor: c.teal },
-            ]}
-            onPress={() => setActiveSubGenre(null)}
-          >
-            <Text style={[styles.chipText, { color: !activeSubGenre ? "#fff" : c.ink }]}>
-              All {params.genre}
-            </Text>
-          </Pressable>
-          {subGenres.map((sg) => {
-            const isActive = activeSubGenre === sg;
-            return (
-              <Pressable
-                key={sg}
-                style={[
-                  styles.chip,
-                  { borderColor: c.border, backgroundColor: c.surface },
-                  isActive && { backgroundColor: c.teal, borderColor: c.teal },
-                ]}
-                onPress={() => setActiveSubGenre(isActive ? null : sg)}
-              >
-                <Text style={[styles.chipText, { color: isActive ? "#fff" : c.ink }]}>
-                  {sg}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      )}
-
       {/* Main catalog list */}
       {loading ? (
         <View style={styles.loadingState}>
@@ -354,12 +332,6 @@ function createStyles(c: AppColors) {
   return StyleSheet.create({
     root: { flex: 1 },
 
-    // ── Chips ──────────────────────────────────────────────────────────────
-    chipsScroll: { borderBottomWidth: StyleSheet.hairlineWidth, flexGrow: 0 },
-    chipsContent: { gap: 8, paddingHorizontal: spacing.md, paddingVertical: 12 },
-    chip: { borderRadius: radii.pill, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 7 },
-    chipText: { fontFamily: fonts.body, fontSize: 13, fontWeight: "800" },
-
     // ── Loading ────────────────────────────────────────────────────────────
     loadingState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
     loadingText: { fontFamily: fonts.body, fontSize: 14, fontWeight: "700" },
@@ -434,6 +406,19 @@ function createStyles(c: AppColors) {
     bookYear: {
       fontFamily: fonts.body, fontSize: 10, fontWeight: "700",
       marginTop: 2, paddingHorizontal: 2, opacity: 0.6,
+    },
+    ratingRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 2,
+      marginTop: 3,
+      paddingHorizontal: 2,
+    },
+    ratingCount: {
+      fontFamily: fonts.body,
+      fontSize: 10,
+      fontWeight: "700",
+      marginLeft: 2,
     },
 
     // ── Footer ────────────────────────────────────────────────────────────

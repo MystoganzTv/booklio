@@ -50,6 +50,8 @@ interface GBVolumeInfo {
   imageLinks?: GBImageLinks;
   seriesInfo?: { bookDisplayNumber?: string; volumeSeries?: { seriesId?: string; seriesBookType?: string; orderNumber?: number }[] };
   printType?: string;
+  averageRating?: number;
+  ratingsCount?: number;
 }
 
 interface GBVolume {
@@ -152,6 +154,8 @@ export function volumeToWork(vol: GBVolume, query: ScoringQuery): {
     seriesOrder: seriesVol?.orderNumber,
     canonicalLanguageCode: edition.languageCode,
     canonicalLanguage: edition.language,
+    averageRating: info.averageRating,
+    ratingsCount: info.ratingsCount,
   };
 
   return { work, edition };
@@ -232,6 +236,8 @@ export interface GenreBookResult {
   genres: string[];
   language?: string;
   googleBooksId: string;
+  averageRating?: number;
+  ratingsCount?: number;
 }
 
 /**
@@ -268,6 +274,8 @@ export async function fetchByGenre(
           genres: normalizeBookGenres(info.categories),
           language: lang?.name,
           googleBooksId: vol.id,
+          averageRating: info.averageRating,
+          ratingsCount: info.ratingsCount,
         };
       });
 
@@ -310,6 +318,8 @@ export async function fetchByKeyword(
           genres: normalizeBookGenres(info.categories),
           language: lang?.name,
           googleBooksId: vol.id,
+          averageRating: info.averageRating,
+          ratingsCount: info.ratingsCount,
         };
       });
 

@@ -50,6 +50,8 @@ export interface BookMatch {
   seriesOrder?: number;
   isBestseller?: boolean;
   tags?: string[];
+  averageRating?: number;
+  ratingsCount?: number;
   source: BookMatchSource;
   sourceId?: string;
   workKey?: string;
@@ -210,6 +212,8 @@ interface GBVolumeInfo {
   language?: string;
   imageLinks?: { thumbnail?: string; smallThumbnail?: string };
   seriesInfo?: { bookDisplayNumber?: string };
+  averageRating?: number;
+  ratingsCount?: number;
 }
 
 interface GBVolume {
@@ -253,6 +257,8 @@ function normalizeGBVolume(
     coverUrl: gbCoverUrl(info.imageLinks),
     description: info.description,
     genres: normalizeBookGenres(info.categories),
+    averageRating: info.averageRating,
+    ratingsCount: info.ratingsCount,
     source: "google-books",
     sourceId: vol.id,
   };

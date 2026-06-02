@@ -3,11 +3,29 @@ export type RootStackParamList = {
   OnboardingName: undefined;
   OnboardingGenres: { name: string };
   Welcome: undefined;
-  MainTabs: undefined;
+  AppTabs: undefined;
   BookDetail: { bookId: string };
   ReadingLog: { bookId?: string };
   AddReadingSession: { bookId?: string; sessionId?: string };
-  BookIntake: undefined;
+  BookIntake:
+    | {
+        autoRun?: boolean;
+        initialMode?: "search";
+        initialQuery?: string;
+        initialSearchIntent?: "auto" | "author" | "series";
+        initialBookSelection?: {
+          title: string;
+          authorName: string;
+          isbn?: string;
+          pages?: number;
+          genre?: string[];
+          publishedDate?: string;
+          language?: string;
+          synopsis?: string;
+          coverImageUri?: string;
+        };
+      }
+    | undefined;
   SeriesTracker: { seriesId: string };
   EditProfile: undefined;
   Settings: undefined;
