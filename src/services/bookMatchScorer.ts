@@ -291,6 +291,64 @@ export function scoreCompleteness(edition: Omit<BookEdition, "score">): number {
   return score;
 }
 
+// ─── Intent-aware display ranking ────────────────────────────────────────────
+
+/**
+ * Score a work for DISPLAY ORDER within a search bucket.
+ *
+ * This is separate from scoreWork/scoreEdition, which measure metadata quality.
+ * intentRankScore measures relevance to what the user actually typed.
+ *
+ * For "author" intent (query = "Dan Brown"):
+ *   +80  if work is authored by the queried person
+ *   −50  if work title contains the query (book ABOUT the author, not BY them)
+ *         catches biographies even when Google's author metadata is wrong
+ *
+ * For "title" intent (query = "Fourth Wing"):
+ *   +80  if work title closely matches the query
+ *
+ * Quality signals (both intents):
+ *   +8   cover available
+ *   +4   has page count (real book, not stub)
+ *
+ * gbRank is used as tiebreaker in the aggregator after this score.
+ */
+export function intentRankScore(
+  work: Pick<BookWork, "title" | "authors"> & {
+    bestEdition?: Pick<BookEdition, "coverUrl" | "pageCount">;
+  },
+  query: string,
+  intent: "author" | "title"
+): number {
+  const queryTokens = tokenize(query);
+  let score = 0;
+
+  if (intent === "author") {
+    const authorTokens = work.authors.flatMap((a) => tokenize(a));
+    const authorMatch = authorTokens.length > 0
+      ? fuzzyOverlapCoeff(queryTokens, authorTokens, 0.75)
+      : 0;
+    score += Math.round(authorMatch * 80);
+
+    // If the title itself mentions the queried name, this is likely a book
+    // ABOUT the author (biography, companion, guide), not BY them.
+    // Penalise strongly — lower even than works with no author match.
+    const titleTokens = tokenize(work.title);
+    const titleMentionsAuthor = fuzzyOverlapCoeff(queryTokens, titleTokens, 0.75) >= 0.35;
+    if (titleMentionsAuthor) score -= 50;
+
+  } else {
+    const titleTokens = tokenize(work.title);
+    const titleMatch = fuzzyOverlapCoeff(queryTokens, titleTokens, 0.75);
+    score += Math.round(titleMatch * 80);
+  }
+
+  if (work.bestEdition?.coverUrl) score += 8;
+  if ((work.bestEdition?.pageCount ?? 0) > 50) score += 4;
+
+  return score;
+}
+
 // ─── Re-export confidence helper ─────────────────────────────────────────────
 
 export { confidenceFromScore };

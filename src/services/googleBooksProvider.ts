@@ -345,11 +345,13 @@ export async function fetchWorksByQuery(
   try {
     let queryStr: string;
     if (mode === "author") {
-      // Author search: inauthor:"Dan Brown"
-      // Wrapping in quotes tells Google to match the exact phrase, not tokens —
-      // without quotes "Dan Brown" returns anything mentioning "Dan" or "Brown".
-      const quoted = `"${title.trim()}"`;                          // "Dan Brown"
-      queryStr = `inauthor:${encodeURIComponent(quoted)}`;         // inauthor:%22Dan%20Brown%22
+      // Author search: inauthor:Dan+inauthor:Brown
+      // Using one inauthor: token per word (instead of a quoted phrase) lets
+      // Google do its own normalization — so "rebeca yarros" still finds
+      // "Rebecca Yarros", and "dan brown" finds "Dan Brown".
+      // A quoted phrase like inauthor:"rebeca yarros" returns 0 on any typo.
+      const tokens = title.trim().split(/\s+/).filter(Boolean);
+      queryStr = tokens.map((t) => `inauthor:${encodeURIComponent(t)}`).join("+");
     } else {
       // Title search: intitle:The%20Secret%20of%20Secrets
       // Single intitle: with the full phrase; %20 for spaces.
@@ -360,7 +362,9 @@ export async function fetchWorksByQuery(
       queryStr = `intitle:${encodedTitle}${authorPart}`;
     }
 
-    const url = `${GB_BASE}?q=${queryStr}&maxResults=${MAX_RESULTS_QUERY}${apiKey()}`;
+    // Author queries fetch more results so users get the full catalog.
+    const maxResults = mode === "author" ? 40 : MAX_RESULTS_QUERY;
+    const url = `${GB_BASE}?q=${queryStr}&maxResults=${maxResults}${apiKey()}`;
 
     // ── DEBUG: log the exact URL and raw results ──────────────────────────────
     console.log(`[GB] mode=${mode} url=${url.replace(/key=[^&]+/, "key=REDACTED")}`);

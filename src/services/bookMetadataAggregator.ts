@@ -33,6 +33,7 @@ import {
   BUCKET_TRANSLATION,
   BUCKET_AUTHOR,
   BUCKET_FUZZY,
+  intentRankScore,
 } from "./bookMatchScorer";
 import {
   lookupByIsbn as knownLookupByIsbn,
@@ -615,19 +616,21 @@ export async function lookupByQuery(
       }
 
       // --- Layer 2: biography title pattern ---
-      // Even if GB listed the subject as "author", a title like
-      // "Dan Brown: The Unauthorized Biography" is NOT by Dan Brown.
+      // If the title matches a "book about this person" pattern AND the title
+      // itself contains the queried author name → reject unconditionally.
+      // This covers two cases:
+      //   a) Correct metadata: authors=["Lisa Rogak"], title="Dan Brown: The Unauthorized Biography"
+      //   b) Wrong metadata:   authors=["Dan Brown"],  title="Dan Brown: The Unauthorized Biography"
+      //      (Google sometimes lists the subject as the author — wrong but real)
       if (ABOUT_PATTERN.test(workTitle)) {
-        // Double-check: is the queried name really in a real author slot?
-        // We need ALL authors to match, not just one. If there's a mismatch
-        // (e.g. authors: ["Dan Brown", "Lisa Rogak"]), that's suspicious.
-        const primaryAuthor = authors[0] ?? "";
-        const primaryNorm = primaryAuthor.trim().toLowerCase();
-        const primaryIsMatch = primaryNorm.includes(queryNorm) || queryNorm.includes(primaryNorm);
-        if (!primaryIsMatch) {
-          console.log(`  [FILTER-OUT layer2-bio] "${workTitle}" — authors: ${JSON.stringify(authors)}`);
+        const titleTokens = tokenize(workTitle);
+        const titleMentionsQuery = fuzzyOverlapCoeff(queryAuthorTokens, titleTokens, 0.75) >= 0.35;
+        if (titleMentionsQuery) {
+          console.log(`  [FILTER-OUT layer2-bio] "${workTitle}" — title contains query + ABOUT_PATTERN`);
           return false;
         }
+        // Title has an "about" word but doesn't mention the author → keep
+        // (e.g. "A Guide to Fantasy Writing" when searching "Brandon Sanderson")
       }
 
       return true;
@@ -642,6 +645,40 @@ export async function lookupByQuery(
     );
     const totalAfter = gbPrimary.length + olPrimary.length;
     console.log(`[AUTHOR_FILTER] before=${totalBefore} after=${totalAfter} rejected=${totalBefore - totalAfter}`);
+  }
+
+  // ── 6b. Author-mode fallback: if inauthor: returned too few results ────────
+  // This handles queries like "Fourth Wing" or "Memory Man" that the classifier
+  // wrongly treats as author names. inauthor:Fourth+inauthor:Wing returns ≤ 2
+  // meaningful results, so we fall back to a free-text search and switch the
+  // effective intent to "title" for the ranking step below.
+  let effectiveIntent: "author" | "title" = resolvedMode;
+  if (resolvedMode === "author" && gbPrimary.length < 3) {
+    console.log(`[FALLBACK] author search returned only ${gbPrimary.length} results — retrying as free-text`);
+    const freeTextQuery: ScoringQuery = { title };
+    const [gbFallback, olFallback] = await Promise.allSettled([
+      gbFetchByQuery(title, undefined, freeTextQuery, "general"),
+      olFetchByQuery(title, undefined, freeTextQuery, "general"),
+    ]);
+    const gbFT = (gbFallback.status === "fulfilled" ? gbFallback.value : []) as Array<{
+      work: Omit<BookWork, "score"|"confidence"|"bestEdition"|"editions">;
+      edition: BookEdition;
+      gbRank: number;
+    }>;
+    const olFT = (olFallback.status === "fulfilled" ? olFallback.value : []) as Array<{
+      partialWork: Omit<BookWork, "score"|"confidence"|"bestEdition"|"editions">;
+      bestEdition: Omit<BookEdition, "score">;
+    }>;
+    if (gbFT.length > gbPrimary.length) {
+      console.log(`[FALLBACK] free-text returned ${gbFT.length} GB results — using those instead`);
+      // Swap in free-text results
+      // (olPrimary already has some results from the author search; merge below)
+      gbPrimary = gbFT;
+      for (const { partialWork, bestEdition } of olFT) {
+        olPrimary.push({ partialWork, bestEdition });
+      }
+      effectiveIntent = "title"; // re-rank by title match, not author match
+    }
   }
 
   // ── 6. Build ranked candidate list ───────────────────────────────────────
@@ -729,9 +766,15 @@ export async function lookupByQuery(
     ingestOLResult(partialWork, bestEdition, BUCKET_TRANSLATION);
   }
 
-  // ── 7. Sort: bucket DESC → gbRank ASC (lower = better Google position) ───
+  // ── 7. Sort: bucket DESC → intentScore DESC → gbRank ASC ─────────────────
+  // intentScore is the primary within-bucket ranking signal: it rewards books
+  // whose author/title closely matches the query and penalizes biographies.
+  // gbRank (Google's native position) is used only as a tiebreaker.
   candidates.sort((a, b) => {
     if (b.bucket !== a.bucket) return b.bucket - a.bucket;
+    const aIntent = intentRankScore(a.work, title, effectiveIntent);
+    const bIntent = intentRankScore(b.work, title, effectiveIntent);
+    if (bIntent !== aIntent) return bIntent - aIntent;
     return a.gbRank - b.gbRank;
   });
 

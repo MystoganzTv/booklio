@@ -484,8 +484,11 @@ export function BookIntakeScreen() {
       // One match card per unique BookWork (different books), using each
       // work's own author, title, and best edition — not flatEditions which
       // mixes all editions from all books with the wrong author.
-      const legacyMatches: BookMatch[] = (result.works.length ? result.works : result.work ? [result.work] : [])
-        .slice(0, 8)
+      const isAuthor = detectQueryIntent(query) === "author";
+      const works = result.works.length ? result.works : result.work ? [result.work] : [];
+      // For author queries show ALL results (full catalog); for title queries cap at 8.
+      const sliced = isAuthor ? works : works.slice(0, 8);
+      const legacyMatches: BookMatch[] = sliced
         .map((work) => {
           const best = work.bestEdition ?? work.editions[0];
           return {
