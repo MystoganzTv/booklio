@@ -147,7 +147,7 @@ export function volumeToWork(vol: GBVolume, query: ScoringQuery): {
     subtitle: info.subtitle,
     authors: info.authors ?? [],
     description: info.description,
-    genres: normalizeBookGenres(info.categories),
+    genres: normalizeBookGenres(info.categories, info.description),
     seriesName: seriesVol ? `Series ${seriesVol.seriesId ?? ""}` : undefined,
     seriesOrder: seriesVol?.orderNumber,
     canonicalLanguageCode: edition.languageCode,
@@ -324,6 +324,13 @@ export async function fetchByKeyword(
  *
  * Each Google Books volume is treated as a potential work (since Google Books
  * doesn't have a native "work" concept separate from volumes).
+ *
+ * For title/general mode we use per-word `intitle:` prefixes so Google only
+ * returns volumes where those words appear in the title — much better precision
+ * than a plain free-text query. Author mode uses `inauthor:` as before.
+ *
+ * Returns `gbRank` (0-based position in Google's response) so the aggregator
+ * can preserve Google's own relevance ordering within a bucket.
  */
 export async function fetchWorksByQuery(
   title: string,
@@ -333,25 +340,50 @@ export async function fetchWorksByQuery(
 ): Promise<Array<{
   work: Omit<BookWork, "score" | "confidence" | "bestEdition" | "editions">;
   edition: BookEdition;
+  gbRank: number;
 }>> {
   try {
     let queryStr: string;
     if (mode === "author") {
-      // Pure author search — "inauthor:" scopes the query to the author field only
-      queryStr = `inauthor:${encodeURIComponent(title)}`;
+      // Author search: inauthor:"Dan Brown"
+      // Wrapping in quotes tells Google to match the exact phrase, not tokens —
+      // without quotes "Dan Brown" returns anything mentioning "Dan" or "Brown".
+      const quoted = `"${title.trim()}"`;                          // "Dan Brown"
+      queryStr = `inauthor:${encodeURIComponent(quoted)}`;         // inauthor:%22Dan%20Brown%22
     } else {
-      // Title / general search — plain q= lets Google rank by relevance across all fields.
-      // Using intitle: was too strict and caused "Dan Brown Companion"-style false positives.
-      const authorPart = author ? `+inauthor:${encodeURIComponent(author)}` : "";
-      queryStr = `${encodeURIComponent(title)}${authorPart}`;
+      // Title search: intitle:The%20Secret%20of%20Secrets
+      // Single intitle: with the full phrase; %20 for spaces.
+      const encodedTitle = encodeURIComponent(title.trim());
+      const authorPart = author
+        ? `+inauthor:${encodeURIComponent(author.trim())}`
+        : "";
+      queryStr = `intitle:${encodedTitle}${authorPart}`;
     }
+
     const url = `${GB_BASE}?q=${queryStr}&maxResults=${MAX_RESULTS_QUERY}${apiKey()}`;
+
+    // ── DEBUG: log the exact URL and raw results ──────────────────────────────
+    console.log(`[GB] mode=${mode} url=${url.replace(/key=[^&]+/, "key=REDACTED")}`);
+
     const res = await fetch(url);
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.log(`[GB] HTTP ${res.status}`);
+      return [];
+    }
     const data = (await res.json()) as GBResponse;
+    const items = data.items ?? [];
+    console.log(`[GB] raw results: ${items.length}`);
+    items.forEach((vol, i) => {
+      console.log(`  [${i}] "${vol.volumeInfo.title}" — authors: ${JSON.stringify(vol.volumeInfo.authors ?? [])}`);
+    });
+
     const q: ScoringQuery = query ?? { title, author };
-    return (data.items ?? []).map((vol) => volumeToWork(vol, q));
-  } catch {
+    return items.map((vol, idx) => ({
+      ...volumeToWork(vol, q),
+      gbRank: idx,
+    }));
+  } catch (err) {
+    console.log("[GB] fetch error:", err);
     return [];
   }
 }

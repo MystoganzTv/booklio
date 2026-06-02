@@ -35,6 +35,7 @@ import {
   lookupByIsbn as aggregatorLookupByIsbn,
   lookupByQuery as aggregatorLookupByQuery,
   workEditionToNewBookInput,
+  detectQueryIntent,
 } from "../services/bookMetadataAggregator";
 import { BookEdition, BookWork, WorkLookupResult } from "../types/bookMetadata";
 import { BookEditionsSheet } from "../components/BookEditionsSheet";
@@ -265,6 +266,11 @@ export function BookIntakeScreen() {
   const [matches, setMatches] = useState<BookMatch[]>([]);
   const [matchLookupLabel, setMatchLookupLabel] = useState("");
   const [matchReturnMode, setMatchReturnMode] = useState<"menu" | "isbn" | "search">("menu");
+  // True when the last search was an author query — adapts result headings and badges.
+  const isAuthorQuery = useMemo(
+    () => detectQueryIntent(matchLookupLabel) === "author",
+    [matchLookupLabel]
+  );
   // Book Intelligence Engine — work result + editions sheet
   const [lookupResult, setLookupResult] = useState<WorkLookupResult | null>(null);
   const [isEditionsSheetVisible, setIsEditionsSheetVisible] = useState(false);
@@ -475,28 +481,35 @@ export function BookIntakeScreen() {
         timeout
       ]);
       setLookupResult(result);
-      // Convert BookEdition[] → BookMatch[] so the existing MatchCard renders correctly.
-      const legacyMatches: BookMatch[] = result.flatEditions.map((ed) => ({
-        id: ed.id,
-        title: ed.title,
-        subtitle: ed.subtitle,
-        authors: result.work?.authors ?? [],
-        isbn13: ed.isbn13,
-        isbn10: ed.isbn10,
-        coverUrl: ed.coverUrl,
-        description: result.work?.description,
-        genres: result.work?.genres ?? [],
-        pageCount: ed.pageCount,
-        publisher: ed.publisher,
-        publishedDate: ed.publishedDate,
-        language: ed.language,
-        source: ed.source,
-        sourceId: ed.editionKey ?? ed.googleBooksId,
-        workKey: result.work?.workKey,
-        editionKey: ed.editionKey,
-        score: ed.score,
-        confidence: ed.score >= 90 ? "high" : ed.score >= 70 ? "medium" : "low",
-      }));
+      // One match card per unique BookWork (different books), using each
+      // work's own author, title, and best edition — not flatEditions which
+      // mixes all editions from all books with the wrong author.
+      const legacyMatches: BookMatch[] = (result.works.length ? result.works : result.work ? [result.work] : [])
+        .slice(0, 8)
+        .map((work) => {
+          const best = work.bestEdition ?? work.editions[0];
+          return {
+            id: work.workKey ?? best?.id ?? work.title,
+            title: work.title,
+            subtitle: work.subtitle,
+            authors: work.authors,                    // ← correct per-work author
+            isbn13: best?.isbn13,
+            isbn10: best?.isbn10,
+            coverUrl: best?.coverUrl,
+            description: work.description,
+            genres: work.genres ?? [],
+            pageCount: best?.pageCount,
+            publisher: best?.publisher,
+            publishedDate: best?.publishedDate,
+            language: best?.language,
+            source: best?.source ?? "google-books",
+            sourceId: best?.editionKey ?? best?.googleBooksId,
+            workKey: work.workKey,
+            editionKey: best?.editionKey,
+            score: work.score,
+            confidence: work.score >= 90 ? "high" : work.score >= 70 ? "medium" : "low",
+          };
+        });
       setMatches(legacyMatches);
     } catch (err) {
       const isTimeout = err instanceof Error && err.message === "timeout";
@@ -518,16 +531,14 @@ export function BookIntakeScreen() {
    * Stage the chosen BookMatch for review.
    */
   const selectMatch = (match: BookMatch) => {
-    const sourceLabel =
-      match.source === "google-books" ? "Google Books" : "Open Library";
-    const insightByConfidence: Record<string, string> = {
-      high: `Confirmed match from ${sourceLabel} — all details verified.`,
-      medium: `Partial match from ${sourceLabel} — review the details before saving.`,
-      low: `Low-confidence result from ${sourceLabel}. Please verify title and author.`,
-    };
+    // When the user manually picks a result from the match list they have already
+    // made an informed choice — a scary "low-confidence" warning is misleading.
+    // Use a neutral prompt instead. The confidence system only makes sense for
+    // fully automatic ISBN lookups with no human review step.
+    const insight = "Verify details before adding.";
     void stageBook(
       bookMatchToNewBookInput(match, "isbn"),
-      insightByConfidence[match.confidence] ?? ""
+      insight
     );
   };
 
@@ -878,10 +889,37 @@ export function BookIntakeScreen() {
         </Pressable>
 
         <View style={styles.pageHeader}>
-          <Text style={styles.pageEyebrow}>Book lookup</Text>
-          <Text style={styles.pageTitle} numberOfLines={2}>
-            {matchLookupLabel ? `"${matchLookupLabel}"` : "Searching…"}
-          </Text>
+          {/* Editable query — tap to refine and re-search without going back */}
+          <View style={styles.inlineSearchRow}>
+            <TextInput
+              style={styles.inlineSearchInput}
+              value={matchLookupLabel}
+              onChangeText={setMatchLookupLabel}
+              returnKeyType="search"
+              onSubmitEditing={() => {
+                if (matchLookupLabel.trim()) {
+                  void lookupAndShowMatches(matchLookupLabel.trim(), matchReturnMode, "query");
+                }
+              }}
+              placeholderTextColor={c.muted}
+              placeholder="Search again…"
+              selectTextOnFocus
+            />
+            {isBusy ? (
+              <ActivityIndicator size="small" color={c.teal} style={{ marginRight: 4 }} />
+            ) : (
+              <Pressable
+                onPress={() => {
+                  if (matchLookupLabel.trim()) {
+                    void lookupAndShowMatches(matchLookupLabel.trim(), matchReturnMode, "query");
+                  }
+                }}
+                style={styles.inlineSearchBtn}
+              >
+                <Ionicons name="search" size={16} color="#fff" />
+              </Pressable>
+            )}
+          </View>
         </View>
 
         {/* Scan again shortcut — only when result came from ISBN scanner */}
@@ -947,26 +985,39 @@ export function BookIntakeScreen() {
           </View>
         ) : (
           <>
-            <Text style={styles.matchCount}>
-              {matches.length === 1 ? "1 match" : `${matches.length} matches`}
-              {" · "}sorted by confidence
-            </Text>
+            {/* Author query: "Books by [Name]" heading; title query: count + confidence label */}
+            {isAuthorQuery ? (
+              <Text style={styles.reviewSectionTitle}>
+                {`Books by ${matchLookupLabel}`}
+              </Text>
+            ) : (
+              <Text style={styles.matchCount}>
+                {matches.length === 1 ? "1 result" : `${matches.length} results`}
+                {" · sorted by confidence"}
+              </Text>
+            )}
 
+            {/* Primary (top) result */}
             {primaryMatch ? (
               <MatchCard
                 match={primaryMatch}
                 isPrimary
+                hideConfidence={isAuthorQuery}
                 onSelect={() => selectMatch(primaryMatch)}
               />
             ) : null}
 
+            {/* Secondary results */}
             {otherMatches.length > 0 ? (
               <>
-                <Text style={styles.reviewSectionTitle}>Other editions</Text>
+                {!isAuthorQuery && (
+                  <Text style={styles.reviewSectionTitle}>Other editions</Text>
+                )}
                 {otherMatches.map((match) => (
                   <MatchCard
                     key={match.id}
                     match={match}
+                    hideConfidence={isAuthorQuery}
                     onSelect={() => selectMatch(match)}
                   />
                 ))}
@@ -982,8 +1033,8 @@ export function BookIntakeScreen() {
                 <Ionicons name="layers-outline" size={15} color={c.tealDark} />
                 <Text style={styles.viewEditionsBtnText}>
                   View all editions
-                  {lookupResult.flatEditions.length > 0
-                    ? ` (${lookupResult.flatEditions.length})`
+                  {(lookupResult.work?.editions?.length ?? 0) > 0
+                    ? ` (${lookupResult.work!.editions.length})`
                     : ""}
                 </Text>
               </Pressable>
@@ -1229,7 +1280,6 @@ export function BookIntakeScreen() {
         </Pressable>
 
         <View style={styles.pageHeader}>
-          <Text style={styles.pageEyebrow}>Book lookup</Text>
           <Text style={styles.pageTitle}>Find your next read</Text>
         </View>
 
@@ -1528,10 +1578,13 @@ function MatchCard({
   match,
   onSelect,
   isPrimary = false,
+  hideConfidence = false,
 }: {
   match: BookMatch;
   onSelect: () => void;
   isPrimary?: boolean;
+  /** When true, suppresses the confidence dot/badge (e.g. for author queries). */
+  hideConfidence?: boolean;
 }) {
   const c = useColors();
   const { isDark } = useTheme();
@@ -1559,12 +1612,14 @@ function MatchCard({
       <View style={styles.matchInfo}>
         {/* Badges */}
         <View style={styles.matchBadgeRow}>
-          <View style={[styles.matchConfidenceBadge, { backgroundColor: confidenceColor + "22", borderColor: confidenceColor + "55" }]}>
-            <View style={[styles.matchConfidenceDot, { backgroundColor: confidenceColor }]} />
-            <Text style={[styles.matchConfidenceText, { color: confidenceColor }]}>
-              {match.confidence.toUpperCase()}
-            </Text>
-          </View>
+          {!hideConfidence ? (
+            <View style={[styles.matchConfidenceBadge, { backgroundColor: confidenceColor + "22", borderColor: confidenceColor + "55" }]}>
+              <View style={[styles.matchConfidenceDot, { backgroundColor: confidenceColor }]} />
+              <Text style={[styles.matchConfidenceText, { color: confidenceColor }]}>
+                {match.confidence.toUpperCase()}
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.matchSourceBadge}>
             <Text style={styles.matchSourceText}>
               {SOURCE_LABELS[match.source] ?? match.source}
@@ -1656,6 +1711,34 @@ function createStyles(c: AppColors, isDark: boolean) {
     fontSize: 26,
     fontWeight: "900",
     marginTop: 2
+  },
+  inlineSearchRow: {
+    alignItems: "center",
+    backgroundColor: c.surfaceAlt,
+    borderColor: c.border,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4
+  },
+  inlineSearchInput: {
+    color: c.ink,
+    flex: 1,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "900",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8
+  },
+  inlineSearchBtn: {
+    alignItems: "center",
+    backgroundColor: c.teal,
+    borderRadius: radii.pill,
+    height: 34,
+    justifyContent: "center",
+    width: 34
   },
   pathGrid: {
     flexDirection: "row",

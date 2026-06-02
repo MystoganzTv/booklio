@@ -199,7 +199,7 @@ export async function fetchWork(workKey: string): Promise<{
       title: raw.title ?? "Untitled",
       subtitle: raw.subtitle,
       description: readDescription(raw.description),
-      genres: normalizeBookGenres(raw.subjects?.slice(0, 10)),
+      genres: normalizeBookGenres(raw.subjects?.slice(0, 10), readDescription(raw.description)),
       authorKeys: raw.authors?.map((a) => a.author.key) ?? [],
       coverUrl: olCoverUrl(raw.covers?.[0]),
       firstPublishDate: raw.first_publish_date,

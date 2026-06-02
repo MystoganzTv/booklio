@@ -2,6 +2,8 @@
  * Book Intelligence Engine — match scoring.
  *
  * Scores a candidate work/edition against the search query on a 0–100 scale.
+ * This score is used for within-bucket secondary sorting and confidence display.
+ * Primary ranking is handled by the aggregator's bucket + gbRank system.
  *
  * Scoring weights:
  *   Exact ISBN match          → 100 (short-circuits everything else)
@@ -21,7 +23,25 @@
  *   70–89  → "good"
  *   50–69  → "possible"
  *   < 50   → "review"
+ *
+ * ─── Search bucket constants ───────────────────────────────────────────────────
+ * The aggregator uses these to enforce hierarchical ranking across result types.
+ * A higher bucket ALWAYS beats a lower bucket regardless of score.
+ *
+ *   BUCKET_ISBN              = 1000  ISBN exact match
+ *   BUCKET_EXACT_TITLE       =  490  Primary title search results (intitle:)
+ *   BUCKET_TRANSLATION       =  480  Translated-title expansion results
+ *   BUCKET_AUTHOR            =  300  Author search results
+ *   BUCKET_FUZZY             =  100  OL-only or unranked fallback results
  */
+
+// ─── Bucket constants (exported for aggregator use) ───────────────────────────
+
+export const BUCKET_ISBN        = 1000;
+export const BUCKET_EXACT_TITLE =  490;
+export const BUCKET_TRANSLATION =  480;
+export const BUCKET_AUTHOR      =  300;
+export const BUCKET_FUZZY       =  100;
 
 import { BookEdition, BookWork, MatchConfidence, confidenceFromScore } from "../types/bookMetadata";
 import { isSameLanguage, languageCode } from "../utils/languageUtils";
@@ -239,7 +259,8 @@ export function scoreWork(
       const wTokens = tokenize(work.title);
       const exact = overlapCoeff(qTokens, wTokens);
       const fuzzy = fuzzyOverlapCoeff(qTokens, wTokens);
-      workBoost += Math.round(Math.max(exact, fuzzy) * 10);
+      const titleScore = Math.max(exact, fuzzy);
+      workBoost += Math.round(titleScore * 10);
     }
     if (query.author && work.authors.length) {
       const qTokens = tokenize(query.author);

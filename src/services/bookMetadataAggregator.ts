@@ -23,7 +23,17 @@
 import { BookEdition, BookWork, EditionGroup, WorkLookupResult, confidenceFromScore } from "../types/bookMetadata";
 import { parseIsbn } from "../utils/isbnUtils";
 import { normalizeLanguage, isPriorityLanguage, PRIORITY_LANGUAGE_CODES } from "../utils/languageUtils";
-import { ScoringQuery, scoreEdition, scoreWork, tokenize } from "./bookMatchScorer";
+import {
+  ScoringQuery,
+  scoreEdition,
+  scoreWork,
+  tokenize,
+  fuzzyOverlapCoeff,
+  BUCKET_EXACT_TITLE,
+  BUCKET_TRANSLATION,
+  BUCKET_AUTHOR,
+  BUCKET_FUZZY,
+} from "./bookMatchScorer";
 import {
   lookupByIsbn as knownLookupByIsbn,
   lookupByTitle as knownLookupByTitle,
@@ -55,12 +65,14 @@ const TITLE_STARTERS = new Set([
  * or a book title / keyword (→ general search)?
  *
  * Rules:
- * - Single word                     → general (likely a title like "Dune")
- * - > 3 words                       → general (too long for a name)
- * - Contains digits                 → general (ISBN-like, year, etc.)
- * - Starts with an article          → general ("The Da Vinci Code")
- * - Contains & : — – ,              → general (subtitle punctuation)
- * - 2–3 words, all start uppercase  → author  ("Dan Brown", "J.K. Rowling")
+ * - Single word                           → general (likely a title like "Dune")
+ * - > 3 words                             → general (too long for a name)
+ * - Contains digits                       → general (ISBN-like, year, etc.)
+ * - Starts with an article                → general ("The Da Vinci Code")
+ * - Contains & : — – ,                   → general (subtitle punctuation)
+ * - 2–3 words, all look like name parts  → author
+ *     Accepts any case: "dan brown", "Dan Brown", "david baldacci"
+ *     Accepts initials with or without dot: "J.", "J.K.", "J" (Sarah J Maas)
  */
 export function detectQueryIntent(query: string): "author" | "general" {
   const words = query.trim().split(/\s+/);
@@ -70,12 +82,19 @@ export function detectQueryIntent(query: string): "author" | "general" {
   if (TITLE_STARTERS.has(words[0]!.toLowerCase())) return "general";
   if (/[&:—–,]/.test(query)) return "general";
 
+  // A name part is:
+  //   - A word made of letters only (any case, including accented), optionally
+  //     with internal hyphens or apostrophes (O'Brien, García-Márquez)
+  //   - OR a single letter (initial without dot, e.g. "J" in Sarah J Maas)
+  //   - OR a dotted initial: "J." or "J.K."
   const isNameLike = (w: string) =>
-    /^[A-ZÁÉÍÓÚÑÜÀÈÌÒÙÂÊÎÔÛÃÕ][a-zA-ZÁÉÍÓÚÑÜÀÈÌÒÙÂÊÎÔÛÃÕáéíóúñüàèìòùâêîôûãõ'-]+$/.test(w) ||
-    /^[A-Z]\.$/.test(w) ||        // single initial "J."
-    /^[A-Z]\.[A-Z]\.$/.test(w);   // double initial "J.K."
+    /^[A-Za-záéíóúñüàèìòùâêîôûãõÁÉÍÓÚÑÜÀÈÌÒÙÂÊÎÔÛÃÕ][A-Za-záéíóúñüàèìòùâêîôûãõÁÉÍÓÚÑÜÀÈÌÒÙÂÊÎÔÛÃÕ'-]*$/.test(w) ||
+    /^[A-Za-z]\.?$/.test(w) ||          // single initial: "J" or "J."
+    /^[A-Za-z]\.[A-Za-z]\.?$/.test(w);  // double initial: "J.K." or "J.K"
 
-  return words.every(isNameLike) ? "author" : "general";
+  const intent = words.every(isNameLike) ? "author" : "general";
+  console.log(`[QUERY_CLASSIFIER] query="${query}" intent=${intent}`);
+  return intent;
 }
 
 // ─── Deduplication ────────────────────────────────────────────────────────────
@@ -152,9 +171,38 @@ export function groupEditionsByLanguage(editions: BookEdition[]): EditionGroup[]
 
 // ─── Best edition selection ───────────────────────────────────────────────────
 
-function pickBestEdition(editions: BookEdition[]): BookEdition {
+/**
+ * True if this edition is a Large Print / Large Type variant.
+ * Detected from edition title, format field, or publisher name patterns.
+ */
+function isLargePrintEdition(edition: BookEdition): boolean {
+  const haystack = [edition.title, edition.subtitle ?? "", edition.publisher ?? ""]
+    .join(" ")
+    .toLowerCase();
+  return /large[- ]?print|large[- ]?type|large[- ]?text|letra grande|letra large|grossdruck|gros caract/i.test(haystack);
+}
+
+/**
+ * Pick the best edition to display by default.
+ *
+ * Scoring (higher = better):
+ *   preferLang match   +8   (user's query language)
+ *   cover available    +3
+ *   metadata complete  +3   (publisher + pageCount + publishedDate)
+ *   large print        −10  (deprioritized for text queries; kept for ISBN scans)
+ *   base score         (scoreEdition result, 0–100)
+ *
+ * @param editions       Pool of editions to choose from.
+ * @param preferLang     ISO 639-1 code to prefer (e.g. "es").
+ * @param allowLargePrint  If true, no penalty for large-print editions.
+ *                         Pass true when the user explicitly scanned that ISBN.
+ */
+function pickBestEdition(
+  editions: BookEdition[],
+  preferLang?: string,
+  allowLargePrint = false
+): BookEdition {
   if (!editions.length) {
-    // Synthetic empty edition as fallback
     return {
       id: "empty",
       source: "open-library",
@@ -164,15 +212,16 @@ function pickBestEdition(editions: BookEdition[]): BookEdition {
       score: 0,
     };
   }
-  // Prefer high score + cover + complete metadata
   return [...editions].sort((a, b) => {
-    const coverA = a.coverUrl ? 1 : 0;
-    const coverB = b.coverUrl ? 1 : 0;
+    const langA = preferLang && a.languageCode === preferLang ? 8 : 0;
+    const langB = preferLang && b.languageCode === preferLang ? 8 : 0;
+    const coverA = a.coverUrl ? 3 : 0;
+    const coverB = b.coverUrl ? 3 : 0;
     const completeA = (a.publisher ? 1 : 0) + (a.pageCount ? 1 : 0) + (a.publishedDate ? 1 : 0);
     const completeB = (b.publisher ? 1 : 0) + (b.pageCount ? 1 : 0) + (b.publishedDate ? 1 : 0);
-    const scoreA = a.score + coverA * 3 + completeA;
-    const scoreB = b.score + coverB * 3 + completeB;
-    return scoreB - scoreA;
+    const lpA = !allowLargePrint && isLargePrintEdition(a) ? -10 : 0;
+    const lpB = !allowLargePrint && isLargePrintEdition(b) ? -10 : 0;
+    return (b.score + langB + coverB + completeB + lpB) - (a.score + langA + coverA + completeA + lpA);
   })[0]!;
 }
 
@@ -181,10 +230,12 @@ function pickBestEdition(editions: BookEdition[]): BookEdition {
 function buildWork(
   partialWork: Omit<BookWork, "score" | "confidence" | "bestEdition" | "editions">,
   editions: BookEdition[],
-  query: ScoringQuery
+  query: ScoringQuery,
+  preferLang?: string,
+  allowLargePrint = false
 ): BookWork {
   const deduped = dedupeEditions(editions);
-  const best = pickBestEdition(deduped);
+  const best = pickBestEdition(deduped, preferLang, allowLargePrint);
   const { score, confidence } = scoreWork({ ...partialWork, editions: deduped }, best, query);
   return {
     ...partialWork,
@@ -373,7 +424,9 @@ export async function lookupByIsbn(rawIsbn: string): Promise<WorkLookupResult> {
     seriesOrder: knownMeta?.seriesOrder,
   };
 
-  let work = buildWork(partialWork, allEditions, query);
+  // ISBN lookups: always respect the scanned edition even if it's Large Print —
+  // the user specifically scanned that barcode and expects that exact book.
+  let work = buildWork(partialWork, allEditions, query, undefined, /* allowLargePrint */ true);
 
   // ── Step 8: Enrich with catalog data ───────────────────────────────────────
   work = enrichWorkFromCatalog(work);
@@ -389,134 +442,301 @@ export async function lookupByIsbn(rawIsbn: string): Promise<WorkLookupResult> {
 // ─── Text query lookup ────────────────────────────────────────────────────────
 
 /**
- * Full text query lookup: title + optional author.
+ * Attempt to find a mergeable candidate for a new work.
  *
- * Fetches from both Google Books and Open Library in parallel, then merges
- * works by title similarity.
+ * Two works are mergeable when:
+ *   - Their titles are ≥ 70% similar (token overlap / max length)
+ *   - AND their authors are NOT clearly different (fuzzy overlap ≥ 0.2)
+ *
+ * The author check prevents merging "The Secret of Secrets" by Dan Brown
+ * with "The Secret of Secrets" by Bhagwan Rajneesh.
+ */
+function findMergeableIdx(
+  candidates: Array<{ work: BookWork; bucket: number; gbRank: number }>,
+  newTitle: string,
+  newAuthors: string[]
+): number {
+  const newTitleTokens = tokenize(newTitle);
+  const newAuthorTokens = newAuthors.flatMap((a) => tokenize(a));
+
+  return candidates.findIndex(({ work }) => {
+    const existingTokens = tokenize(work.title);
+    const maxLen = Math.max(newTitleTokens.length, existingTokens.length);
+    if (maxLen === 0) return false;
+    const titleHits = newTitleTokens.filter((t) => existingTokens.includes(t)).length;
+    if (titleHits / maxLen < 0.7) return false;
+
+    // Author conflict: if both sides have known authors and share < 20% fuzzy
+    // similarity → treat as separate works (same title, different author).
+    if (newAuthorTokens.length && work.authors.length) {
+      const existingAuthorTokens = work.authors.flatMap((a) => tokenize(a));
+      if (fuzzyOverlapCoeff(newAuthorTokens, existingAuthorTokens, 0.75) < 0.2) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
+
+/**
+ * Full text query lookup — hierarchical bucket pipeline.
+ *
+ * Query classification:
+ *   "author" mode → inauthor: search  (BUCKET_AUTHOR)
+ *   "title"  mode → intitle: search   (BUCKET_EXACT_TITLE for primary query,
+ *                                       BUCKET_TRANSLATION for expansion)
+ *
+ * Within each bucket, Google's native result position (gbRank) is the primary
+ * sort key — lower rank = higher in Google's own relevance ordering = better.
+ * OL-only results (no GB match) always sort below GB-matched results.
+ *
+ * Translation expansion: if the query is a known translated title (e.g. "Alas
+ * de sangre"), the canonical English title ("Fourth Wing") is also searched in
+ * parallel and tagged as BUCKET_TRANSLATION so it appears after the Spanish
+ * results but still ahead of any fuzzy matches.
+ *
+ * knownWorks is used ONLY for:
+ *   - Translation expansion (getOriginalTitle)
+ *   - Author hint for known titles
+ *   - Post-hoc series enrichment (enrichWorkFromCatalog)
  */
 export async function lookupByQuery(
   title: string,
   author?: string,
   mode: "title" | "author" | "general" | "auto" = "auto"
 ): Promise<WorkLookupResult> {
-  // Resolve "auto" → detect from the query text itself
-  const resolvedMode: "author" | "general" =
-    mode === "auto" ? detectQueryIntent(title) :
-    mode === "title" ? "general" : mode;
 
-  // ── Translation-aware query expansion ─────────────────────────────────────
-  // If the query is a known translated title (e.g. "Alas de sangre"),
-  // also search by the original English title ("Fourth Wing") in parallel.
-  let searchTitle = title;
-  let extraSearchTitle: string | null = null;
+  // ── 1. Query classification ───────────────────────────────────────────────
+  const detectedIntent = detectQueryIntent(title);
+  const resolvedMode: "author" | "title" =
+    mode === "auto" ? (detectedIntent === "author" ? "author" : "title") :
+    mode === "author" ? "author" : "title";
 
-  if (resolvedMode !== "author") {
-    const originalTitle = getOriginalTitle(title);
-    if (originalTitle) extraSearchTitle = originalTitle;
+  console.log(`[AGGREGATOR] query="${title}" detectedIntent=${detectedIntent} resolvedMode=${resolvedMode}`);
 
-    // Also check if catalog knows the author for this title
+  // ── 2. Query language detection ───────────────────────────────────────────
+  // Used to select the preferred edition language for bestEdition display.
+  // Simple heuristic: Spanish diacritics or common Spanish stopwords → "es".
+  const queryLang: string | undefined =
+    /[áéíóúñü]|(\b(de|el|la|los|las|del|al|un|una|con|por|para)\b)/i.test(title)
+      ? "es"
+      : undefined;
+
+  // ── 3. Translation expansion ──────────────────────────────────────────────
+  // For known translated titles, also search the canonical English title in
+  // parallel (tagged BUCKET_TRANSLATION so it sorts after the primary results).
+  let extraTitle: string | null = null;
+  if (resolvedMode === "title") {
+    extraTitle = getOriginalTitle(title); // e.g. "Fourth Wing" for "Alas de sangre"
     const knownMeta = knownLookupByTitle(title);
-    if (knownMeta && !author) {
-      author = knownMeta.author;
-    }
+    if (knownMeta && !author) author = knownMeta.author;
   }
 
-  // In author mode `title` contains the author name; adjust the scoring query accordingly.
-  const query: ScoringQuery = resolvedMode === "author"
+  // ── 4. Scoring query (used for within-bucket secondary sort + confidence) ─
+  const scoringQuery: ScoringQuery = resolvedMode === "author"
     ? { author: title }
     : { title, author };
 
-  // ── Parallel fetch — original title + translated title ────────────────────
-  const fetchPromises: Promise<Parameters<typeof Promise.allSettled>[0] extends ReadonlyArray<infer T> ? T : never>[] = [
-    gbFetchByQuery(searchTitle, author, query, resolvedMode),
-    olFetchByQuery(searchTitle, author, query, resolvedMode),
+  // ── 5. Parallel API fetch ─────────────────────────────────────────────────
+  const gbMode = resolvedMode === "author" ? "author" : "general";
+  const olMode = resolvedMode === "author" ? "author" : "general";
+
+  const tasks: Promise<unknown>[] = [
+    gbFetchByQuery(title, author, scoringQuery, gbMode),           // [0] GB primary
+    olFetchByQuery(title, author, scoringQuery, olMode),           // [1] OL primary
   ];
-  if (extraSearchTitle) {
-    const extraQuery: ScoringQuery = { title: extraSearchTitle, author };
-    fetchPromises.push(
-      gbFetchByQuery(extraSearchTitle, author, extraQuery, resolvedMode),
-      olFetchByQuery(extraSearchTitle, author, extraQuery, resolvedMode),
+  if (extraTitle) {
+    const extraQuery: ScoringQuery = { title: extraTitle, author };
+    tasks.push(
+      gbFetchByQuery(extraTitle, author, extraQuery, gbMode),      // [2] GB translation
+      olFetchByQuery(extraTitle, author, extraQuery, olMode),      // [3] OL translation
     );
   }
 
-  const allSettled = await Promise.allSettled(fetchPromises);
-  const [gbResults, olResults, gbExtra, olExtra] = allSettled;
+  const settled = await Promise.allSettled(tasks);
 
-  const gbWorks_ = [
-    ...(gbResults?.status === "fulfilled" ? gbResults.value : []),
-    ...(gbExtra?.status === "fulfilled" ? gbExtra.value : []),
-  ];
-  const olWorks_ = [
-    ...(olResults?.status === "fulfilled" ? olResults.value : []),
-    ...(olExtra?.status === "fulfilled" ? olExtra.value : []),
-  ];
+  type GBItem = { work: Omit<BookWork, "score"|"confidence"|"bestEdition"|"editions">; edition: BookEdition; gbRank: number };
+  type OLItem = { partialWork: Omit<BookWork, "score"|"confidence"|"bestEdition"|"editions">; bestEdition: Omit<BookEdition, "score"> };
 
-  // Re-assign to satisfy remaining code
-  const [gbResults2, olResults2] = [
-    { status: "fulfilled" as const, value: gbWorks_ },
-    { status: "fulfilled" as const, value: olWorks_ },
-  ];
+  let gbPrimary   = (settled[0]?.status === "fulfilled" ? settled[0].value : []) as GBItem[];
+  let olPrimary   = (settled[1]?.status === "fulfilled" ? settled[1].value : []) as OLItem[];
+  const gbExtra     = extraTitle ? (settled[2]?.status === "fulfilled" ? settled[2].value : []) as GBItem[] : [] as GBItem[];
+  const olExtra     = extraTitle ? (settled[3]?.status === "fulfilled" ? settled[3].value : []) as OLItem[] : [] as OLItem[];
 
-  const gbWorks = gbResults2.value;
-  const olWorks = olResults2.value;
+  // ── 6a. Author-query result filtering ─────────────────────────────────────
+  // Google Books' inauthor: qualifier is fuzzy — it can return biographies and
+  // companion books even when the query is a person name.  We apply two layers:
+  //
+  // Layer 1 (author array check):
+  //   - If authors[] is non-empty: at least one author must fuzzy-match ≥ 50%
+  //   - If authors[] is empty: reject if the title contains the queried name
+  //     (empty-author biography pattern)
+  //
+  // Layer 2 (biography title pattern):
+  //   - If the work title matches a "about this person" pattern (biography,
+  //     unauthorized, companion, etc.) AND no author in the authors[] matches
+  //     the queried name → reject regardless.
+  //   - This catches cases where GB lists the subject as "author" in its index.
+  if (resolvedMode === "author") {
+    const queryNorm = title.trim().toLowerCase();                   // "dan brown"
+    const queryAuthorTokens = tokenize(title);                     // ["dan", "brown"]
 
-  // Build work candidates
-  const candidates: BookWork[] = [];
+    // Patterns that strongly signal a book is ABOUT the author, not BY them.
+    const ABOUT_PATTERN = /\b(biography|biograph|unauthorized|unauthorised|companion|guide|handbook|the man behind|man behind|the woman behind|story of|life of|about|behind the|critical study|an analysis)\b/i;
 
-  // Open Library works
-  for (const { partialWork, bestEdition } of olWorks) {
-    const editionScore = scoreEdition(bestEdition, query, {
+    const isAuthoredBy = (authors: string[], workTitle: string): boolean => {
+      // --- Layer 1: author array check ---
+      let authorMatchFound = false;
+      if (authors.length > 0) {
+        authorMatchFound = authors.some((a) => {
+          const aNorm = a.trim().toLowerCase();
+          // Exact substring match (fastest)
+          if (aNorm.includes(queryNorm) || queryNorm.includes(aNorm)) return true;
+          // Fuzzy token match (handles "Daniel Brown" → "Dan Brown")
+          const aTokens = tokenize(a);
+          return fuzzyOverlapCoeff(queryAuthorTokens, aTokens, 0.75) >= 0.5;
+        });
+        if (!authorMatchFound) {
+          console.log(`  [FILTER-OUT layer1] "${workTitle}" — authors: ${JSON.stringify(authors)}`);
+          return false;
+        }
+      } else {
+        // authors[] empty — check if title contains the author name
+        const titleTokens = tokenize(workTitle);
+        const titleMentionsAuthor =
+          queryAuthorTokens.length > 0 &&
+          fuzzyOverlapCoeff(queryAuthorTokens, titleTokens, 0.75) >= 0.5;
+        if (titleMentionsAuthor) {
+          console.log(`  [FILTER-OUT empty-authors] "${workTitle}"`);
+          return false;
+        }
+        return true; // empty authors, title doesn't mention author → keep
+      }
+
+      // --- Layer 2: biography title pattern ---
+      // Even if GB listed the subject as "author", a title like
+      // "Dan Brown: The Unauthorized Biography" is NOT by Dan Brown.
+      if (ABOUT_PATTERN.test(workTitle)) {
+        // Double-check: is the queried name really in a real author slot?
+        // We need ALL authors to match, not just one. If there's a mismatch
+        // (e.g. authors: ["Dan Brown", "Lisa Rogak"]), that's suspicious.
+        const primaryAuthor = authors[0] ?? "";
+        const primaryNorm = primaryAuthor.trim().toLowerCase();
+        const primaryIsMatch = primaryNorm.includes(queryNorm) || queryNorm.includes(primaryNorm);
+        if (!primaryIsMatch) {
+          console.log(`  [FILTER-OUT layer2-bio] "${workTitle}" — authors: ${JSON.stringify(authors)}`);
+          return false;
+        }
+      }
+
+      return true;
+    };
+
+    const gbBefore = gbPrimary.length;
+    const olBefore = olPrimary.length;
+    const totalBefore = gbBefore + olBefore;
+    gbPrimary = gbPrimary.filter(({ work }) => isAuthoredBy(work.authors, work.title));
+    olPrimary = olPrimary.filter(({ partialWork }) =>
+      isAuthoredBy(partialWork.authors, partialWork.title)
+    );
+    const totalAfter = gbPrimary.length + olPrimary.length;
+    console.log(`[AUTHOR_FILTER] before=${totalBefore} after=${totalAfter} rejected=${totalBefore - totalAfter}`);
+  }
+
+  // ── 6. Build ranked candidate list ───────────────────────────────────────
+  // Each candidate carries its bucket and gbRank for hierarchical sorting.
+  type Candidate = { work: BookWork; bucket: number; gbRank: number };
+  const candidates: Candidate[] = [];
+
+  const primaryBucket = resolvedMode === "author" ? BUCKET_AUTHOR : BUCKET_EXACT_TITLE;
+
+  // Helper: merge an OL result into an existing candidate or create a new one.
+  function ingestOLResult(
+    partialWork: OLItem["partialWork"],
+    rawEdition: OLItem["bestEdition"],
+    bucket: number
+  ): void {
+    const editionScore = scoreEdition(rawEdition as BookEdition, scoringQuery, {
       workKey: partialWork.workKey,
       authors: partialWork.authors,
     });
-    const scoredEdition: BookEdition = { ...bestEdition, score: editionScore };
-    const work = buildWork(partialWork, [scoredEdition], query);
-    candidates.push(work);
-  }
-
-  // Google Books works — merge with OL works that share the same title
-  for (const { work: partialWork, edition } of gbWorks) {
-    const qTitleTokens = tokenize(title);
-    const wTitleTokens = tokenize(partialWork.title);
-    const overlap = qTitleTokens.filter((t) => wTitleTokens.includes(t)).length;
-    const similarity = qTitleTokens.length ? overlap / qTitleTokens.length : 0;
-
-    // Try to merge with existing OL work if title matches well
-    const existingIdx = candidates.findIndex((c) => {
-      const cTokens = tokenize(c.title);
-      const hits = wTitleTokens.filter((t) => cTokens.includes(t)).length;
-      return Math.max(wTitleTokens.length, cTokens.length) > 0 &&
-        hits / Math.max(wTitleTokens.length, cTokens.length) >= 0.7;
-    });
-
-    if (existingIdx !== -1 && similarity >= 0.5) {
-      // Merge edition into existing work
-      const existing = candidates[existingIdx]!;
-      const mergedEditions = dedupeEditions([...existing.editions, edition]);
-      const best = pickBestEdition(mergedEditions);
-      const { score, confidence } = scoreWork(existing, best, query);
+    const scoredEdition: BookEdition = { ...rawEdition, score: editionScore } as BookEdition;
+    const existingIdx = findMergeableIdx(candidates, partialWork.title, partialWork.authors);
+    if (existingIdx !== -1) {
+      // Enrich existing candidate with OL metadata
+      const c = candidates[existingIdx]!;
+      const mergedEditions = dedupeEditions([...c.work.editions, scoredEdition]);
+      const best = pickBestEdition(mergedEditions, queryLang);
+      const { score, confidence } = scoreWork(c.work, best, scoringQuery);
       candidates[existingIdx] = {
-        ...existing,
-        // Fill missing metadata from GB
-        description: existing.description ?? partialWork.description,
-        genres: existing.genres.length ? existing.genres : partialWork.genres,
-        editions: mergedEditions,
-        bestEdition: best,
-        score,
-        confidence,
+        ...c,
+        work: {
+          ...c.work,
+          description: c.work.description ?? partialWork.description,
+          genres: c.work.genres.length ? c.work.genres : (partialWork.genres ?? []),
+          workKey: c.work.workKey ?? partialWork.workKey,
+          editionCount: c.work.editionCount ?? partialWork.editionCount,
+          editions: mergedEditions,
+          bestEdition: best,
+          score,
+          confidence,
+        },
       };
     } else {
-      // New work from Google Books
-      const work = buildWork(partialWork, [edition], query);
-      candidates.push(work);
+      const work = buildWork(partialWork, [scoredEdition], scoringQuery, queryLang);
+      candidates.push({ work, bucket, gbRank: 9999 }); // OL-only: very low priority within bucket
     }
   }
 
-  // Sort by score descending
-  let sorted = candidates.sort((a, b) => b.score - a.score);
+  // ── Process Google Books primary results (highest priority) ──────────────
+  for (const { work: partial, edition, gbRank } of gbPrimary) {
+    const work = buildWork(partial, [edition], scoringQuery, queryLang);
+    candidates.push({ work, bucket: primaryBucket, gbRank });
+  }
 
-  // Enrich top results with catalog data (series, translation)
-  sorted = sorted.map((w) => enrichWorkFromCatalog(w));
+  // ── Process Open Library primary results (merge or add) ──────────────────
+  for (const { partialWork, bestEdition } of olPrimary) {
+    ingestOLResult(partialWork, bestEdition, primaryBucket);
+  }
+
+  // ── Process Google Books translation-expansion results ───────────────────
+  // These come from searching the canonical title (e.g. "Fourth Wing") when
+  // the user typed a translated title (e.g. "Alas de sangre"). They rank
+  // slightly below primary results but above fuzzy-only matches.
+  for (const { work: partial, edition, gbRank } of gbExtra) {
+    const existingIdx = findMergeableIdx(candidates, partial.title, partial.authors);
+    if (existingIdx !== -1) {
+      // Same work found via both primary and translation queries — keep higher
+      // bucket (primary stays). Just add the edition for metadata richness.
+      const c = candidates[existingIdx]!;
+      const mergedEditions = dedupeEditions([...c.work.editions, edition]);
+      const best = pickBestEdition(mergedEditions, queryLang);
+      const { score, confidence } = scoreWork(c.work, best, scoringQuery);
+      candidates[existingIdx] = {
+        ...c,
+        work: { ...c.work, editions: mergedEditions, bestEdition: best, score, confidence },
+      };
+    } else {
+      const extraQuery: ScoringQuery = { title: extraTitle!, author };
+      const work = buildWork(partial, [edition], extraQuery, queryLang);
+      candidates.push({ work, bucket: BUCKET_TRANSLATION, gbRank });
+    }
+  }
+
+  // ── Process Open Library translation-expansion results ───────────────────
+  for (const { partialWork, bestEdition } of olExtra) {
+    ingestOLResult(partialWork, bestEdition, BUCKET_TRANSLATION);
+  }
+
+  // ── 7. Sort: bucket DESC → gbRank ASC (lower = better Google position) ───
+  candidates.sort((a, b) => {
+    if (b.bucket !== a.bucket) return b.bucket - a.bucket;
+    return a.gbRank - b.gbRank;
+  });
+
+  // ── 8. Enrich with series/translation data from local catalog ─────────────
+  const sorted = candidates.map((c) => enrichWorkFromCatalog(c.work));
 
   const flatEditions = dedupeEditions(sorted.flatMap((w) => w.editions));
 

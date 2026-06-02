@@ -1,3 +1,5 @@
+// ─── Noise patterns — strip awards, lists, marketing tags ─────────────────────
+
 const NOISE_PATTERNS = [
   /^nyt:/i,
   /new york times/i,
@@ -9,59 +11,133 @@ const NOISE_PATTERNS = [
   /book club/i,
   /pulitzer/i,
   /award/i,
-  /winner/i
+  /winner/i,
 ];
+
+// ─── Genre classification rules ───────────────────────────────────────────────
+// Order matters: more specific genres are listed first so they win over broader
+// catch-alls. "Literary Fiction" is intentionally last — it only applies when
+// nothing more specific matched.
 
 const GENRE_RULES: Array<{ label: string; patterns: RegExp[] }> = [
-  { label: "Fantasy", patterns: [/fantasy/i, /magic/i, /dragons?/i, /epic fantasy/i] },
-  { label: "Science Fiction", patterns: [/science fiction/i, /\bsci[- ]?fi\b/i, /space opera/i, /dystopi/i] },
-  { label: "Mystery", patterns: [/mystery/i, /detective/i, /crime fiction/i, /whodunit/i] },
-  { label: "Thriller", patterns: [/thriller/i, /suspense/i, /espionage/i] },
-  { label: "Historical Fiction", patterns: [/historical/i, /history, fiction/i, /war stories/i] },
-  { label: "Romance", patterns: [/romance/i, /love stories/i] },
-  { label: "Horror", patterns: [/horror/i, /ghost stories/i, /supernatural fiction/i] },
-  { label: "Adventure", patterns: [/adventure/i, /quests?/i, /survival/i] },
-  { label: "Literary Fiction", patterns: [/literature/i, /literary/i, /\bfiction\b/i, /american literature/i] },
-  { label: "Young Adult", patterns: [/young adult/i, /\bya\b/i, /teen/i] },
-  { label: "Children's", patterns: [/juvenile/i, /children/i, /picture books?/i, /middle grade/i] },
-  { label: "Biography", patterns: [/biograph/i, /memoir/i, /autobiograph/i] },
-  { label: "Nonfiction", patterns: [/non[- ]?fiction/i] },
-  { label: "History", patterns: [/history/i, /civilization/i] },
-  { label: "Poetry", patterns: [/poetry/i, /poems?/i] },
-  { label: "Comics", patterns: [/comics?/i, /graphic novels?/i, /manga/i] },
-  { label: "Personal Growth", patterns: [/self-help/i, /personal growth/i, /habits/i, /success/i] }
+  { label: "Fantasy",          patterns: [/\bfantasy\b/i, /\bmagic\b/i, /\bdragons?\b/i, /epic fantasy/i, /sword and sorcery/i] },
+  { label: "Science Fiction",  patterns: [/science fiction/i, /\bsci[- ]?fi\b/i, /space opera/i, /\bdystopi/i, /\bcyberpunk\b/i] },
+  { label: "Mystery",          patterns: [/\bmystery\b/i, /\bdetective\b/i, /crime fiction/i, /whodunit/i, /\bnoir\b/i] },
+  { label: "Thriller",         patterns: [/\bthriller\b/i, /\bsuspense\b/i, /\bespionage\b/i, /\bspy\b/i, /\bconspiracy\b/i] },
+  { label: "Horror",           patterns: [/\bhorror\b/i, /ghost stories/i, /supernatural fiction/i, /\bocult\b/i] },
+  { label: "Romance",          patterns: [/\bromance\b/i, /love stories/i, /romantic fiction/i] },
+  { label: "Historical Fiction",patterns: [/historical fiction/i, /history, fiction/i, /war stories/i, /\bhistorical\b/i] },
+  { label: "Adventure",        patterns: [/\badventure\b/i, /\bquests?\b/i, /\bsurvival\b/i, /action/i] },
+  { label: "Young Adult",      patterns: [/young adult/i, /\bya\b/i, /\bteen\b/i, /coming[- ]of[- ]age/i] },
+  { label: "Children's",       patterns: [/\bjuvenile\b/i, /\bchildren\b/i, /picture books?/i, /middle grade/i] },
+  { label: "Biography",        patterns: [/\bbiograph/i, /\bmemoir\b/i, /\bautobiograph/i] },
+  { label: "History",          patterns: [/\bhistory\b/i, /\bcivilization\b/i, /\bworld war\b/i] },
+  { label: "Nonfiction",       patterns: [/non[- ]?fiction/i, /\bessay\b/i] },
+  { label: "Personal Growth",  patterns: [/self[- ]help/i, /personal growth/i, /\bhabits\b/i, /\bsuccess\b/i] },
+  { label: "Poetry",           patterns: [/\bpoetry\b/i, /\bpoems?\b/i, /\bverse\b/i] },
+  { label: "Comics",           patterns: [/\bcomics?\b/i, /graphic novels?/i, /\bmanga\b/i] },
+  // "Literary Fiction" is a catch-all — only used if nothing more specific matched
+  { label: "Literary Fiction", patterns: [/\bliterary\b/i, /\bliterature\b/i, /american literature/i] },
 ];
 
-function cleanGenreValue(raw: string) {
+// ─── Genres considered too generic to stand alone ─────────────────────────────
+// If "Literary Fiction" (or "Fiction") is the ONLY result, we try to infer
+// something better from the description/title before falling back to it.
+// These labels are valid in combination but weak when alone.
+const GENERIC_SOLE_GENRES = new Set(["Literary Fiction", "Nonfiction", "Uncategorized"]);
+
+// ─── Description-based keyword inference ─────────────────────────────────────
+// Scans raw description text for strong genre signals. Used as a fallback when
+// the API's category list yields only a generic genre.
+// Patterns are deliberately specific to avoid false positives.
+
+const DESCRIPTION_INFERENCE: Array<{ label: string; patterns: RegExp[] }> = [
+  { label: "Thriller",         patterns: [/\bmurder\b/i, /\bkilled\b/i, /\bassassin\b/i, /\bfugitive\b/i, /\bchase\b/i, /\bplot\b.*\bkill\b/i, /\bconspiracy\b/i, /\bspy\b/i, /\binvestigat/i, /\bsuspect\b/i, /\bhunted\b/i] },
+  { label: "Mystery",          patterns: [/\bdetective\b/i, /\bwhodunit\b/i, /\bsolve the\b/i, /\bclue\b/i, /\bunsolve\b/i] },
+  { label: "Science Fiction",  patterns: [/\bspaceship\b/i, /\bplanet\b/i, /\balien\b/i, /\btime travel\b/i, /\bartificial intelligence\b/i, /\brobot\b/i, /\bfutur/i] },
+  { label: "Fantasy",          patterns: [/\bmagic\b/i, /\bdragon\b/i, /\bwizard\b/i, /\belf\b/i, /\bsorcerer\b/i, /\bquest\b/i, /\bspell\b/i] },
+  { label: "Horror",           patterns: [/\bterror\b/i, /\bhaunt\b/i, /\bdemon\b/i, /\bvampire\b/i, /\bzombie\b/i] },
+  { label: "Romance",          patterns: [/\bfalls? in love\b/i, /\blove affair\b/i, /\bheartbreak\b/i, /\bsoulmate\b/i] },
+  { label: "Historical Fiction",patterns: [/\bworld war\b/i, /\b19th century\b/i, /\b18th century\b/i, /\bvictorian\b/i, /\bmedieval\b/i] },
+  { label: "Biography",        patterns: [/\blife of\b/i, /\bborn in\b/i, /\bmemoir\b/i, /\bautobiograph/i] },
+  { label: "Personal Growth",  patterns: [/\bself[- ]improvement\b/i, /\bproductivity\b/i, /\bgoals?\b/i, /\bmindset\b/i] },
+];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function cleanGenreValue(raw: string): string {
   return raw
     .replace(/^subjects?:/i, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-export function normalizeBookGenres(genres?: string[]) {
-  if (!genres?.length) return ["Uncategorized"];
+function classifyText(text: string, rules: typeof GENRE_RULES): string[] {
+  const found: string[] = [];
+  for (const rule of rules) {
+    if (rule.patterns.some((p) => p.test(text))) {
+      found.push(rule.label);
+    }
+  }
+  return found;
+}
 
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+/**
+ * Normalize raw genre/category strings from Google Books or Open Library into
+ * clean, app-friendly genre labels.
+ *
+ * @param genres      Raw category strings from the API.
+ * @param description Optional description text — used to infer genre when the
+ *                    API categories are too generic or missing.
+ */
+export function normalizeBookGenres(
+  genres?: string[],
+  description?: string
+): string[] {
+  // ── Step 1: classify from API categories ──────────────────────────────────
   const collected: string[] = [];
 
-  for (const raw of genres) {
+  for (const raw of genres ?? []) {
     const cleaned = cleanGenreValue(raw);
     if (!cleaned) continue;
-    if (NOISE_PATTERNS.some((pattern) => pattern.test(cleaned))) continue;
+    if (NOISE_PATTERNS.some((p) => p.test(cleaned))) continue;
 
-    const matchedRule = GENRE_RULES.find((rule) => rule.patterns.some((pattern) => pattern.test(cleaned)));
-    if (matchedRule) {
-      collected.push(matchedRule.label);
+    const matched = classifyText(cleaned, GENRE_RULES);
+    if (matched.length) {
+      collected.push(...matched);
       continue;
     }
 
+    // Keep short, plain strings that don't match any rule as-is
     if (cleaned.includes(":")) continue;
     if (cleaned.length > 32) continue;
 
-    const fallback = cleaned.replace(/\b\w/g, (char) => char.toUpperCase());
+    const fallback = cleaned.replace(/\b\w/g, (c) => c.toUpperCase());
     collected.push(fallback);
   }
 
+  // ── Step 2: deduplicate ───────────────────────────────────────────────────
   const unique = Array.from(new Set(collected)).slice(0, 4);
+
+  // ── Step 3: fallback — infer from description if result is too generic ────
+  // If the only genre we have is a weak catch-all ("Literary Fiction",
+  // "Nonfiction", "Uncategorized"), try to find something better by scanning
+  // the description text for strong genre signals.
+  const isTooGeneric =
+    unique.length === 0 ||
+    (unique.length === 1 && GENERIC_SOLE_GENRES.has(unique[0]!));
+
+  if (isTooGeneric && description) {
+    const inferred = classifyText(description, DESCRIPTION_INFERENCE);
+    if (inferred.length) {
+      // Return inferred genres. Keep the original weak genre only if nothing
+      // was inferred so we always have at least one label.
+      const merged = Array.from(new Set([...inferred, ...unique])).slice(0, 4);
+      return merged;
+    }
+  }
+
   return unique.length ? unique : ["Uncategorized"];
 }
