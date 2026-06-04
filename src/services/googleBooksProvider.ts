@@ -257,7 +257,8 @@ export async function fetchByGenre(
     const data = (await res.json()) as GBResponse;
 
     const books: GenreBookResult[] = (data.items ?? [])
-      .filter((vol) => vol.volumeInfo.title)
+      // Require at least a thumbnail — books with no imageLinks will render as blank squares
+      .filter((vol) => vol.volumeInfo.title && (vol.volumeInfo.imageLinks?.thumbnail ?? vol.volumeInfo.imageLinks?.smallThumbnail))
       .map((vol): GenreBookResult => {
         const info = vol.volumeInfo;
         const isbn13 = info.industryIdentifiers?.find((x) => x.type === "ISBN_13")?.identifier;
@@ -301,7 +302,8 @@ export async function fetchByKeyword(
     const data = (await res.json()) as GBResponse;
 
     const books: GenreBookResult[] = (data.items ?? [])
-      .filter((vol) => vol.volumeInfo.title)
+      // Require at least a thumbnail — books with no imageLinks will render as blank squares
+      .filter((vol) => vol.volumeInfo.title && (vol.volumeInfo.imageLinks?.thumbnail ?? vol.volumeInfo.imageLinks?.smallThumbnail))
       .map((vol): GenreBookResult => {
         const info = vol.volumeInfo;
         const isbn13 = info.industryIdentifiers?.find((x) => x.type === "ISBN_13")?.identifier;

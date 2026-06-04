@@ -10,6 +10,7 @@ import { Screen } from "../components/Screen";
 import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
+import { buildLibraryIndex } from "../services/recommendationEngine";
 import { AppColors, colors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors, useTheme } from "../theme/ThemeContext";
 import { NewBookInput, ReadingFormat } from "../types/models";
@@ -37,6 +38,7 @@ import {
   workEditionToNewBookInput,
   detectQueryIntent,
 } from "../services/bookMetadataAggregator";
+import { buildUserTasteProfile, UserTasteProfile } from "../services/userTasteProfile";
 import { BookEdition, BookWork, WorkLookupResult } from "../types/bookMetadata";
 import { BookEditionsSheet } from "../components/BookEditionsSheet";
 import { parseIsbn, formatIsbn13 } from "../utils/isbnUtils";
@@ -45,6 +47,7 @@ type IntakeMode = "menu" | "isbn" | "manual" | "search" | "matches" | "review";
 type IconName = keyof typeof Ionicons.glyphMap;
 type DiscoverSearchIntent = "auto" | "author" | "series";
 type BookIntakeRouteProp = RouteProp<RootStackParamList, "BookIntake">;
+type MatchSortOrder = "relevance" | "popular" | "rating" | "year_desc" | "year_asc";
 
 const booklizLogo = require("../../assets/brand/bookliz-logo.png");
 
@@ -148,6 +151,34 @@ const REVIEW_FORMATS: { value: ReadingFormat; label: string; icon: IconName }[] 
   { value: "audiobook", label: "Audiobook", icon: "headset-outline" }
 ];
 
+/**
+ * Remove library catalog junk from synopses before showing to the user.
+ * Patterns: donation records, provenance notes, bookseller stamps, etc.
+ */
+function sanitizeSynopsis(text: string | undefined): string | undefined {
+  if (!text) return text;
+  const junkPatterns = [
+    /donation\s+\w+[\/\-]\d+/i,          // "Donation Jan/03"
+    /replaced\s+\w+\.?\d*/i,              // "replaced Sept.05"
+    /forward(ed)?\s+by\s+[\w\s.]+/i,      // "Forward by Russell E. DiCarlo"
+    /ex[- ]?libris/i,
+    /property\s+of\s+/i,
+    /library\s+copy/i,
+    /book\s+sale\s+\d{4}/i,
+    /^\s*[\d]+\s*$/,                      // just a number
+  ];
+  const cleaned = text.trim();
+  // If most of the synopsis matches junk patterns, discard entirely
+  const junkyLines = cleaned.split(/[.\n]/).filter((line) =>
+    junkPatterns.some((p) => p.test(line))
+  );
+  if (junkyLines.length > 0 && junkyLines.length >= cleaned.split(/[.\n]/).length / 2) {
+    return undefined;
+  }
+  // Otherwise return as-is (might have partial junk but user can edit)
+  return cleaned || undefined;
+}
+
 const sourceLabel: Record<NewBookInput["source"], string> = {
   photo: "Cover photo",
   isbn: "ISBN scan",
@@ -193,6 +224,162 @@ function ScanLine() {
   );
 }
 
+function matchPublishedYear(match: Pick<BookMatch, "publishedDate">): number {
+  if (!match.publishedDate) return 0;
+  const year = parseInt(match.publishedDate.slice(0, 4), 10);
+  return Number.isNaN(year) ? 0 : year;
+}
+
+function normalizeSearchText(value: string | undefined): string {
+  return (value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function scoreMatchByTaste(
+  match: BookMatch,
+  profile: UserTasteProfile,
+  libraryIndex: ReturnType<typeof buildLibraryIndex>
+): number {
+  const normalizedTitle = normalizeSearchText(match.title);
+  if (
+    libraryIndex.isbnSet.has(match.isbn13 ?? "") ||
+    libraryIndex.normalizedTitleSet.has(normalizedTitle)
+  ) {
+    return -120;
+  }
+
+  let score = 0;
+  const searchable = normalizeSearchText([
+    match.title,
+    match.subtitle,
+    match.description,
+    match.seriesName,
+    match.language,
+    ...(match.genres ?? []),
+    ...(match.authors ?? []),
+  ].join(" "));
+  const normalizedAuthor = normalizeSearchText(match.authors[0] ?? "");
+
+  for (const topGenre of profile.topGenres.slice(0, 3)) {
+    const genre = normalizeSearchText(topGenre.genre);
+    if (genre && searchable.includes(genre)) score += Math.round(topGenre.weight * 2.2);
+  }
+
+  for (const topAuthor of profile.topAuthors.slice(0, 3)) {
+    const author = normalizeSearchText(topAuthor.author);
+    if (author && normalizedAuthor.includes(author)) score += Math.round(topAuthor.weight * 2.5);
+  }
+
+  for (const topSeries of profile.topSeries.slice(0, 2)) {
+    const series = normalizeSearchText(topSeries.series);
+    if (series && searchable.includes(series)) score += Math.round(topSeries.weight * 2.4);
+  }
+
+  const preferredLanguage = normalizeSearchText(profile.preferredLanguages[0]?.language);
+  if (preferredLanguage && normalizeSearchText(match.language).includes(preferredLanguage)) {
+    score += 10;
+  }
+
+  const anchorGenres = profile.anchorBooks
+    .slice(0, 2)
+    .flatMap((book) => book.genres)
+    .map((genre) => normalizeSearchText(genre))
+    .filter(Boolean);
+  const uniqueAnchorGenres = Array.from(new Set(anchorGenres));
+  score += uniqueAnchorGenres.filter((genre) => searchable.includes(genre)).length * 10;
+
+  if (profile.readingVelocity.sessionsPerWeek <= 4 && (match.pageCount ?? 999) <= 320) {
+    score += 8;
+  }
+
+  return score;
+}
+
+function browseScoreForMatch(match: BookMatch): number {
+  let score = match.score ?? 0;
+
+  score += match.tasteScore ?? 0;
+
+  if (match.coverUrl) score += 40;
+  else score -= 45;
+
+  const ratingsCount = match.ratingsCount ?? 0;
+  if (ratingsCount >= 100000) score += 55;
+  else if (ratingsCount >= 25000) score += 44;
+  else if (ratingsCount >= 5000) score += 34;
+  else if (ratingsCount >= 1000) score += 22;
+  else if (ratingsCount >= 100) score += 12;
+  else if ((match.averageRating ?? 0) === 0) score -= 12;
+
+  score += Math.round((match.averageRating ?? 0) * 6);
+
+  const year = matchPublishedYear(match);
+  if (year >= 2024) score += 12;
+  else if (year >= 2020) score += 9;
+  else if (year >= 2015) score += 6;
+  else if (year >= 2005) score += 3;
+
+  return score;
+}
+
+function compareMatches(a: BookMatch, b: BookMatch, sortOrder: MatchSortOrder): number {
+  const aYear = matchPublishedYear(a);
+  const bYear = matchPublishedYear(b);
+  const aPopularity = a.ratingsCount ?? 0;
+  const bPopularity = b.ratingsCount ?? 0;
+  const aRating = a.averageRating ?? 0;
+  const bRating = b.averageRating ?? 0;
+  const aHasCover = a.coverUrl ? 1 : 0;
+  const bHasCover = b.coverUrl ? 1 : 0;
+
+  if (aHasCover !== bHasCover) return bHasCover - aHasCover;
+
+  if (sortOrder === "popular") {
+    return (
+      bPopularity - aPopularity ||
+      bRating - aRating ||
+      bYear - aYear ||
+      browseScoreForMatch(b) - browseScoreForMatch(a)
+    );
+  }
+
+  if (sortOrder === "rating") {
+    return (
+      bRating - aRating ||
+      bPopularity - aPopularity ||
+      bYear - aYear ||
+      browseScoreForMatch(b) - browseScoreForMatch(a)
+    );
+  }
+
+  if (sortOrder === "year_desc") {
+    return (
+      bYear - aYear ||
+      bPopularity - aPopularity ||
+      bRating - aRating ||
+      browseScoreForMatch(b) - browseScoreForMatch(a)
+    );
+  }
+
+  if (sortOrder === "year_asc") {
+    const aSortableYear = aYear || 9999;
+    const bSortableYear = bYear || 9999;
+    return (
+      aSortableYear - bSortableYear ||
+      bPopularity - aPopularity ||
+      bRating - aRating ||
+      browseScoreForMatch(b) - browseScoreForMatch(a)
+    );
+  }
+
+  return browseScoreForMatch(b) - browseScoreForMatch(a);
+}
+
 export function BookIntakeScreen() {
   const c = useColors();
   const { isDark } = useTheme();
@@ -200,7 +387,12 @@ export function BookIntakeScreen() {
   const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<BookIntakeRouteProp>();
-  const { addBook } = useBookliz();
+  const { addBook, authors, books, readingSessions, userProfile } = useBookliz();
+  const tasteProfile = useMemo(
+    () => buildUserTasteProfile({ authors, books, readingSessions, userProfile }),
+    [authors, books, readingSessions, userProfile]
+  );
+  const libraryIndex = useMemo(() => buildLibraryIndex(books), [books]);
   const [permission, requestPermission] = useCameraPermissions();
   const [mode, setMode] = useState<IntakeMode>("menu");
   const [scanned, setScanned] = useState(false);
@@ -219,6 +411,10 @@ export function BookIntakeScreen() {
   const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
+  // "Edit details" section collapsed by default — user expands only if needed
+  const [showEditDetails, setShowEditDetails] = useState(false);
+  // Language modal
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [scanZoom, setScanZoom] = useState<0 | 0.05 | 0.12>(0);
   // "camera" = show viewfinder; "manual" = hide camera, show keyboard-friendly input
   const [isbnInputMode, setIsbnInputMode] = useState<"camera" | "manual">("camera");
@@ -229,7 +425,7 @@ export function BookIntakeScreen() {
   const [matchLookupLabel, setMatchLookupLabel] = useState("");
   const [matchReturnMode, setMatchReturnMode] = useState<"menu" | "isbn" | "search">("menu");
   // Sort order for search results
-  const [sortOrder, setSortOrder] = useState<"relevance" | "year_desc" | "year_asc" | "rating">("relevance");
+  const [sortOrder, setSortOrder] = useState<MatchSortOrder>("popular");
   const [showSortSheet, setShowSortSheet] = useState(false);
   const isAuthorQuery = useMemo(
     () => detectQueryIntent(matchLookupLabel) === "author",
@@ -306,7 +502,8 @@ export function BookIntakeScreen() {
       wantToBuy: false,
       format: "physical",
       language: "English",
-      ...input
+      ...input,
+      synopsis: sanitizeSynopsis(input.synopsis),
     };
     setReviewBook(draft);
     setReviewInsight(insight ?? null);
@@ -458,6 +655,13 @@ export function BookIntakeScreen() {
     type: "isbn" | "query" = "query",
     forcedIntent: DiscoverSearchIntent = "auto"
   ) => {
+    const isAuthorSearch =
+      type === "query" &&
+      (forcedIntent === "author" || (forcedIntent === "auto" && detectQueryIntent(query) === "author"));
+    const initialSortOrder: MatchSortOrder =
+      type === "isbn" ? "relevance" : isAuthorSearch ? "year_desc" : "relevance";
+
+    setSortOrder(initialSortOrder);
     setMatches([]);
     setLookupResult(null);
     setMatchLookupLabel(query);
@@ -485,14 +689,14 @@ export function BookIntakeScreen() {
       // One match card per unique BookWork (different books), using each
       // work's own author, title, and best edition — not flatEditions which
       // mixes all editions from all books with the wrong author.
-      const isAuthor = forcedIntent === "author" || (forcedIntent === "auto" && detectQueryIntent(query) === "author");
+      const isAuthor = isAuthorSearch;
       const works = result.works.length ? result.works : result.work ? [result.work] : [];
       // For author queries show ALL results (full catalog); for title queries cap at 8.
       const sliced = works; // no cap — show all results
       const legacyMatches: BookMatch[] = sliced
         .map((work) => {
           const best = work.bestEdition ?? work.editions[0];
-          return {
+          const match: BookMatch = {
             id: work.workKey ?? best?.id ?? work.title,
             title: work.title,
             subtitle: work.subtitle,
@@ -517,6 +721,12 @@ export function BookIntakeScreen() {
             score: work.score,
             confidence: work.score >= 90 ? "high" : work.score >= 70 ? "medium" : "low",
           };
+
+          if (type === "query" && !isAuthor) {
+            match.tasteScore = scoreMatchByTaste(match, tasteProfile, libraryIndex);
+          }
+
+          return match;
         });
 
       // For author queries, sort by publication year descending (most recent first).
@@ -533,7 +743,8 @@ export function BookIntakeScreen() {
       const dedupedMatches = legacyMatches.filter((match, index, all) => (
         all.findIndex((candidate) => candidate.id === match.id) === index
       ));
-      setMatches(dedupedMatches);
+      const rankedMatches = [...dedupedMatches].sort((a, b) => compareMatches(a, b, initialSortOrder));
+      setMatches(rankedMatches);
     } catch (err) {
       const isTimeout = err instanceof Error && err.message === "timeout";
       openDialog(
@@ -816,28 +1027,38 @@ export function BookIntakeScreen() {
           </Text>
         </Pressable>
 
-        <Text style={styles.reviewSectionTitle}>Verify details</Text>
-        <Field label="Title" value={reviewBook.title} onChangeText={(title) => updateReviewBook({ title })} />
-        <Field label="Author" value={reviewBook.authorName} onChangeText={(authorName) => updateReviewBook({ authorName })} />
-        <Field
-          label="Genres"
-          value={reviewBook.genre?.join(", ") ?? ""}
-          onChangeText={(value) => updateReviewBook({ genre: splitList(value) })}
-          hint="Separate genres with commas"
-        />
-        <Field
-          label="Pages"
-          keyboardType="number-pad"
-          value={reviewBook.pages ? String(reviewBook.pages) : ""}
-          onChangeText={(value) => updateReviewBook({ pages: Number(value) || undefined })}
-        />
-        <Field label="Synopsis" value={reviewBook.synopsis ?? ""} onChangeText={(synopsis) => updateReviewBook({ synopsis })} multiline />
+        {/* ── Edit details (collapsed by default) ─────────────────────── */}
+        <Pressable style={styles.editDetailsToggle} onPress={() => setShowEditDetails((v) => !v)}>
+          <Ionicons name={showEditDetails ? "chevron-up-outline" : "create-outline"} size={15} color={c.teal} />
+          <Text style={styles.editDetailsToggleText}>{showEditDetails ? "Hide details" : "Edit details"}</Text>
+        </Pressable>
 
-        <Text style={styles.reviewSectionTitle}>Preferences</Text>
-        <LanguagePicker
-          selected={reviewBook.language ?? "English"}
-          onSelect={selectReviewLanguage}
-        />
+        {showEditDetails ? (
+          <>
+            <Field label="Title" value={reviewBook.title} onChangeText={(title) => updateReviewBook({ title })} />
+            <Field label="Author" value={reviewBook.authorName} onChangeText={(authorName) => updateReviewBook({ authorName })} />
+            <Field
+              label="Genres"
+              value={reviewBook.genre?.join(", ") ?? ""}
+              onChangeText={(value) => updateReviewBook({ genre: splitList(value) })}
+              hint="Separate genres with commas"
+            />
+            <Field
+              label="Pages"
+              keyboardType="number-pad"
+              value={reviewBook.pages ? String(reviewBook.pages) : ""}
+              onChangeText={(value) => updateReviewBook({ pages: Number(value) || undefined })}
+            />
+            <Field label="Synopsis" value={reviewBook.synopsis ?? ""} onChangeText={(synopsis) => updateReviewBook({ synopsis })} multiline />
+          </>
+        ) : null}
+
+        {/* ── Language — compact selector ──────────────────────────────── */}
+        <Pressable style={styles.languageCompactBtn} onPress={() => setShowLanguageModal(true)}>
+          <Ionicons name="language-outline" size={15} color={c.muted} />
+          <Text style={styles.languageCompactText}>{reviewBook.language ?? "English"}</Text>
+          <Ionicons name="chevron-down-outline" size={13} color={c.muted} />
+        </Pressable>
 
         <Text style={styles.reviewSectionTitle}>Format</Text>
         <View style={styles.reviewChoiceGrid}>
@@ -898,28 +1119,21 @@ export function BookIntakeScreen() {
             <Text style={styles.secondaryReviewButtonText}>Cancel this draft</Text>
           </Pressable>
         </View>
+
+        {/* ── Language modal ───────────────────────────────────────────── */}
+        <CompactLanguageModal
+          visible={showLanguageModal}
+          selected={reviewBook.language ?? "English"}
+          preferredLanguages={tasteProfile.preferredLanguages.map((l: { language: string }) => l.language)}
+          onSelect={(lang) => { setShowLanguageModal(false); selectReviewLanguage(lang); }}
+          onClose={() => setShowLanguageModal(false)}
+        />
       </Screen>
     );
   }
 
   if (mode === "matches") {
-    // Apply sort to a copy of matches (preserving original order as "relevance")
-    const sortedMatches = [...matches].sort((a, b) => {
-      if (sortOrder === "year_desc") {
-        const ya = a.publishedDate ? parseInt(a.publishedDate.slice(0, 4), 10) : 0;
-        const yb = b.publishedDate ? parseInt(b.publishedDate.slice(0, 4), 10) : 0;
-        return yb - ya;
-      }
-      if (sortOrder === "year_asc") {
-        const ya = a.publishedDate ? parseInt(a.publishedDate.slice(0, 4), 10) : 9999;
-        const yb = b.publishedDate ? parseInt(b.publishedDate.slice(0, 4), 10) : 9999;
-        return ya - yb;
-      }
-      if (sortOrder === "rating") {
-        return (b.averageRating ?? 0) - (a.averageRating ?? 0);
-      }
-      return 0; // "relevance" — keep original order
-    });
+    const sortedMatches = [...matches].sort((a, b) => compareMatches(a, b, sortOrder));
 
     const primaryMatch = sortedMatches[0];
     // For author queries show every result; for title/ISBN queries cap at 6 secondary cards.
@@ -1048,7 +1262,8 @@ export function BookIntakeScreen() {
               <Pressable style={styles.sortButton} onPress={() => setShowSortSheet(true)}>
                 <Ionicons name="funnel-outline" size={14} color={c.tealDark} />
                 <Text style={styles.sortButtonText}>
-                  {sortOrder === "relevance" ? "Sort" :
+                  {sortOrder === "relevance" ? "Best match" :
+                   sortOrder === "popular" ? "Most popular" :
                    sortOrder === "year_desc" ? "Newest" :
                    sortOrder === "year_asc" ? "Oldest" : "Top rated"}
                 </Text>
@@ -1113,14 +1328,15 @@ export function BookIntakeScreen() {
             <Pressable style={styles.sortSheet} onPress={(e) => e.stopPropagation()}>
               <View style={styles.sortSheetHandle} />
               <Text style={styles.sortSheetTitle}>Sort by</Text>
-              {(["relevance", "year_desc", "year_asc", "rating"] as const).map((option) => (
+              {(["relevance", "popular", "rating", "year_desc", "year_asc"] as const).map((option) => (
                 <Pressable
                   key={option}
                   style={[styles.sortOption, sortOrder === option && styles.sortOptionActive]}
                   onPress={() => { setSortOrder(option); setShowSortSheet(false); }}
                 >
                   <Text style={[styles.sortOptionText, sortOrder === option && styles.sortOptionTextActive]}>
-                    {option === "relevance" ? "Relevance" :
+                    {option === "relevance" ? "Best match" :
+                     option === "popular" ? "Most popular" :
                      option === "year_desc" ? "Release date: Newest first" :
                      option === "year_asc" ? "Release date: Oldest first" :
                      "Top rated"}
@@ -1257,7 +1473,7 @@ export function BookIntakeScreen() {
               setScanFeedback("Barcode found — searching…");
               handleBarcode(result);
             }}
-            barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "isbn13", "qr"] }}
+            barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "qr"] }}
           />
         )}
 
@@ -1547,6 +1763,7 @@ function Field({
   );
 }
 
+// LanguagePicker kept for backwards compat (used in manual entry elsewhere if needed)
 function LanguagePicker({ selected, onSelect }: { selected: string; onSelect: (lang: string) => void | Promise<void> }) {
   const c = useColors();
   const { isDark } = useTheme();
@@ -1592,6 +1809,94 @@ function LanguagePicker({ selected, onSelect }: { selected: string; onSelect: (l
     </View>
   );
 }
+
+const MODAL_LANGUAGES = ["English", "Spanish", "French", "German", "Swedish", "Portuguese", "Italian", "Dutch", "Russian", "Japanese", "Chinese", "Korean", "Arabic", "Polish", "Turkish"];
+
+/** Compact language selector — shows a short prioritized list, custom input at the bottom. */
+function CompactLanguageModal({
+  visible,
+  selected,
+  preferredLanguages,
+  onSelect,
+  onClose,
+}: {
+  visible: boolean;
+  selected: string;
+  preferredLanguages: string[];
+  onSelect: (lang: string) => void;
+  onClose: () => void;
+}) {
+  const c = useColors();
+  const { isDark } = useTheme();
+  const [custom, setCustom] = useState("");
+
+  // Build prioritized list: user's preferred languages first, then defaults, deduped
+  const prioritized = Array.from(new Set([
+    ...preferredLanguages.filter((l) => MODAL_LANGUAGES.includes(l)),
+    "English", "Spanish", "French", "German", "Swedish",
+  ])).slice(0, 8);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles_modal.backdrop} onPress={onClose} />
+      <View style={[styles_modal.sheet, { backgroundColor: isDark ? "#1E293B" : "#FFFFFF" }]}>
+        <View style={styles_modal.handle} />
+        <Text style={[styles_modal.title, { color: isDark ? "#F1F5F9" : "#0F172A" }]}>Language</Text>
+        <ScrollView style={styles_modal.list} showsVerticalScrollIndicator={false}>
+          {prioritized.map((lang) => (
+            <Pressable
+              key={lang}
+              style={[styles_modal.row, selected === lang && styles_modal.rowActive]}
+              onPress={() => onSelect(lang)}
+            >
+              <Text style={[styles_modal.rowText, { color: isDark ? "#F1F5F9" : "#0F172A" }, selected === lang && styles_modal.rowTextActive]}>
+                {lang}
+              </Text>
+              {selected === lang ? <Ionicons name="checkmark-outline" size={16} color="#14B8A6" /> : null}
+            </Pressable>
+          ))}
+          <View style={styles_modal.divider} />
+          {MODAL_LANGUAGES.filter((l) => !prioritized.includes(l)).map((lang) => (
+            <Pressable
+              key={lang}
+              style={[styles_modal.row, selected === lang && styles_modal.rowActive]}
+              onPress={() => onSelect(lang)}
+            >
+              <Text style={[styles_modal.rowText, { color: isDark ? "#CBD5E1" : "#475569" }, selected === lang && styles_modal.rowTextActive]}>
+                {lang}
+              </Text>
+              {selected === lang ? <Ionicons name="checkmark-outline" size={16} color="#14B8A6" /> : null}
+            </Pressable>
+          ))}
+          <View style={styles_modal.divider} />
+          <TextInput
+            placeholder="Other language…"
+            placeholderTextColor="#94A3B8"
+            style={[styles_modal.customInput, { color: isDark ? "#F1F5F9" : "#0F172A", borderColor: isDark ? "#334155" : "#E2E8F0" }]}
+            value={custom}
+            onChangeText={setCustom}
+            onSubmitEditing={() => { if (custom.trim()) onSelect(custom.trim()); }}
+            returnKeyType="done"
+          />
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+const styles_modal = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)" },
+  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "70%", paddingBottom: 32, paddingHorizontal: 20, paddingTop: 12 },
+  handle: { alignSelf: "center", backgroundColor: "#94A3B8", borderRadius: 2, height: 4, marginBottom: 16, width: 40 },
+  title: { fontFamily: "Lora-Bold", fontSize: 17, fontWeight: "700", marginBottom: 12 },
+  list: { maxHeight: 380 },
+  row: { alignItems: "center", borderRadius: 10, flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 12, paddingVertical: 13 },
+  rowActive: { backgroundColor: "rgba(20,184,166,0.12)" },
+  rowText: { fontSize: 15 },
+  rowTextActive: { color: "#14B8A6", fontWeight: "700" },
+  divider: { backgroundColor: "#E2E8F0", height: 1, marginVertical: 6 },
+  customInput: { borderRadius: 10, borderWidth: 1, fontSize: 14, marginTop: 4, paddingHorizontal: 12, paddingVertical: 11 },
+});
 
 function splitList(value: string) {
   return value
@@ -1943,6 +2248,40 @@ function createStyles(c: AppColors, isDark: boolean) {
     fontWeight: "900",
     marginBottom: spacing.sm,
     marginTop: spacing.sm
+  },
+  editDetailsToggle: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: spacing.sm,
+    marginTop: spacing.xs,
+    paddingVertical: 4,
+  },
+  editDetailsToggleText: {
+    color: c.teal,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  languageCompactBtn: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: c.surface,
+    borderColor: c.border,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 9,
+  },
+  languageCompactText: {
+    color: c.ink,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "600",
   },
   fetchMetaButton: {
     alignItems: "center",

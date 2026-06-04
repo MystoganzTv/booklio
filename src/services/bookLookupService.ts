@@ -58,6 +58,8 @@ export interface BookMatch {
   editionKey?: string;
   editionCount?: number;
   score: number;
+  /** Optional user-taste affinity used for UI reranking in search surfaces. */
+  tasteScore?: number;
   confidence: MatchConfidence;
 }
 

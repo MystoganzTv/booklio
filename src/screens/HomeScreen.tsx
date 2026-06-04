@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { NavigationProp, useNavigation } from "@react-navigation/native";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { BookCover } from "../components/BookCover";
+import { CatalogBookCard } from "../components/CatalogBookCard";
 
 import { RecommendationCard } from "../components/RecommendationCard";
 import { Screen } from "../components/Screen";
@@ -13,6 +14,14 @@ import { formatElapsed, useReadingTimer } from "../data/ReadingTimerContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { MainTabParamList, RootStackParamList } from "../navigation/types";
 import { fetchByGenre, GenreBookResult } from "../services/googleBooksProvider";
+import {
+  buildLibraryIndex,
+  buildPersonalizedRecommendationSections,
+  buildRecommendationSectionSpecs,
+  isHighSignalCatalogBook,
+  PersonalizedRecommendationSection,
+} from "../services/recommendationEngine";
+import { buildUserTasteProfile } from "../services/userTasteProfile";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors, useTheme } from "../theme/ThemeContext";
 
@@ -61,7 +70,7 @@ function useGenreSuggestions(
         for (const book of books) {
           const key = book.googleBooksId;
           if (seen.has(key)) continue;
-          if (!book.coverUrl) continue;                              // must have cover
+          if (!isHighSignalCatalogBook(book)) continue;
           if (!["English", "Spanish"].includes(book.language ?? "")) continue; // en/es only
           if (ownedTitleKeys.has(book.title.trim().toLowerCase())) continue;   // not in library
           seen.add(key);
@@ -84,8 +93,17 @@ export function HomeScreen() {
   const { isDark } = useTheme();
   const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
-  const { books, getAuthor, getBook, overallStats, readingSessions, recommendations, userProfile } = useBookliz();
+  const { authors, books, getAuthor, getBook, overallStats, readingSessions, recommendations, userProfile } = useBookliz();
   const logoSource = isDark ? booklizLogoDark : booklizLogoLight;
+  const tasteProfile = useMemo(
+    () => buildUserTasteProfile({ authors, books, readingSessions, userProfile }),
+    [authors, books, readingSessions, userProfile]
+  );
+  const libraryIndex = useMemo(() => buildLibraryIndex(books), [books]);
+  const recommendationSpecs = useMemo(
+    () => buildRecommendationSectionSpecs(tasteProfile),
+    [tasteProfile]
+  );
 
   const { isRunning, bookId: timerBookId, elapsedMs, start: startTimer, stop: stopTimer } = useReadingTimer();
   const continueBook = books.find((b) => b.userStatus.status === "reading") ?? null;
@@ -111,6 +129,68 @@ export function HomeScreen() {
     ownedTitleKeys
   );
   const showGenreSuggestions = isNewUser && genreSuggestions.length > 0;
+  const shouldShowPersonalizedDiscovery = books.length >= 3 && recommendationSpecs.length > 0;
+  const [personalizedSections, setPersonalizedSections] = useState<PersonalizedRecommendationSection[]>([]);
+  const [loadingPersonalized, setLoadingPersonalized] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!shouldShowPersonalizedDiscovery) {
+      setPersonalizedSections([]);
+      setLoadingPersonalized(false);
+      return;
+    }
+
+    setLoadingPersonalized(true);
+
+    buildPersonalizedRecommendationSections(tasteProfile, libraryIndex, {
+      specs: recommendationSpecs,
+      fetchLimit: 30,
+      booksPerSection: 5,
+      minBooksPerSection: 3,
+    })
+      .then((sections) => {
+        if (cancelled) return;
+        setPersonalizedSections(sections.slice(0, 2));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPersonalizedSections([]);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoadingPersonalized(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [libraryIndex, recommendationSpecs, shouldShowPersonalizedDiscovery, tasteProfile]);
+
+  function openCatalog(query: string, title: string, browseKey?: string) {
+    navigation.navigate("GenreBrowse", {
+      genre: browseKey ?? title,
+      title,
+      catalogQuery: query,
+    });
+  }
+
+  function openSuggestedBook(book: GenreBookResult) {
+    navigation.navigate("BookIntake", {
+      initialBookSelection: {
+        title: book.title,
+        authorName: book.authors[0] ?? "Unknown Author",
+        isbn: book.isbn13,
+        pages: book.pageCount,
+        genre: book.genres,
+        publishedDate: book.publishedYear ? `${book.publishedYear}-01-01` : undefined,
+        language: book.language,
+        synopsis: book.description,
+        coverImageUri: book.coverUrl,
+      },
+    });
+  }
 
   return (
     <Screen>
@@ -241,6 +321,59 @@ export function HomeScreen() {
         </Pressable>
       )}
 
+      {loadingPersonalized ? (
+        <View style={styles.personalizedLoading}>
+          <ActivityIndicator size="small" color={c.teal} />
+        </View>
+      ) : personalizedSections.length > 0 ? (
+        <>
+          <SectionHeader
+            title="Picked for you"
+            actionLabel="Open Discover"
+            onAction={() => navigation.navigate("Discover")}
+          />
+          {personalizedSections.map((section) => (
+            <View key={section.id} style={styles.personalizedBlock}>
+              <View style={styles.personalizedHeaderRow}>
+                <View style={styles.personalizedHeaderCopy}>
+                  <Text style={styles.personalizedSectionTitle}>{section.title}</Text>
+                  <Text style={styles.personalizedSectionSubtitle}>{section.subtitle}</Text>
+                </View>
+                <Pressable
+                  onPress={() => openCatalog(
+                    section.query,
+                    section.title,
+                    section.focusGenre ?? section.focusAuthor ?? section.focusSeries
+                  )}
+                >
+                  <Text style={styles.personalizedSectionAction}>Browse</Text>
+                </Pressable>
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.personalizedRail}
+                contentContainerStyle={styles.personalizedRailContent}
+              >
+                {section.books.map((book) => (
+                  <CatalogBookCard
+                    key={`${section.id}-${book.id}`}
+                    book={book}
+                    onPress={openSuggestedBook}
+                    cardStyle={styles.personalizedCard}
+                    coverStyle={styles.personalizedCover}
+                    titleStyle={styles.personalizedCardTitle}
+                    authorStyle={styles.personalizedCardAuthor}
+                    metaStyle={styles.personalizedCardMeta}
+                    showYear
+                  />
+                ))}
+              </ScrollView>
+            </View>
+          ))}
+        </>
+      ) : null}
+
       {/* Genre-based suggestions — shown for new users based on onboarding genres */}
       {showGenreSuggestions ? (
         <>
@@ -258,21 +391,19 @@ export function HomeScreen() {
             style={styles.genreRail}
           >
             {genreSuggestions.map((book) => (
-              <Pressable
+              <CatalogBookCard
                 key={book.googleBooksId}
-                style={styles.genreCard}
+                book={book}
                 onPress={() =>
                   navigation.navigate("GenreBrowse", {
                     genre: userProfile.favoriteGenres[0]!,
                   })
                 }
-              >
-                <Image source={{ uri: book.coverUrl }} style={styles.genreCover} resizeMode="cover" />
-                <Text style={styles.genreCardTitle} numberOfLines={2}>{book.title}</Text>
-                <Text style={styles.genreCardAuthor} numberOfLines={1}>
-                  {book.authors[0] ?? ""}
-                </Text>
-              </Pressable>
+                cardStyle={styles.genreCard}
+                coverStyle={styles.genreCover}
+                titleStyle={styles.genreCardTitle}
+                authorStyle={styles.genreCardAuthor}
+              />
             ))}
           </ScrollView>
         </>
@@ -534,6 +665,71 @@ function createStyles(c: AppColors) {
     },
     emptyTitle: { color: c.ink, fontFamily: fonts.display, fontSize: 18, fontWeight: "900", marginTop: spacing.xs },
     emptySubtitle: { color: c.muted, fontFamily: fonts.body, fontSize: 13, textAlign: "center" },
+    personalizedLoading: {
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: spacing.md,
+      minHeight: 72,
+    },
+    personalizedBlock: { marginBottom: spacing.md },
+    personalizedHeaderRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginBottom: spacing.sm,
+    },
+    personalizedHeaderCopy: {
+      flex: 1,
+      paddingRight: spacing.sm,
+    },
+    personalizedSectionTitle: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 15,
+      fontWeight: "900",
+    },
+    personalizedSectionSubtitle: {
+      color: c.muted,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      marginTop: 2,
+    },
+    personalizedSectionAction: {
+      color: c.gold,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "900",
+    },
+    personalizedRail: { marginBottom: spacing.xs },
+    personalizedRailContent: { gap: spacing.sm, paddingRight: spacing.md },
+    personalizedCard: { width: 118 },
+    personalizedCover: {
+      backgroundColor: c.border,
+      borderRadius: radii.md,
+      height: 172,
+      marginBottom: spacing.xs,
+      width: 118,
+    },
+    personalizedCardTitle: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "800",
+      lineHeight: 16,
+    },
+    personalizedCardAuthor: {
+      color: c.muted,
+      fontFamily: fonts.body,
+      fontSize: 11,
+      marginTop: 2,
+    },
+    personalizedCardMeta: {
+      color: c.gold,
+      fontFamily: fonts.body,
+      fontSize: 11,
+      fontWeight: "800",
+      marginTop: 4,
+    },
     recommendationRail: { marginBottom: spacing.md },
     genreRail: { marginBottom: spacing.md },
     genreRailContent: { gap: spacing.sm, paddingRight: spacing.md },

@@ -25,6 +25,7 @@ import {
 import { useBookliz } from "../data/BooklizContext";
 import { RootStackParamList } from "../navigation/types";
 import { fetchByGenre, fetchByKeyword, GenreBookResult } from "../services/googleBooksProvider";
+import { isHighSignalCatalogBook } from "../services/recommendationEngine";
 import { AppColors, fonts, radii, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
 import { Book } from "../types/models";
@@ -35,6 +36,91 @@ type RouteProps = RouteProp<RootStackParamList, "GenreBrowse">;
 type NavProps = NativeStackNavigationProp<RootStackParamList>;
 
 const PAGE_SIZE = 40;
+const CURRENT_EDITORIAL_YEAR = 2026;
+// COLLECTION_PATTERN kept for scoreCatalogBook bonus/penalty scoring (not for hard filtering)
+const COLLECTION_PATTERN = /\b(box\s*set|boxed\s*set|collection|omnibus|complete\s*works?|complete\s*series|books?\s*set|bundle|anthology|collected\s*works?|volumes?\s*\d|komplett|gesammelte|year'?s?\s+best|best american)\b/i;
+const LOW_SIGNAL_PATTERN = /\b(workbook|summary|study guide|companion|analysis)\b/i;
+
+function normalizeTitle(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function selectBestCuratedMatch(
+  books: GenreBookResult[],
+  seed: { title: string; author?: string }
+): GenreBookResult | null {
+  const wantedTitle = normalizeTitle(seed.title);
+  const wantedAuthor = seed.author ? normalizeTitle(seed.author) : "";
+
+  const ranked = [...books].sort((a, b) => {
+    const aTitle = normalizeTitle(a.title);
+    const bTitle = normalizeTitle(b.title);
+    const aAuthor = normalizeTitle(a.authors[0] ?? "");
+    const bAuthor = normalizeTitle(b.authors[0] ?? "");
+
+    const aExact = aTitle === wantedTitle ? 2 : aTitle.includes(wantedTitle) ? 1 : 0;
+    const bExact = bTitle === wantedTitle ? 2 : bTitle.includes(wantedTitle) ? 1 : 0;
+    if (bExact !== aExact) return bExact - aExact;
+
+    const aAuthorMatch = wantedAuthor && (aAuthor === wantedAuthor || aAuthor.includes(wantedAuthor)) ? 1 : 0;
+    const bAuthorMatch = wantedAuthor && (bAuthor === wantedAuthor || bAuthor.includes(wantedAuthor)) ? 1 : 0;
+    if (bAuthorMatch !== aAuthorMatch) return bAuthorMatch - aAuthorMatch;
+
+    return (b.ratingsCount ?? 0) - (a.ratingsCount ?? 0) || (b.averageRating ?? 0) - (a.averageRating ?? 0);
+  });
+
+  return ranked.find((book) => normalizeTitle(book.title).includes(wantedTitle) && !!book.coverUrl) ?? ranked[0] ?? null;
+}
+
+function scoreCatalogBook(
+  book: GenreBookResult,
+  genre: string,
+  curatedTitleSet?: Set<string>
+): number {
+  let score = 0;
+
+  if (book.coverUrl) score += 44;
+  else score -= 48;
+
+  const year = book.publishedYear ?? 0;
+  if (year >= CURRENT_EDITORIAL_YEAR - 1) score += 14;
+  else if (year >= 2021) score += 12;
+  else if (year >= 2017) score += 10;
+  else if (year >= 2010) score += 7;
+  else if (year >= 2000) score += 6;
+  else if (year > 0) score -= 8;
+
+  const ratingsCount = book.ratingsCount ?? 0;
+  if (ratingsCount >= 100000) score += 60;
+  else if (ratingsCount >= 25000) score += 48;
+  else if (ratingsCount >= 5000) score += 36;
+  else if (ratingsCount >= 1000) score += 24;
+  else if (ratingsCount >= 100) score += 12;
+  else if ((book.averageRating ?? 0) === 0) score -= 16;
+
+  score += Math.round((book.averageRating ?? 0) * 6);
+
+  const searchableText = `${book.title} ${book.description ?? ""} ${book.genres.join(" ")}`.toLowerCase();
+  const normalizedTitle = normalizeTitle(book.title);
+
+  if (COLLECTION_PATTERN.test(book.title)) score -= 90;
+  if (LOW_SIGNAL_PATTERN.test(book.title)) score -= 40;
+  if (curatedTitleSet?.has(normalizedTitle)) score += 110;
+
+  if (genre === "Fantasy") {
+    if (/\b(fantasy|romantasy|dragon|magic|magical|witch|fae|court|kingdom|sword|epic)\b/.test(searchableText)) {
+      score += 16;
+    }
+    if (/\b(science fiction|anthology|short stories)\b/.test(searchableText)) {
+      score -= 14;
+    }
+  }
+
+  return score;
+}
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
@@ -55,6 +141,10 @@ export function GenreBrowseScreen() {
   const isKeywordMode = !!params.catalogQuery;
   const currentGenre = params.genre;
   const displayTitle = params.title ?? params.genre;
+  const curatedTitleSet = useMemo(
+    () => new Set((params.curatedTitles ?? []).map((entry) => normalizeTitle(entry.title))),
+    [params.curatedTitles]
+  );
 
   // Set nav title
   useLayoutEffect(() => {
@@ -73,9 +163,6 @@ export function GenreBrowseScreen() {
     [books, currentGenre]
   );
 
-  // Load catalog books
-  const COLLECTION_PATTERN = /\b(box\s*set|boxed\s*set|collection|omnibus|complete\s*works?|complete\s*series|books?\s*set|bundle|anthology|collected\s*works?|volumes?\s*\d|komplett|gesammelte)\b/i;
-
   const loadGenre = useCallback(async (genre: string, reset = true) => {
     if (reset) {
       setLoading(true);
@@ -90,33 +177,47 @@ export function GenreBrowseScreen() {
       const fetcher = params.catalogQuery
         ? fetchByKeyword(params.catalogQuery, reset ? 0 : startIndexRef.current, PAGE_SIZE)
         : fetchByGenre(genre, reset ? 0 : startIndexRef.current, PAGE_SIZE);
-      const { books: fetched, totalItems: total } = await fetcher;
+      const [{ books: fetched, totalItems: total }, curatedBooks] = await Promise.all([
+        fetcher,
+        reset && params.curatedTitles?.length
+          ? Promise.all(
+              params.curatedTitles.map(async (seed) => {
+                // Structured operators: find the exact book, not anything that mentions
+                // the title words in a description or editorial field.
+                const query = seed.author
+                  ? `intitle:"${seed.title}" inauthor:"${seed.author}"`
+                  : `intitle:"${seed.title}"`;
+                const { books } = await fetchByKeyword(query, 0, 8);
+                return selectBestCuratedMatch(books, seed);
+              })
+            ).then((books) => books.filter((book): book is GenreBookResult => Boolean(book)))
+          : Promise.resolve([] as GenreBookResult[]),
+      ]);
+      const merged = [...curatedBooks, ...fetched].filter((book, index, all) => (
+        all.findIndex((candidate) => candidate.id === book.id) === index
+      ));
 
-      // Filter 1 (hard): remove box sets and multi-book collections
-      const noCollections = fetched.filter((b) => !COLLECTION_PATTERN.test(b.title));
-
-      // Filter 2 (soft): prefer books with a cover image plus some signal of quality/recency.
-      const withStrongCover = noCollections.filter((b) =>
-        !!b.coverUrl && (
-          (b.ratingsCount ?? 0) > 0 ||
-          (b.averageRating ?? 0) > 0 ||
-          (b.publishedYear ?? 0) >= 1990
-        )
-      );
-      const withCover = noCollections.filter((b) => !!b.coverUrl);
-      const filtered =
-        withStrongCover.length >= 3 ? withStrongCover :
-        withCover.length >= 3 ? withCover :
-        noCollections;
+      // Hard filter: reuse the same quality gate as the recommendation engine —
+      // blocks magazines, text-scan covers, pre-1950 ephemera, generic authors, etc.
+      // Falls back to cover-only filter if the strict filter leaves fewer than 6 books
+      // (prevents empty pages on very niche genre searches).
+      const highSignal = merged.filter((b) => isHighSignalCatalogBook(b));
+      const withCover = merged.filter((b) => !!b.coverUrl && !COLLECTION_PATTERN.test(b.title));
+      const filtered = highSignal.length >= 6 ? highSignal : withCover.length > 0 ? withCover : merged;
+      const ranked = [...filtered].sort((a, b) => {
+        const scoreDiff = scoreCatalogBook(b, genre, curatedTitleSet) - scoreCatalogBook(a, genre, curatedTitleSet);
+        if (scoreDiff !== 0) return scoreDiff;
+        return (b.publishedYear ?? 0) - (a.publishedYear ?? 0);
+      });
 
       startIndexRef.current += fetched.length;
       setTotalItems(total);
-      setCatalogBooks((prev) => reset ? filtered : [...prev, ...filtered]);
+      setCatalogBooks((prev) => reset ? ranked : [...prev, ...ranked]);
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, []);
+  }, [curatedTitleSet, params.catalogQuery, params.curatedTitles]);
 
   useEffect(() => {
     loadGenre(currentGenre, true);
@@ -289,7 +390,7 @@ export function GenreBrowseScreen() {
                 </Text>
                 {totalItems > 0 && (
                   <Text style={[styles.totalCount, { color: c.muted }]}>
-                    {totalItems.toLocaleString()} books
+                    {totalItems > 500 ? "500+" : totalItems.toLocaleString()} books
                   </Text>
                 )}
               </View>

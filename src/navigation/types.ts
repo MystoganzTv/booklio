@@ -38,6 +38,8 @@ export type RootStackParamList = {
     title?: string;
     /** If provided, does a keyword search instead of subject search */
     catalogQuery?: string;
+    /** Optional editorial seed titles to prioritize first */
+    curatedTitles?: Array<{ title: string; author?: string }>;
   };
 };
 
