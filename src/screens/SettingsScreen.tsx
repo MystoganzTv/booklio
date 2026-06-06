@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { GoogleConnectionCard } from "../components/GoogleConnectionCard";
 import { Screen } from "../components/Screen";
 import { useBookliz } from "../data/BooklizContext";
@@ -17,7 +17,7 @@ import {
 export function SettingsScreen() {
   const { colors: c, isDark, toggleTheme } = useTheme();
   const { locale, setLocale, t } = useI18n();
-  const { resetApp } = useBookliz();
+  const { resetApp, clearLibrary, userProfile } = useBookliz();
   const styles = useMemo(() => createStyles(c), [c]);
 
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>({ enabled: false, hour: 20, minute: 0 });
@@ -43,6 +43,33 @@ export function SettingsScreen() {
         <Text style={styles.eyebrow}>{t("settings.eyebrow")}</Text>
         <Text style={styles.title}>{t("settings.title")}</Text>
         <Text style={styles.subtitle}>{t("settings.subtitle")}</Text>
+      </View>
+
+      {/* ── Connected identity ─────────────────────────────────────────── */}
+      <View style={styles.identityCard}>
+        <View style={styles.identityAvatar}>
+          {userProfile.avatarUri ? (
+            <Image source={{ uri: userProfile.avatarUri }} style={styles.identityAvatarImage} />
+          ) : (
+            <Text style={styles.identityAvatarInitials}>{userProfile.avatarInitials ?? "?"}</Text>
+          )}
+        </View>
+        <View style={styles.identityCopy}>
+          <Text style={styles.identityName} numberOfLines={1}>
+            {userProfile.name || "Your account"}
+          </Text>
+          {userProfile.email ? (
+            <Text style={styles.identityEmail} numberOfLines={1}>{userProfile.email}</Text>
+          ) : (
+            <Text style={styles.identityEmailMuted}>No account connected</Text>
+          )}
+        </View>
+        {userProfile.email ? (
+          <View style={styles.identityBadge}>
+            <Ionicons name="checkmark-circle" size={14} color={c.teal} />
+            <Text style={styles.identityBadgeText}>Connected</Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.sectionCard}>
@@ -149,8 +176,27 @@ export function SettingsScreen() {
         <Text style={styles.dangerEyebrow}>{t("settings.dangerEyebrow")}</Text>
         <Text style={styles.dangerTitle}>{t("settings.dangerTitle")}</Text>
         <Text style={styles.dangerBody}>{t("settings.dangerBody")}</Text>
+
+        {/* Clear demo data — lighter action, keeps account */}
         <Pressable
-          style={styles.dangerButton}
+          style={styles.clearDemoButton}
+          onPress={() =>
+            Alert.alert(
+              "Clear library data?",
+              "This removes all books, reading sessions, and lists. Your account and settings stay intact.",
+              [
+                { text: "Cancel", style: "cancel" },
+                { text: "Clear", style: "destructive", onPress: () => { void clearLibrary(); } },
+              ]
+            )
+          }
+        >
+          <Ionicons name="refresh-outline" size={16} color={c.muted} />
+          <Text style={styles.clearDemoButtonText}>Clear demo data</Text>
+        </Pressable>
+
+        <Pressable
+          style={[styles.dangerButton, { marginTop: spacing.sm }]}
           onPress={() =>
             Alert.alert(
               t("settings.deletePromptTitle"),
@@ -173,7 +219,93 @@ export function SettingsScreen() {
 function createStyles(c: AppColors) {
   return StyleSheet.create({
     pageHeader: {
+      marginBottom: spacing.md,
+    },
+    identityCard: {
+      ...shadows.card,
+      alignItems: "center",
+      backgroundColor: c.surface,
+      borderColor: c.border,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.md,
       marginBottom: spacing.lg,
+      padding: spacing.md,
+    },
+    identityAvatar: {
+      alignItems: "center",
+      backgroundColor: c.teal + "22",
+      borderRadius: radii.pill,
+      height: 48,
+      justifyContent: "center",
+      width: 48,
+    },
+    identityAvatarImage: {
+      borderRadius: radii.pill,
+      height: 48,
+      width: 48,
+    },
+    identityAvatarInitials: {
+      color: c.tealDark,
+      fontFamily: fonts.body,
+      fontSize: 18,
+      fontWeight: "900",
+    },
+    identityCopy: {
+      flex: 1,
+    },
+    identityName: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 15,
+      fontWeight: "800",
+    },
+    identityEmail: {
+      color: c.muted,
+      fontFamily: fonts.bodyRegular,
+      fontSize: 12,
+      marginTop: 2,
+    },
+    identityEmailMuted: {
+      color: c.muted,
+      fontFamily: fonts.bodyRegular,
+      fontSize: 12,
+      marginTop: 2,
+    },
+    identityBadge: {
+      alignItems: "center",
+      backgroundColor: c.teal + "16",
+      borderColor: c.teal + "40",
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 4,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    identityBadgeText: {
+      color: c.tealDark,
+      fontFamily: fonts.body,
+      fontSize: 11,
+      fontWeight: "700",
+    },
+    clearDemoButton: {
+      alignItems: "center",
+      backgroundColor: c.surfaceAlt,
+      borderColor: c.border,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.sm,
+      justifyContent: "center",
+      paddingVertical: 13,
+    },
+    clearDemoButtonText: {
+      color: c.muted,
+      fontFamily: fonts.body,
+      fontSize: 14,
+      fontWeight: "700",
     },
     eyebrow: {
       color: c.tealDark,

@@ -17,6 +17,7 @@ import { NewBookInput, ReadingFormat } from "../types/models";
 import { analyzeBookPhoto, getBookPhotoSupportSummary } from "../utils/bookPhotoIntake";
 import {
   applyEditionOptionToBookInput,
+  BookEditionOption,
   canFetchMetadata,
   enrichBookInput,
   fetchBookMetadataByEditionKey,
@@ -240,6 +241,47 @@ function normalizeSearchText(value: string | undefined): string {
     .trim();
 }
 
+// Supplementary / merch material that readers almost never want in their library:
+// study guides, summaries, and branded merchandise (stickers, totes, journals\u2026).
+// These often carry a (broken) cover thumbnail, so the cover-first sort alone
+// can't keep them out of the top spots \u2014 we push them to the bottom instead.
+const SUPPLEMENTARY_TITLE =
+  /\b(study guide|studyguide|summary|workbook|colou?ring book|sticker|stickers|tote|enamel pin|journal|notebook|planner|calendar|poster|trivia|conversation starters?|cliffs?\s?notes|sparknotes|quicklet|reading group guide)\b/i;
+const SUPPLEMENTARY_PUBLISHER =
+  /supersummary|out of print|bookcaps|quicklet|sparknotes|cliffs?notes|blokehead/i;
+
+function isSupplementaryMaterial(match: BookMatch): boolean {
+  const title = `${match.title ?? ""} ${match.subtitle ?? ""}`;
+  if (SUPPLEMENTARY_TITLE.test(title)) return true;
+  if (match.publisher && SUPPLEMENTARY_PUBLISHER.test(match.publisher)) return true;
+  return false;
+}
+
+/** Normalized query tokens (\u22652 chars) used for author-match ranking. */
+function queryTokensOf(query: string): string[] {
+  return normalizeSearchText(query).split(" ").filter((token) => token.length >= 2);
+}
+
+/** True when every token of the search query appears in the result's author names. */
+function authorMatchesQuery(match: BookMatch, queryTokens: string[]): boolean {
+  if (!queryTokens.length) return false;
+  const authorText = normalizeSearchText((match.authors ?? []).join(" "));
+  if (!authorText) return false;
+  return queryTokens.every((token) => authorText.includes(token));
+}
+
+/**
+ * Coarse ranking tier applied before the fine-grained compareMatches sort:
+ *   0 = book by the searched author (strongest signal for name queries)
+ *   1 = ordinary book
+ *   2 = supplementary material / merch (study guides, stickers, totes\u2026)
+ */
+function matchTier(match: BookMatch, queryTokens: string[]): number {
+  if (isSupplementaryMaterial(match)) return 2;
+  if (authorMatchesQuery(match, queryTokens)) return 0;
+  return 1;
+}
+
 function scoreMatchByTaste(
   match: BookMatch,
   profile: UserTasteProfile,
@@ -327,7 +369,18 @@ function browseScoreForMatch(match: BookMatch): number {
   return score;
 }
 
-function compareMatches(a: BookMatch, b: BookMatch, sortOrder: MatchSortOrder): number {
+function compareMatches(
+  a: BookMatch,
+  b: BookMatch,
+  sortOrder: MatchSortOrder,
+  queryTokens: string[] = []
+): number {
+  // Tier first: real books by the searched author beat ordinary books, which
+  // beat study guides / merch — regardless of cover, popularity, or sort order.
+  const aTier = matchTier(a, queryTokens);
+  const bTier = matchTier(b, queryTokens);
+  if (aTier !== bTier) return aTier - bTier;
+
   const aYear = matchPublishedYear(a);
   const bYear = matchPublishedYear(b);
   const aPopularity = a.ratingsCount ?? 0;
@@ -387,7 +440,7 @@ export function BookIntakeScreen() {
   const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<BookIntakeRouteProp>();
-  const { addBook, authors, books, readingSessions, userProfile } = useBookliz();
+  const { addBook, findDuplicateBook, authors, books, readingSessions, userProfile } = useBookliz();
   const tasteProfile = useMemo(
     () => buildUserTasteProfile({ authors, books, readingSessions, userProfile }),
     [authors, books, readingSessions, userProfile]
@@ -415,6 +468,8 @@ export function BookIntakeScreen() {
   const [showEditDetails, setShowEditDetails] = useState(false);
   // Language modal
   const [showLanguageModal, setShowLanguageModal] = useState(false);
+  // Duplicate detection
+  const [duplicateDialog, setDuplicateDialog] = useState<{ existingBookId: string; title: string } | null>(null);
   const [scanZoom, setScanZoom] = useState<0 | 0.05 | 0.12>(0);
   // "camera" = show viewfinder; "manual" = hide camera, show keyboard-friendly input
   const [isbnInputMode, setIsbnInputMode] = useState<"camera" | "manual">("camera");
@@ -435,6 +490,10 @@ export function BookIntakeScreen() {
   const [lookupResult, setLookupResult] = useState<WorkLookupResult | null>(null);
   const [isEditionsSheetVisible, setIsEditionsSheetVisible] = useState(false);
   const [isLoadingEditions, setIsLoadingEditions] = useState(false);
+  // Review-screen edition picker (paperback / hardcover / translations…)
+  const [showEditionModal, setShowEditionModal] = useState(false);
+  const [editionOptions, setEditionOptions] = useState<BookEditionOption[]>([]);
+  const [editionsWorkKey, setEditionsWorkKey] = useState<string | undefined>();
   // Debounce: prevents re-processing the same barcode within 2 s
   const lastScanRef = useRef<number>(0);
   const initialSearchRequestRef = useRef<string | null>(null);
@@ -740,10 +799,22 @@ export function BookIntakeScreen() {
         });
       }
 
-      const dedupedMatches = legacyMatches.filter((match, index, all) => (
+      // For text/author searches, hide results with no real cover: these are
+      // catalog-only merch, study guides, and knockoffs that Google serves with
+      // an "image not available" placeholder (the provider already nulls those
+      // covers). ISBN scans are kept as-is — a scan should always resolve to its
+      // single book even if that edition happens to lack cover art.
+      const visibleMatches = type === "isbn"
+        ? legacyMatches
+        : legacyMatches.filter((match) => match.coverUrl && !isSupplementaryMaterial(match));
+
+      const dedupedMatches = visibleMatches.filter((match, index, all) => (
         all.findIndex((candidate) => candidate.id === match.id) === index
       ));
-      const rankedMatches = [...dedupedMatches].sort((a, b) => compareMatches(a, b, initialSortOrder));
+      const queryTokens = queryTokensOf(query);
+      const rankedMatches = [...dedupedMatches].sort((a, b) =>
+        compareMatches(a, b, initialSortOrder, queryTokens)
+      );
       setMatches(rankedMatches);
     } catch (err) {
       const isTimeout = err instanceof Error && err.message === "timeout";
@@ -770,8 +841,12 @@ export function BookIntakeScreen() {
     // Use a neutral prompt instead. The confidence system only makes sense for
     // fully automatic ISBN lookups with no human review step.
     const insight = "Verify details before adding.";
+    // The draft's source must reflect how the user got here: a barcode scan
+    // ("isbn") vs. a typed search ("search"). Hardcoding "isbn" made text
+    // searches show an "ISBN scan" badge and a misleading "Scan again" button.
+    const source: NewBookInput["source"] = matchReturnMode === "isbn" ? "isbn" : "search";
     void stageBook(
-      bookMatchToNewBookInput(match, "isbn"),
+      bookMatchToNewBookInput(match, source),
       insight
     );
   };
@@ -837,6 +912,13 @@ export function BookIntakeScreen() {
   const selectReviewLanguage = async (language: string) => {
     if (!reviewBook) return;
 
+    // No-op when the language didn't actually change: refetching the "same"
+    // edition can replace good data with a worse-quality edition record
+    // (typo'd titles, placeholder authors) for no benefit.
+    if (normalizeSearchText(language) === normalizeSearchText(reviewBook.language ?? "English")) {
+      return;
+    }
+
     const draftWithLanguage = { ...reviewBook, language };
     setReviewBook(draftWithLanguage);
 
@@ -864,7 +946,11 @@ export function BookIntakeScreen() {
         nextDraft = {
           ...nextDraft,
           title: detailedMetadata.title ?? nextDraft.title,
-          authorName: detailedMetadata.authorName ?? nextDraft.authorName,
+          // Author is a work-level fact — it never changes across editions or
+          // translations. Keep the author from the original selection; edition
+          // records (especially Open Library's) sometimes carry placeholder
+          // values like "TBD" that would otherwise clobber a correct name.
+          authorName: nextDraft.authorName,
           isbn: detailedMetadata.isbn ?? nextDraft.isbn,
           pages: detailedMetadata.pages ?? nextDraft.pages,
           genre: detailedMetadata.genre?.length ? detailedMetadata.genre : nextDraft.genre,
@@ -893,8 +979,42 @@ export function BookIntakeScreen() {
     }
   };
 
+  // ── Edition picker (paperback / hardcover / translations…) ─────────────────
+  const openEditionPicker = async () => {
+    if (!reviewBook?.workKey) return;
+    setShowEditionModal(true);
+    // Cache by workKey: only refetch when reviewing a different book.
+    if (editionsWorkKey === reviewBook.workKey && editionOptions.length > 0) return;
+    setIsLoadingEditions(true);
+    try {
+      const options = await fetchEditionOptionsByWorkKey(reviewBook.workKey, 30);
+      setEditionOptions(options);
+      setEditionsWorkKey(reviewBook.workKey);
+    } catch {
+      setEditionOptions([]);
+    } finally {
+      setIsLoadingEditions(false);
+    }
+  };
+
+  const selectReviewEdition = (option: BookEditionOption) => {
+    setShowEditionModal(false);
+    // applyEditionOptionToBookInput patches ISBN/pages/publisher/cover/format/
+    // language while preserving the work-level title, author, shelf, and source.
+    setReviewBook((current) => (current ? applyEditionOptionToBookInput(current, option) : current));
+    setReviewInsight(`Edition selected: ${option.label}.`);
+  };
+
   const confirmReviewBook = () => {
     if (!reviewBook || isSubmittingReview) return;
+
+    // Duplicate check — same ISBN + same language, or same title+author+language
+    const dupe = findDuplicateBook(reviewBook);
+    if (dupe) {
+      setDuplicateDialog({ existingBookId: dupe.id, title: dupe.title });
+      return;
+    }
+
     setIsSubmittingReview(true);
     try {
       confirmAndOpen({
@@ -1053,12 +1173,24 @@ export function BookIntakeScreen() {
           </>
         ) : null}
 
-        {/* ── Language — compact selector ──────────────────────────────── */}
-        <Pressable style={styles.languageCompactBtn} onPress={() => setShowLanguageModal(true)}>
-          <Ionicons name="language-outline" size={15} color={c.muted} />
-          <Text style={styles.languageCompactText}>{reviewBook.language ?? "English"}</Text>
-          <Ionicons name="chevron-down-outline" size={13} color={c.muted} />
-        </Pressable>
+        {/* ── Language & Edition — compact selectors ───────────────────── */}
+        <View style={styles.compactSelectorRow}>
+          <Pressable style={[styles.languageCompactBtn, styles.compactSelectorFlex]} onPress={() => setShowLanguageModal(true)}>
+            <Ionicons name="language-outline" size={15} color={c.muted} />
+            <Text style={styles.languageCompactText} numberOfLines={1}>{reviewBook.language ?? "English"}</Text>
+            <Ionicons name="chevron-down-outline" size={13} color={c.muted} />
+          </Pressable>
+
+          {reviewBook.workKey ? (
+            <Pressable style={[styles.languageCompactBtn, styles.compactSelectorFlex]} onPress={openEditionPicker}>
+              <Ionicons name="layers-outline" size={15} color={c.muted} />
+              <Text style={styles.languageCompactText} numberOfLines={1}>
+                {[reviewBook.publisher, reviewBook.publishedDate?.slice(0, 4)].filter(Boolean).join(" · ") || "Choose edition"}
+              </Text>
+              <Ionicons name="chevron-down-outline" size={13} color={c.muted} />
+            </Pressable>
+          ) : null}
+        </View>
 
         <Text style={styles.reviewSectionTitle}>Format</Text>
         <View style={styles.reviewChoiceGrid}>
@@ -1120,6 +1252,34 @@ export function BookIntakeScreen() {
           </Pressable>
         </View>
 
+        {/* ── Duplicate book dialog ────────────────────────────────────── */}
+        <BooklizDialog
+          open={Boolean(duplicateDialog)}
+          title="Already in your library"
+          body={`You already have "${duplicateDialog?.title ?? ""}" in this language. Add a different language edition from the language selector above.`}
+          confirmLabel="Got it"
+          cancelLabel="Add anyway"
+          onConfirm={() => setDuplicateDialog(null)}
+          onCancel={() => {
+            // User insists — add without duplicate check
+            if (reviewBook) {
+              setDuplicateDialog(null);
+              setIsSubmittingReview(true);
+              try {
+                confirmAndOpen({
+                  ...reviewBook,
+                  title: reviewBook.title.trim() || "Untitled Book",
+                  authorName: reviewBook.authorName.trim() || "Author to identify",
+                  genre: reviewBook.genre?.length ? reviewBook.genre : ["Uncategorized"],
+                  pages: reviewBook.pages && reviewBook.pages > 0 ? reviewBook.pages : 320,
+                });
+              } finally {
+                setTimeout(() => setIsSubmittingReview(false), 500);
+              }
+            }
+          }}
+        />
+
         {/* ── Language modal ───────────────────────────────────────────── */}
         <CompactLanguageModal
           visible={showLanguageModal}
@@ -1128,12 +1288,24 @@ export function BookIntakeScreen() {
           onSelect={(lang) => { setShowLanguageModal(false); selectReviewLanguage(lang); }}
           onClose={() => setShowLanguageModal(false)}
         />
+
+        {/* ── Edition picker modal ─────────────────────────────────────── */}
+        <EditionPickerModal
+          visible={showEditionModal}
+          loading={isLoadingEditions}
+          options={editionOptions}
+          selectedIsbn={reviewBook.isbn}
+          selectedEditionKey={reviewBook.editionKey}
+          onSelect={selectReviewEdition}
+          onClose={() => setShowEditionModal(false)}
+        />
       </Screen>
     );
   }
 
   if (mode === "matches") {
-    const sortedMatches = [...matches].sort((a, b) => compareMatches(a, b, sortOrder));
+    const queryTokens = queryTokensOf(matchLookupLabel);
+    const sortedMatches = [...matches].sort((a, b) => compareMatches(a, b, sortOrder, queryTokens));
 
     const primaryMatch = sortedMatches[0];
     // For author queries show every result; for title/ISBN queries cap at 6 secondary cards.
@@ -1905,6 +2077,78 @@ function splitList(value: string) {
     .filter(Boolean);
 }
 
+// ─── Edition picker modal ──────────────────────────────────────────────────────
+
+function EditionPickerModal({
+  visible,
+  loading,
+  options,
+  selectedIsbn,
+  selectedEditionKey,
+  onSelect,
+  onClose,
+}: {
+  visible: boolean;
+  loading: boolean;
+  options: BookEditionOption[];
+  selectedIsbn?: string;
+  selectedEditionKey?: string;
+  onSelect: (option: BookEditionOption) => void;
+  onClose: () => void;
+}) {
+  const { isDark } = useTheme();
+  const isSelected = (o: BookEditionOption) =>
+    Boolean((selectedEditionKey && o.editionKey === selectedEditionKey) ||
+      (selectedIsbn && o.isbn && o.isbn === selectedIsbn));
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles_modal.backdrop} onPress={onClose} />
+      <View style={[styles_modal.sheet, { backgroundColor: isDark ? "#1E293B" : "#FFFFFF" }]}>
+        <View style={styles_modal.handle} />
+        <Text style={[styles_modal.title, { color: isDark ? "#F1F5F9" : "#0F172A" }]}>Choose edition</Text>
+        {loading ? (
+          <View style={{ alignItems: "center", paddingVertical: 32 }}>
+            <ActivityIndicator size="small" color="#14B8A6" />
+          </View>
+        ) : options.length === 0 ? (
+          <Text style={[styles_modal.rowText, { color: isDark ? "#94A3B8" : "#64748B", paddingVertical: 20 }]}>
+            No alternative editions found for this title.
+          </Text>
+        ) : (
+          <ScrollView style={styles_modal.list} showsVerticalScrollIndicator={false}>
+            {options.map((option) => {
+              const active = isSelected(option);
+              return (
+                <Pressable
+                  key={option.id}
+                  style={[styles_modal.row, active && styles_modal.rowActive]}
+                  onPress={() => onSelect(option)}
+                >
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text
+                      style={[styles_modal.rowText, { color: isDark ? "#F1F5F9" : "#0F172A" }, active && styles_modal.rowTextActive]}
+                      numberOfLines={2}
+                    >
+                      {option.label}
+                    </Text>
+                    {option.isbn ? (
+                      <Text style={{ color: isDark ? "#64748B" : "#94A3B8", fontSize: 12, marginTop: 2 }}>
+                        ISBN {option.isbn}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {active ? <Ionicons name="checkmark-outline" size={16} color="#14B8A6" /> : null}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )}
+      </View>
+    </Modal>
+  );
+}
+
 // ─── MatchCard ────────────────────────────────────────────────────────────────
 
 const CONFIDENCE_COLORS: Record<string, string> = {
@@ -2279,9 +2523,20 @@ function createStyles(c: AppColors, isDark: boolean) {
   },
   languageCompactText: {
     color: c.ink,
+    flexShrink: 1,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "600",
+  },
+  compactSelectorRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  compactSelectorFlex: {
+    alignSelf: "auto",
+    flex: 1,
+    marginBottom: 0,
   },
   fetchMetaButton: {
     alignItems: "center",

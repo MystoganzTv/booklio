@@ -204,12 +204,13 @@ export function isHighSignalCatalogBook(
   const primaryAuthor = (book.authors[0] ?? "").trim();
   const searchable = normalizeText(`${book.title} ${book.description ?? ""} ${book.genres.join(" ")} ${book.authors.join(" ")}`);
   const pageFloor = options?.allowShort ? 48 : 80;
-  // Raise the bar vs. the old threshold of 50 ratings.
-  // Books with text-page scans instead of real covers tend to be obscure titles with <200 ratings.
+  // Quality gate: enough signal to trust the book is real and not editorial junk.
+  // 100 ratings is the sweet spot — filters obscure text-scan books while keeping
+  // legitimate titles that simply aren't mega-popular.
   const hasQualitySignal =
-    (book.ratingsCount ?? 0) >= 200 ||
-    ((book.averageRating ?? 0) >= 3.8 && (book.ratingsCount ?? 0) >= 20) ||
-    ((book.publishedYear ?? 0) >= 2018 && (book.ratingsCount ?? 0) >= 10);
+    (book.ratingsCount ?? 0) >= 100 ||
+    ((book.averageRating ?? 0) >= 3.8 && (book.ratingsCount ?? 0) >= 15) ||
+    ((book.publishedYear ?? 0) >= 2020 && (book.ratingsCount ?? 0) >= 5);
 
   if (!hasUsableCatalogCover(book)) return false;
   if (!primaryAuthor || GENERIC_AUTHOR_PATTERN.test(primaryAuthor)) return false;

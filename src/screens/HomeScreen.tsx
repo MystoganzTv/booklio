@@ -146,9 +146,9 @@ export function HomeScreen() {
 
     buildPersonalizedRecommendationSections(tasteProfile, libraryIndex, {
       specs: recommendationSpecs,
-      fetchLimit: 30,
+      fetchLimit: 40,
       booksPerSection: 5,
-      minBooksPerSection: 3,
+      minBooksPerSection: 2,
     })
       .then((sections) => {
         if (cancelled) return;

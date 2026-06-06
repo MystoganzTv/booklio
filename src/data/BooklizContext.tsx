@@ -96,9 +96,11 @@ type BooklizContextValue = {
   onboardingComplete: boolean;
   completeOnboarding: (name: string, genres: string[]) => Promise<void>;
   resetApp: () => Promise<void>;
+  clearLibrary: () => Promise<void>;
   connectIdentityAccount: (account: ConnectedAccount) => Promise<void>;
   disconnectIdentityAccount: () => Promise<void>;
   addBook: (input: NewBookInput) => Book;
+  findDuplicateBook: (input: NewBookInput) => Book | null;
   addReadingSession: (input: NewReadingSessionInput) => ReadingSession;
   updateReadingSession: (sessionId: string, input: NewReadingSessionInput) => ReadingSession | undefined;
   deleteReadingSession: (sessionId: string) => void;
@@ -980,6 +982,26 @@ export function BooklizProvider({ children }: PropsWithChildren) {
       }
     };
 
+    /** Returns the existing book if input is a true duplicate (same ISBN or title+author, same language). */
+    const findDuplicateBook = (input: NewBookInput): Book | null => {
+      const normalizedIsbn = normalizeIsbn(input.isbn);
+      const normalizedTitle = normalizeTitle(input.title);
+      const normalizedAuthor = normalizeAuthorName(input.authorName.trim() || "");
+      const incomingLang = (input.language ?? "").toLowerCase().trim();
+      return books.find((candidate) => {
+        const candidateAuthor = authors.find((a) => a.id === candidate.authorId)?.name ?? "";
+        const candidateLang = (candidate.language ?? "").toLowerCase().trim();
+        const sameLanguage = !incomingLang || !candidateLang || incomingLang === candidateLang;
+        const sameIsbn = Boolean(normalizedIsbn && normalizeIsbn(candidate.isbn) === normalizedIsbn);
+        const sameTitleAndAuthor = Boolean(
+          normalizedTitle &&
+          normalizeTitle(candidate.title) === normalizedTitle &&
+          normalizeAuthorName(candidateAuthor) === normalizedAuthor
+        );
+        return (sameIsbn || sameTitleAndAuthor) && sameLanguage;
+      }) ?? null;
+    };
+
     const addBook = (input: NewBookInput) => {
       const authorName = input.authorName.trim() || "Author to identify";
       const existingAuthor = authors.find((author) => author.name.toLowerCase() === authorName.toLowerCase());
@@ -988,14 +1010,19 @@ export function BooklizProvider({ children }: PropsWithChildren) {
       const normalizedIncomingTitle = normalizeTitle(input.title);
       const normalizedIncomingAuthor = normalizeAuthorName(authorName);
 
+      const incomingLang = (input.language ?? "").toLowerCase().trim();
       const existingBook = books.find((candidate) => {
         const candidateAuthor = authors.find((author) => author.id === candidate.authorId)?.name ?? "";
+        const candidateLang = (candidate.language ?? "").toLowerCase().trim();
+        // Language guard: only treat as duplicate if languages match (or one is unset)
+        const sameLanguage = !incomingLang || !candidateLang || incomingLang === candidateLang;
         const sameIsbn = normalizedIncomingIsbn && normalizeIsbn(candidate.isbn) === normalizedIncomingIsbn;
         const sameTitleAndAuthor =
           normalizedIncomingTitle &&
           normalizeTitle(candidate.title) === normalizedIncomingTitle &&
           normalizeAuthorName(candidateAuthor) === normalizedIncomingAuthor;
-        return sameIsbn || sameTitleAndAuthor;
+        // Same ISBN in a different language = different edition, not a duplicate
+        return (sameIsbn || sameTitleAndAuthor) && sameLanguage;
       });
 
       if (!existingAuthor) {
@@ -1325,6 +1352,22 @@ export function BooklizProvider({ children }: PropsWithChildren) {
       setHydrated(true);
     };
 
+    /** Clear all library data (books, sessions, reviews, lists) but keep account + settings. */
+    const clearLibrary = async () => {
+      setHydrated(false);
+      setAuthors([]);
+      setBooks([]);
+      setReadingSessions([]);
+      setReviews([]);
+      setUserLists([]);
+      // Persist a snapshot with empty library but keep profile intact
+      await AsyncStorage.setItem(
+        "bookliz:v2",
+        JSON.stringify({ authors: [], books: [], readingSessions: [], reviews: [], userLists: [], userProfile: latestStateRef.current.userProfile })
+      );
+      setHydrated(true);
+    };
+
     const connectIdentityAccount = async (account: ConnectedAccount) => {
       await persistConnectedAccount(account);
       setProfile((current) => ({
@@ -1360,9 +1403,11 @@ export function BooklizProvider({ children }: PropsWithChildren) {
       onboardingComplete,
       completeOnboarding,
       resetApp,
+      clearLibrary,
       connectIdentityAccount,
       disconnectIdentityAccount,
       addBook,
+      findDuplicateBook,
       addReadingSession,
       updateReadingSession,
       deleteReadingSession,

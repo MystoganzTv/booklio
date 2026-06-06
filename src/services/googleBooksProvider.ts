@@ -70,6 +70,16 @@ function apiKey(): string {
   return GB_API_KEY ? `&key=${GB_API_KEY}` : "";
 }
 
+// Google Books volume IDs ending in "ACAAJ" are catalog-only metadata records
+// (no preview, no real cover). Google still returns an imageLinks thumbnail for
+// them, but the URL resolves to Google's grey "image not available" placeholder
+// image (a fixed 128×171 JPEG) rather than real cover art. We treat these as
+// cover-less: the aggregator then prefers a real edition of the same work
+// (Google eBook IDs end in "QBAJ", scanned editions, etc.), and downstream
+// search filtering drops merch / study-guides / knockoffs that only exist as
+// these placeholder-cover catalog records.
+const isCatalogOnlyVolumeId = (id: string): boolean => /ACAAJ$/.test(id);
+
 function gbCoverUrl(links?: GBImageLinks): string | undefined {
   const raw =
     links?.medium ??
@@ -126,7 +136,7 @@ function volumeToEdition(
     publishedYear,
     pageCount: info.pageCount,
     format: normalizeFormat(info.printType),
-    coverUrl: gbCoverUrl(info.imageLinks),
+    coverUrl: isCatalogOnlyVolumeId(vol.id) ? undefined : gbCoverUrl(info.imageLinks),
   };
 
   const score = scoreEdition(partial, query, workContext);
@@ -257,8 +267,9 @@ export async function fetchByGenre(
     const data = (await res.json()) as GBResponse;
 
     const books: GenreBookResult[] = (data.items ?? [])
-      // Require at least a thumbnail — books with no imageLinks will render as blank squares
-      .filter((vol) => vol.volumeInfo.title && (vol.volumeInfo.imageLinks?.thumbnail ?? vol.volumeInfo.imageLinks?.smallThumbnail))
+      // Require a real cover: skip catalog-only records (placeholder cover) and
+      // volumes with no imageLinks (would render as blank squares).
+      .filter((vol) => vol.volumeInfo.title && !isCatalogOnlyVolumeId(vol.id) && (vol.volumeInfo.imageLinks?.thumbnail ?? vol.volumeInfo.imageLinks?.smallThumbnail))
       .map((vol): GenreBookResult => {
         const info = vol.volumeInfo;
         const isbn13 = info.industryIdentifiers?.find((x) => x.type === "ISBN_13")?.identifier;
@@ -302,8 +313,9 @@ export async function fetchByKeyword(
     const data = (await res.json()) as GBResponse;
 
     const books: GenreBookResult[] = (data.items ?? [])
-      // Require at least a thumbnail — books with no imageLinks will render as blank squares
-      .filter((vol) => vol.volumeInfo.title && (vol.volumeInfo.imageLinks?.thumbnail ?? vol.volumeInfo.imageLinks?.smallThumbnail))
+      // Require a real cover: skip catalog-only records (placeholder cover) and
+      // volumes with no imageLinks (would render as blank squares).
+      .filter((vol) => vol.volumeInfo.title && !isCatalogOnlyVolumeId(vol.id) && (vol.volumeInfo.imageLinks?.thumbnail ?? vol.volumeInfo.imageLinks?.smallThumbnail))
       .map((vol): GenreBookResult => {
         const info = vol.volumeInfo;
         const isbn13 = info.industryIdentifiers?.find((x) => x.type === "ISBN_13")?.identifier;

@@ -10,6 +10,7 @@ type BookCoverProps = {
   book: Book;
   size?: "sm" | "md" | "lg";
   style?: StyleProp<ViewStyle>;
+  hideProgress?: boolean;
 };
 
 const dimensions = {
@@ -21,7 +22,7 @@ const dimensions = {
 const isMuted = (book: Book) =>
   ["want-to-read", "wishlist", "want-to-buy", "upcoming-release"].includes(book.userStatus.status);
 
-export function BookCover({ book, size = "md", style }: BookCoverProps) {
+export function BookCover({ book, size = "md", style, hideProgress = false }: BookCoverProps) {
   const muted = isMuted(book);
   const dimmed = book.userStatus.status === "dnf";
   const gradient = muted ? (["#CBC6BE", "#827C73"] as [string, string]) : book.coverGradient;
@@ -32,11 +33,11 @@ export function BookCover({ book, size = "md", style }: BookCoverProps) {
       {book.coverImageUri ? (
         <ImageBackground source={{ uri: book.coverImageUri }} style={styles.cover} imageStyle={styles.imageCover}>
           {muted ? <View style={styles.mutedOverlay} /> : null}
-          <CoverContent book={book} size={size} showTypographyOverlay={showTypographyOverlay} />
+          <CoverContent book={book} size={size} showTypographyOverlay={showTypographyOverlay} hideProgress={hideProgress} />
         </ImageBackground>
       ) : (
         <LinearGradient colors={gradient} style={styles.cover}>
-          <CoverContent book={book} size={size} showTypographyOverlay={showTypographyOverlay} />
+          <CoverContent book={book} size={size} showTypographyOverlay={showTypographyOverlay} hideProgress={hideProgress} />
         </LinearGradient>
       )}
     </View>
@@ -46,8 +47,9 @@ export function BookCover({ book, size = "md", style }: BookCoverProps) {
 function CoverContent({
   book,
   size,
-  showTypographyOverlay
-}: BookCoverProps & { showTypographyOverlay: boolean }) {
+  showTypographyOverlay,
+  hideProgress = false,
+}: BookCoverProps & { showTypographyOverlay: boolean; hideProgress?: boolean }) {
   return (
     <>
       {showTypographyOverlay ? <View style={styles.sheen} /> : <View style={styles.photoShade} />}
@@ -59,7 +61,7 @@ function CoverContent({
           {book.seriesNumber ? <Text style={styles.series}>Book {book.seriesNumber}</Text> : null}
         </>
       ) : null}
-      {book.userStatus.status === "reading" ? (
+      {!hideProgress && book.userStatus.status === "reading" && (book.userStatus.progressPercent ?? 0) > 0 ? (
         <View style={styles.progress}>
           <ProgressRing progress={book.userStatus.progressPercent} size={size === "lg" ? 48 : 36} />
         </View>

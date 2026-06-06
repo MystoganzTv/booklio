@@ -318,9 +318,9 @@ export function DiscoverScreen() {
 
     buildPersonalizedRecommendationSections(tasteProfile, libraryIndex, {
       specs: recommendationSpecs,
-      fetchLimit: 30,
+      fetchLimit: 40,
       booksPerSection: 6,
-      minBooksPerSection: 3,
+      minBooksPerSection: 2,
     })
       .then((sections) => {
         if (cancelled) return;
@@ -441,16 +441,13 @@ export function DiscoverScreen() {
           ))}
         </>
       ) : (
-        // Empty state: user hasn't read enough books yet for personalized sections
+        // Empty state: not enough signal yet — show quietly, no CTA
         <View style={styles.personalizedEmpty}>
-          <Ionicons name="book-outline" size={28} color={c.muted} />
+          <Ionicons name="book-outline" size={24} color={c.muted} />
           <Text style={styles.personalizedEmptyTitle}>Your picks will appear here</Text>
           <Text style={styles.personalizedEmptyBody}>
             Start reading and rating books — we'll tailor this section to your taste.
           </Text>
-          <Pressable style={styles.personalizedEmptyButton} onPress={() => navigation.navigate("Add" as never)}>
-            <Text style={styles.personalizedEmptyButtonText}>Add your first book</Text>
-          </Pressable>
         </View>
       )}
 

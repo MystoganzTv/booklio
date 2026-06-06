@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(curl -s \"https://www.googleapis.com/books/v1/volumes?q=intitle:Yarros&maxResults=20\")",
+      "Bash(python3 -c ' *)",
+      "Bash(python3)",
+      "Bash(cat /tmp/gb.json | head -c 300; echo; echo \"---size---\"; wc -c /tmp/gb.json)",
+      "Bash(npx jest *)",
+      "Bash(npm test *)"
+    ]
+  }
+}

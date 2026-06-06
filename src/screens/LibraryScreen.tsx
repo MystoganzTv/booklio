@@ -2,8 +2,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useDeferredValue, useMemo, useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Badge } from "../components/Badge";
+import { BooklioDialog } from "../components/BooklioDialog";
 import { BookCover } from "../components/BookCover";
 import { FilterChip } from "../components/FilterChip";
 import { Screen } from "../components/Screen";
@@ -17,12 +18,18 @@ import { formatStatusLabel } from "../utils/statusLabels";
 import { normalizeBookGenres } from "../utils/genres";
 import { CreateListSheet } from "../components/CreateListSheet";
 
-const filters = ["all", "read", "reading", "wishlist", "wantToBuy", "owned", "series", "unfinished"] as const;
 const sortOptions = ["personalRank", "rating", "dateRead", "author", "seriesOrder", "releaseDate", "mostRecentlyLogged"] as const;
 
 type ViewMode = "grid" | "list";
-type LibraryFilter = typeof filters[number];
+type LibraryFilter = "all" | "reading" | "read" | "wishlist";
 type LibrarySort = typeof sortOptions[number];
+
+const SIMPLE_FILTERS: { key: LibraryFilter; label: string }[] = [
+  { key: "all",      label: "All" },
+  { key: "reading",  label: "In progress" },
+  { key: "read",     label: "Finished" },
+  { key: "wishlist", label: "Wish list" },
+];
 
 export function LibraryScreen() {
   const c = useColors();
@@ -31,17 +38,18 @@ export function LibraryScreen() {
   const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   const activeControlTextColor = isDark ? c.ink : "#FFFFFF";
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { books, getAuthor, readingSessions, userLists, createUserList, deleteUserList, renameUserList } = useBookliz();
+  const { books, getAuthor, readingSessions, userLists, createUserList, deleteUserList, renameUserList, deleteBook } = useBookliz();
   const [filter, setFilter] = useState<LibraryFilter>("all");
   const [sortBy, setSortBy] = useState<LibrarySort>("personalRank");
   const [query, setQuery] = useState("");
   const [sortOpen, setSortOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [genreFilter, setGenreFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [listFilter, setListFilter] = useState<string | null>(null);
   const [createListOpen, setCreateListOpen] = useState(false);
   const [renamingList, setRenamingList] = useState<{ id: string; name: string; emoji?: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const deferredQuery = useDeferredValue(query);
 
   const clearFilters = () => {
@@ -101,11 +109,7 @@ export function LibraryScreen() {
       .filter((book) => {
         if (filter === "read") return book.userStatus.status === "read";
         if (filter === "reading") return book.userStatus.status === "reading";
-        if (filter === "wishlist") return book.userStatus.wishlist;
-        if (filter === "wantToBuy") return book.userStatus.wantToBuy;
-        if (filter === "owned") return book.userStatus.ownership === "owned";
-        if (filter === "series") return Boolean(book.seriesId);
-        if (filter === "unfinished") return book.userStatus.status === "dnf";
+        if (filter === "wishlist") return Boolean(book.userStatus.wishlist) || Boolean(book.userStatus.wantToBuy);
         return true;
       })
       .filter((book) => {
@@ -220,7 +224,7 @@ export function LibraryScreen() {
         </ScrollView>
       ) : null}
 
-      {/* ── Search + controls ── */}
+      {/* ── Search + view toggle ── */}
       <View style={styles.searchRow}>
         <TextInput
           placeholder={t("library.searchPlaceholder")}
@@ -232,7 +236,6 @@ export function LibraryScreen() {
           returnKeyType="search"
           clearButtonMode="while-editing"
         />
-        {/* Single view toggle */}
         <Pressable
           style={styles.controlBtn}
           onPress={() => setViewMode((v) => v === "grid" ? "list" : "grid")}
@@ -243,89 +246,20 @@ export function LibraryScreen() {
             color={c.ink}
           />
         </Pressable>
-        {/* Sort / filter */}
-        <Pressable
-          style={[styles.controlBtn, sortOpen && styles.controlBtnActive]}
-          onPress={() => setSortOpen((v) => !v)}
-        >
-          <Ionicons name="options-outline" size={17} color={sortOpen ? activeControlTextColor : c.ink} />
-        </Pressable>
       </View>
 
-      {sortOpen ? (
-        <View style={styles.sortPanel}>
-          <Text style={styles.sortPanelLabel}>{t("library.sortBy")}</Text>
-          <View style={styles.sortPanelOptions}>
-            {sortOptions.map((opt) => (
-              <Pressable
-                key={opt}
-                style={[styles.sortOption, sortBy === opt && styles.sortOptionActive]}
-                onPress={() => {
-                  setSortBy(opt);
-                  setSortOpen(false);
-                }}
-              >
-                <Text style={[styles.sortOptionText, sortBy === opt && styles.sortOptionTextActive]}>{t(`library.sorts.${opt}`)}</Text>
-                {sortBy === opt ? <Ionicons name="checkmark" size={13} color={activeControlTextColor} /> : null}
-              </Pressable>
-            ))}
-          </View>
-
-          {availableGenres.length > 0 ? (
-            <>
-              <Text style={[styles.sortPanelLabel, { marginTop: spacing.md }]}>Genre</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -spacing.md }}>
-                <View style={styles.advancedChipRow}>
-                  <Pressable
-                    style={[styles.advancedChip, !genreFilter && styles.advancedChipActive]}
-                    onPress={() => setGenreFilter(null)}
-                  >
-                    <Text style={[styles.advancedChipText, !genreFilter && styles.advancedChipTextActive]}>All</Text>
-                  </Pressable>
-                  {availableGenres.map((g) => (
-                    <Pressable
-                      key={g}
-                      style={[styles.advancedChip, genreFilter === g && styles.advancedChipActive]}
-                      onPress={() => setGenreFilter(genreFilter === g ? null : g)}
-                    >
-                      <Text style={[styles.advancedChipText, genreFilter === g && styles.advancedChipTextActive]}>{g}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </ScrollView>
-            </>
-          ) : null}
-
-          {availableTags.length > 0 ? (
-            <>
-              <Text style={[styles.sortPanelLabel, { marginTop: spacing.md }]}>Tags</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -spacing.md }}>
-                <View style={styles.advancedChipRow}>
-                  <Pressable
-                    style={[styles.advancedChip, !tagFilter && styles.advancedChipActive]}
-                    onPress={() => setTagFilter(null)}
-                  >
-                    <Text style={[styles.advancedChipText, !tagFilter && styles.advancedChipTextActive]}>All</Text>
-                  </Pressable>
-                  {availableTags.map((tag) => (
-                    <Pressable
-                      key={tag}
-                      style={[styles.advancedChip, tagFilter === tag && styles.advancedChipActive]}
-                      onPress={() => setTagFilter(tagFilter === tag ? null : tag)}
-                    >
-                      <Text style={[styles.advancedChipText, tagFilter === tag && styles.advancedChipTextActive]}>{tag}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </ScrollView>
-            </>
-          ) : null}
-        </View>
-      ) : null}
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRail}>
-        {filters.map((item) => (
-          <FilterChip key={item} label={t(`library.filters.${item}`)} selected={filter === item} onPress={() => setFilter(item)} />
+      {/* ── Simple filter tabs ── */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRail} contentContainerStyle={styles.chipRailContent}>
+        {SIMPLE_FILTERS.map((item) => (
+          <Pressable
+            key={item.key}
+            style={[styles.simpleTab, filter === item.key && styles.simpleTabActive]}
+            onPress={() => setFilter(item.key)}
+          >
+            <Text style={[styles.simpleTabText, filter === item.key && styles.simpleTabTextActive]}>
+              {item.label}
+            </Text>
+          </Pressable>
         ))}
       </ScrollView>
 
@@ -359,6 +293,7 @@ export function LibraryScreen() {
               authorName={getAuthor(book.authorId)?.name ?? ""}
               styles={styles}
               onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
+              onLongPress={() => setDeleteTarget({ id: book.id, title: book.title })}
             />
           ))}
         </View>
@@ -372,6 +307,7 @@ export function LibraryScreen() {
               latestLogDate={latestLogByBook[book.id]}
               styles={styles}
               onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
+              onLongPress={() => setDeleteTarget({ id: book.id, title: book.title })}
               onOpenSeries={
                 book.seriesId
                   ? () => navigation.navigate("SeriesTracker", { seriesId: book.seriesId! })
@@ -406,6 +342,21 @@ export function LibraryScreen() {
           setRenamingList(null);
         }}
         onClose={() => setRenamingList(null)}
+      />
+
+      {/* Delete confirmation dialog */}
+      <BooklioDialog
+        open={Boolean(deleteTarget)}
+        title={deleteTarget?.title ?? ""}
+        body="Remove this book from your library?"
+        confirmLabel="Remove"
+        cancelLabel="Keep it"
+        variant="destructive"
+        onConfirm={() => {
+          if (deleteTarget) deleteBook(deleteTarget.id);
+          setDeleteTarget(null);
+        }}
+        onCancel={() => setDeleteTarget(null)}
       />
     </Screen>
   );
@@ -467,18 +418,45 @@ function MiniStat({ value, label, styles }: { value: string; label: string; styl
 
 function GridBookTile({
   book,
+  authorName,
   styles,
-  onPress
+  onPress,
+  onLongPress,
 }: {
   book: Book;
   authorName: string;
   styles: ReturnType<typeof createStyles>;
   onPress: () => void;
+  onLongPress: () => void;
 }) {
+  const hasSeries = book.seriesName && book.seriesNumber;
+  // Render cover image directly — bypasses BookCover dimension constraints
+  const coverEl = book.coverImageUri ? (
+    // resizeMode="contain" shows the full cover — no cropping, natural like Audible
+    <View style={styles.tileCoverWrap}>
+      <Image
+        source={{ uri: book.coverImageUri }}
+        style={styles.tileCoverImg}
+        resizeMode="contain"
+      />
+    </View>
+  ) : (
+    <View style={[styles.tileCoverWrap, styles.tileCoverFallback]}>
+      <Text numberOfLines={3} style={styles.tileCoverFallbackTitle}>{book.title}</Text>
+      {authorName ? <Text numberOfLines={1} style={styles.tileCoverFallbackAuthor}>{authorName}</Text> : null}
+    </View>
+  );
+
   return (
-    <Pressable style={styles.bookTile} onPress={onPress}>
-      <BookCover book={book} size="md" style={styles.tileCover} />
+    <Pressable style={styles.bookTile} onPress={onPress} onLongPress={onLongPress}>
+      {coverEl}
       <Text numberOfLines={2} style={styles.bookTitle}>{book.title}</Text>
+      <Text numberOfLines={1} style={styles.bookAuthor}>{authorName}</Text>
+      {hasSeries ? (
+        <Text numberOfLines={1} style={styles.bookSeries}>
+          Book {book.seriesNumber} · {book.seriesName}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -486,50 +464,63 @@ function GridBookTile({
 function LibraryRowCard({
   book,
   authorName,
-  latestLogDate,
   styles,
   onPress,
-  onOpenSeries
+  onLongPress,
+  onOpenSeries,
 }: {
   book: Book;
   authorName: string;
   latestLogDate?: string;
   styles: ReturnType<typeof createStyles>;
   onPress: () => void;
+  onLongPress: () => void;
   onOpenSeries?: () => void;
 }) {
-  const { t } = useI18n();
+  const progress = book.userStatus.progressPercent ?? 0;
+  const isReading = book.userStatus.status === "reading";
+  const isRead = book.userStatus.status === "read";
+  const isDnf = book.userStatus.status === "dnf";
+
+  const openGetLink = () => {
+    const query = encodeURIComponent(`${book.title} ${authorName}`);
+    // Amazon search with affiliate tag — swap tag for your Associates ID
+    void Linking.openURL(`https://www.amazon.com/s?k=${query}&tag=bookliz-20`);
+  };
+
   return (
-    <Pressable style={styles.rowCard} onPress={onPress}>
-      <BookCover book={book} size="sm" style={styles.rowCover} />
+    <Pressable style={styles.rowCard} onPress={onPress} onLongPress={onLongPress}>
+      <BookCover book={book} size="sm" style={styles.rowCover} hideProgress />
+
       <View style={styles.rowCopy}>
-        <View style={styles.rowTopline}>
-          <Text style={styles.rowTitle}>{book.title}</Text>
-          {typeof book.userStatus.personalRanking === "number" ? (
-            <Text style={styles.rowRank}>#{book.userStatus.personalRanking}</Text>
-          ) : null}
-        </View>
-        <Text style={styles.rowAuthor}>{authorName}</Text>
-        <Text style={styles.rowMeta}>
-          {book.language} · {book.pages} {t("series.pagesLower")} · {book.publisher}
-        </Text>
+        <Text numberOfLines={2} style={styles.rowTitle}>{book.title}</Text>
+        <Text numberOfLines={1} style={styles.rowAuthor}>{authorName}</Text>
+
         {book.seriesName ? (
           <Pressable onPress={onOpenSeries}>
-            <Text style={styles.rowSeries}>
-              {book.seriesName} · {t("series.bookInSeries").replace("{num}", String(book.seriesNumber ?? "—"))}
+            <Text numberOfLines={1} style={styles.rowSeries}>
+              {book.seriesNumber ? `Book ${book.seriesNumber} · ` : ""}{book.seriesName}
             </Text>
           </Pressable>
         ) : null}
-        <View style={styles.rowBadges}>
-          <Badge label={formatStatusLabel(book.userStatus.status)} tone={book.userStatus.status === "read" ? "gold" : book.userStatus.status === "reading" ? "teal" : book.userStatus.status === "dnf" ? "danger" : "gray"} />
-          {book.userStatus.ownership === "owned" ? <Badge label={t("series.badgeOwned")} tone="green" /> : null}
-          {book.userStatus.wishlist ? <Badge label={t("series.badgeWishlist")} tone="navy" /> : null}
-          {book.userStatus.wantToBuy ? <Badge label={t("series.badgeBuy")} tone="coral" /> : null}
-        </View>
-        <Text style={styles.rowFootnote}>
-          {latestLogDate ? t("series.latestSession").replace("{date}", latestLogDate) : t("series.isbnLabel").replace("{isbn}", book.isbn ?? "—")}
-        </Text>
+
+        {isReading && progress > 0 ? (
+          <View style={styles.rowProgressWrap}>
+            <Text style={styles.rowProgressText}>{progress}% complete</Text>
+            <View style={styles.rowProgressTrack}>
+              <View style={[styles.rowProgressFill, { width: `${progress}%` as `${number}%` }]} />
+            </View>
+          </View>
+        ) : isRead ? (
+          <Text style={styles.rowStatusFinished}>Finished</Text>
+        ) : isDnf ? (
+          <Text style={styles.rowStatusDnf}>Did not finish</Text>
+        ) : null}
       </View>
+
+      <Pressable style={styles.rowGetBtn} onPress={openGetLink} hitSlop={8}>
+        <Text style={styles.rowGetText}>Get</Text>
+      </Pressable>
     </Pressable>
   );
 }
@@ -746,101 +737,187 @@ function createStyles(c: AppColors, isDark: boolean) {
       color: "#FFFFFF"
     },
     chipRail: {
-      marginTop: spacing.sm
+      marginTop: spacing.md,
+    },
+    chipRailContent: {
+      gap: spacing.sm,
+      paddingBottom: spacing.xs,
+    },
+    simpleTab: {
+      borderColor: c.border,
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 9,
+    },
+    simpleTabActive: {
+      backgroundColor: c.gold,
+      borderColor: c.gold,
+    },
+    simpleTabText: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 13,
+      fontWeight: "700",
+    },
+    simpleTabTextActive: {
+      color: "#0F172A",
     },
     grid: {
       flexDirection: "row",
       flexWrap: "wrap",
-      gap: spacing.md
+      gap: spacing.sm,
+      marginTop: spacing.lg,
     },
     bookTile: {
-      width: "47%"
+      width: "48%",
     },
-    tileCover: {
-      borderRadius: radii.md,
-      height: 230,
-      width: "100%"
+    // Outer box: defines shape + dark bg. Inner image: full cover, no crop.
+    tileCoverWrap: {
+      aspectRatio: 2 / 3,
+      backgroundColor: "#111827",   // near-black — neutral backdrop for any cover
+      borderRadius: 10,
+      overflow: "hidden",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 6,
+      width: "100%",
     },
-    bookTitle: {
+    tileCoverImg: {
+      bottom: 0,
+      left: 0,
+      position: "absolute",
+      right: 0,
+      top: 0,
+    },
+    tileCoverFallback: {
+      alignItems: "flex-start",
+      backgroundColor: c.surfaceAlt,
+      justifyContent: "flex-end",
+      padding: 12,
+    },
+    tileCoverFallbackTitle: {
+      color: c.ink,
+      fontFamily: fonts.display,
+      fontSize: 14,
+      fontWeight: "900",
+      lineHeight: 18,
+    },
+    tileCoverFallbackAuthor: {
       color: c.muted,
       fontFamily: fonts.body,
-      fontSize: 12,
-      fontWeight: "700",
-      lineHeight: 17,
-      marginTop: 7
+      fontSize: 11,
+      marginTop: 4,
     },
-    listWrap: {
-      gap: spacing.md
-    },
-    rowCard: {
-      ...shadows.card,
-      backgroundColor: c.surface,
-      borderColor: c.border,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      flexDirection: "row",
-      gap: spacing.md,
-      padding: spacing.md
-    },
-    rowCover: {
-      width: 86,
-      height: 128
-    },
-    rowCopy: {
-      flex: 1
-    },
-    rowTopline: {
-      alignItems: "flex-start",
-      flexDirection: "row",
-      justifyContent: "space-between",
-      gap: spacing.sm
-    },
-    rowTitle: {
-      color: c.ink,
-      flex: 1,
-      fontFamily: fonts.display,
-      fontSize: 22,
-      fontWeight: "900",
-      lineHeight: 25
-    },
-    rowRank: {
-      color: c.gold,
-      fontFamily: fonts.display,
-      fontSize: 18,
-      fontWeight: "900"
-    },
-    rowAuthor: {
+    bookTitle: {
       color: c.ink,
       fontFamily: fonts.body,
       fontSize: 13,
       fontWeight: "800",
-      marginTop: 4
+      lineHeight: 18,
+      marginTop: 8,
     },
-    rowMeta: {
+    bookAuthor: {
       color: c.muted,
       fontFamily: fonts.bodyRegular,
       fontSize: 12,
+      lineHeight: 16,
+      marginTop: 2,
+    },
+    bookSeries: {
+      color: c.tealDark,
+      fontFamily: fonts.body,
+      fontSize: 11,
+      fontWeight: "700",
+      lineHeight: 15,
+      marginTop: 3,
+    },
+    listWrap: {
+      gap: 0,
+    },
+    rowCard: {
+      alignItems: "center",
+      borderBottomColor: c.border,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      flexDirection: "row",
+      gap: spacing.md,
+      paddingVertical: spacing.md,
+    },
+    rowCover: {
+      borderRadius: 12,
+      height: 80,
+      width: 80,   // square, like Audible
+    },
+    rowCopy: {
+      flex: 1,
+      gap: 3,
+    },
+    rowTitle: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 15,
+      fontWeight: "800",
+      lineHeight: 20,
+    },
+    rowAuthor: {
+      color: c.muted,
+      fontFamily: fonts.bodyRegular,
+      fontSize: 13,
       lineHeight: 18,
-      marginTop: 4
     },
     rowSeries: {
       color: c.tealDark,
       fontFamily: fonts.body,
       fontSize: 12,
-      fontWeight: "900",
-      marginTop: 6
+      fontWeight: "700",
     },
-    rowBadges: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 6,
-      marginTop: spacing.sm
+    rowProgressWrap: {
+      gap: 4,
+      marginTop: 2,
     },
-    rowFootnote: {
+    rowProgressText: {
+      color: c.gold,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "700",
+    },
+    rowProgressTrack: {
+      backgroundColor: c.border,
+      borderRadius: 2,
+      height: 3,
+      overflow: "hidden",
+      width: "100%",
+    },
+    rowProgressFill: {
+      backgroundColor: c.gold,
+      borderRadius: 2,
+      height: 3,
+    },
+    rowStatusFinished: {
       color: c.muted,
       fontFamily: fonts.bodyRegular,
-      fontSize: 11,
-      marginTop: spacing.sm
+      fontSize: 12,
+      marginTop: 2,
+    },
+    rowStatusDnf: {
+      color: c.danger,
+      fontFamily: fonts.bodyRegular,
+      fontSize: 12,
+      marginTop: 2,
+    },
+    rowGetBtn: {
+      backgroundColor: c.gold,
+      borderRadius: radii.pill,
+      paddingHorizontal: 16,
+      paddingVertical: 9,
+    },
+    rowGetText: {
+      color: "#0F172A",
+      fontFamily: fonts.body,
+      fontSize: 13,
+      fontWeight: "900",
     },
     emptyState: {
       alignItems: "center",
