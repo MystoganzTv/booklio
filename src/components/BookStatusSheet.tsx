@@ -14,8 +14,8 @@ type StatusOption = {
 const STATUS_OPTIONS: StatusOption[] = [
   { value: "want-to-read", label: "Want to read", icon: "bookmark-outline",         color: colors.muted  },
   { value: "reading",      label: "Reading",      icon: "book-outline",              color: colors.teal   },
-  { value: "read",         label: "Read",          icon: "checkmark-circle-outline", color: colors.green  },
-  { value: "dnf",          label: "Unfinished",    icon: "close-circle-outline",     color: colors.coral  }
+  { value: "read",         label: "Read",         icon: "checkmark-circle-outline",  color: colors.green  },
+  { value: "wishlist",     label: "Wishlist",     icon: "heart-outline",             color: colors.coral  }
 ];
 
 type Props = {
@@ -77,7 +77,7 @@ export function BookStatusSheet({ open, currentStatus, currentRating, onSave, on
               <Text style={styles.ratingLabel}>Your rating</Text>
               <View style={styles.stars}>
                 {[1, 2, 3, 4, 5].map((star) => (
-                  <Pressable key={star} onPress={() => setRating(star)} hitSlop={6}>
+                  <Pressable key={star} onPress={() => setRating(star)} hitSlop={12}>
                     <Ionicons
                       name={rating !== undefined && rating >= star ? "star" : "star-outline"}
                       size={34}

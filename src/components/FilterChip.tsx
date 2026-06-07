@@ -28,8 +28,11 @@ function createStyles(c: AppColors, isDark: boolean) {
       borderRadius: radii.pill,
       borderWidth: 1,
       marginRight: 8,
+      minHeight: 44,
       paddingHorizontal: 14,
-      paddingVertical: 9
+      paddingVertical: 9,
+      alignItems: "center",
+      justifyContent: "center",
     },
     selected: {
       backgroundColor: isDark ? "rgba(20,184,166,0.16)" : c.navy,

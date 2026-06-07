@@ -134,6 +134,7 @@ export function GenreBrowseScreen() {
   const [catalogBooks, setCatalogBooks] = useState<GenreBookResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [networkError, setNetworkError] = useState(false);
   const [totalItems, setTotalItems] = useState(0);
   const startIndexRef = useRef(0);
   const currentGenreRef = useRef<string>("");
@@ -166,6 +167,7 @@ export function GenreBrowseScreen() {
   const loadGenre = useCallback(async (genre: string, reset = true) => {
     if (reset) {
       setLoading(true);
+      setNetworkError(false);
       setCatalogBooks([]);
       startIndexRef.current = 0;
       currentGenreRef.current = genre;
@@ -213,6 +215,8 @@ export function GenreBrowseScreen() {
       startIndexRef.current += fetched.length;
       setTotalItems(total);
       setCatalogBooks((prev) => reset ? ranked : [...prev, ...ranked]);
+    } catch {
+      if (reset) setNetworkError(true);
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -412,13 +416,23 @@ export function GenreBrowseScreen() {
           }
           ListEmptyComponent={
             !loading ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="search-outline" size={40} color={c.border} />
-                <Text style={[styles.emptyTitle, { color: c.ink }]}>No results</Text>
-                <Text style={[styles.emptySub, { color: c.muted }]}>
-                  Try a different genre or check your connection.
-                </Text>
-              </View>
+              networkError ? (
+                <View style={styles.emptyState}>
+                  <Ionicons name="wifi-outline" size={40} color={c.border} />
+                  <Text style={[styles.emptyTitle, { color: c.ink }]}>Connection lost</Text>
+                  <Text style={[styles.emptySub, { color: c.muted }]}>
+                    Please check your internet and try again.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.emptyState}>
+                  <Ionicons name="search-outline" size={40} color={c.border} />
+                  <Text style={[styles.emptyTitle, { color: c.ink }]}>No results</Text>
+                  <Text style={[styles.emptySub, { color: c.muted }]}>
+                    Try a different genre or check your connection.
+                  </Text>
+                </View>
+              )
             ) : null
           }
         />

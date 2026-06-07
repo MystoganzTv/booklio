@@ -8,7 +8,7 @@ import { Screen } from "../components/Screen";
 import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
-import { useColors } from "../theme/ThemeContext";
+import { useColors, useTheme } from "../theme/ThemeContext";
 import { NewReadingSessionInput, ReadingFormat } from "../types/models";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 
@@ -18,8 +18,9 @@ const MAX_VISIBLE_LOCATION_CHIPS = 6;
 
 export function AddReadingSessionScreen() {
   const c = useColors();
+  const { isDark } = useTheme();
   const { t } = useI18n();
-  const styles = useMemo(() => createStyles(c), [c]);
+  const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
 
   const FORMAT_OPTIONS: { value: ReadingFormat; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { value: "physical",  label: t("logSession.formatPhysical"),  icon: "book-outline" },
@@ -593,7 +594,7 @@ export function AddReadingSessionScreen() {
   );
 }
 
-function createStyles(c: AppColors) {
+function createStyles(c: AppColors, isDark: boolean) {
   return StyleSheet.create({
   pageHeader: {
     marginBottom: spacing.md
@@ -622,12 +623,15 @@ function createStyles(c: AppColors) {
     borderWidth: 1,
     marginRight: spacing.sm,
     maxWidth: 160,
+    minHeight: 44,
     paddingHorizontal: spacing.md,
-    paddingVertical: 8
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
   },
   bookChipActive: {
-    backgroundColor: c.navy,
-    borderColor: c.navy
+    backgroundColor: isDark ? c.teal : c.navy,
+    borderColor: isDark ? c.teal : c.navy
   },
   bookChipText: {
     color: c.ink,
@@ -681,7 +685,7 @@ function createStyles(c: AppColors) {
     position: "relative"
   },
   progressFill: {
-    backgroundColor: c.surfaceAlt,
+    backgroundColor: isDark ? "rgba(255,255,255,0.18)" : c.surfaceAlt,
     borderRadius: radii.pill,
     height: "100%",
     position: "absolute"
@@ -800,15 +804,18 @@ function createStyles(c: AppColors) {
     gap: spacing.xs
   },
   minuteChip: {
+    alignItems: "center",
     borderColor: c.border,
     borderRadius: radii.pill,
     borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 44,
     paddingHorizontal: spacing.md,
-    paddingVertical: 9
+    paddingVertical: 9,
   },
   minuteChipActive: {
-    backgroundColor: c.navy,
-    borderColor: c.navy
+    backgroundColor: isDark ? c.teal : c.navy,
+    borderColor: isDark ? c.teal : c.navy
   },
   minuteChipText: {
     color: c.ink,
@@ -859,11 +866,12 @@ function createStyles(c: AppColors) {
     flexDirection: "row",
     gap: 6,
     justifyContent: "center",
-    paddingVertical: 10
+    minHeight: 44,
+    paddingVertical: 10,
   },
   formatChipActive: {
-    backgroundColor: c.navy,
-    borderColor: c.navy
+    backgroundColor: isDark ? c.teal : c.navy,
+    borderColor: isDark ? c.teal : c.navy
   },
   formatChipText: {
     color: c.muted,
@@ -985,7 +993,7 @@ function createStyles(c: AppColors) {
     width: 1
   },
   saveButton: {
-    backgroundColor: c.navy,
+    backgroundColor: isDark ? c.teal : c.navy,
     borderRadius: radii.pill,
     paddingVertical: 16
   },
@@ -994,7 +1002,7 @@ function createStyles(c: AppColors) {
     opacity: 0.5
   },
   saveButtonText: {
-    color: c.card,
+    color: "#FFFFFF",
     fontFamily: fonts.body,
     fontSize: 15,
     fontWeight: "900",

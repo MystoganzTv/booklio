@@ -80,17 +80,29 @@ function apiKey(): string {
 // these placeholder-cover catalog records.
 const isCatalogOnlyVolumeId = (id: string): boolean => /ACAAJ$/.test(id);
 
+/** Returns true if a Google Books image URL is a real cover (not an interior page). */
+function isCoverUrl(url: string): boolean {
+  // Interior pages look like &pg=PA1 or &pg=PP1 — these show book text, not the cover.
+  // We only accept URLs that explicitly say printsec=frontcover or have no pg= at all.
+  if (/[?&]pg=/.test(url)) return false;
+  return true;
+}
+
 function gbCoverUrl(links?: GBImageLinks): string | undefined {
-  const raw =
-    links?.medium ??
-    links?.large ??
-    links?.thumbnail ??
-    links?.small ??
-    links?.smallThumbnail;
+  // Prefer medium/large for higher resolution but only if they're real cover images.
+  // Fall back to thumbnail/smallThumbnail which reliably have printsec=frontcover.
+  const candidates = [
+    links?.medium,
+    links?.large,
+    links?.thumbnail,
+    links?.small,
+    links?.smallThumbnail,
+  ];
+  const raw = candidates.find((url) => url && isCoverUrl(url));
   if (!raw) return undefined;
   return raw
     .replace(/^http:\/\//, "https://")
-    .replace(/&zoom=\d/, "&zoom=2");
+    .replace(/&zoom=\d+/, "&zoom=1");
 }
 
 function parsePublishedYear(date?: string): number | undefined {

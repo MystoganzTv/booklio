@@ -135,7 +135,7 @@ export function BookDetailScreen() {
         {/* ── HERO ─────────────────────────────────────────────────────────── */}
         {book.coverImageUri ? (
           <ImageBackground
-            source={{ uri: book.coverImageUri }}
+            source={{ uri: book.coverImageUri.replace(/zoom=1(?=&|$)/, "zoom=0") }}
             style={[styles.hero, { paddingTop: insets.top + 52 }]}
             imageStyle={styles.heroImageStyle}
           >
@@ -360,8 +360,7 @@ export function BookDetailScreen() {
         {/* ── SIMILAR BOOKS ────────────────────────────────────────────────── */}
         {relatedRecs.length > 0 ? (
           <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
-            <Text style={styles.sectionTitle}>Keep this shelf moving</Text>
-            <View style={{ marginTop: spacing.sm, gap: spacing.sm }}>
+            <View style={{ gap: spacing.sm }}>
               {relatedRecs.map(({ rec, recBook }) => (
                 <RecommendationCard
                   key={rec.id}

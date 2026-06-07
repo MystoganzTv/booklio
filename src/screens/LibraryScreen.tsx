@@ -432,7 +432,6 @@ function GridBookTile({
   const hasSeries = book.seriesName && book.seriesNumber;
   // Render cover image directly — bypasses BookCover dimension constraints
   const coverEl = book.coverImageUri ? (
-    // resizeMode="contain" shows the full cover — no cropping, natural like Audible
     <View style={styles.tileCoverWrap}>
       <Image
         source={{ uri: book.coverImageUri }}
@@ -450,7 +449,7 @@ function GridBookTile({
   return (
     <Pressable style={styles.bookTile} onPress={onPress} onLongPress={onLongPress}>
       {coverEl}
-      <Text numberOfLines={2} style={styles.bookTitle}>{book.title}</Text>
+      <Text numberOfLines={1} style={styles.bookTitle}>{book.title}</Text>
       <Text numberOfLines={1} style={styles.bookAuthor}>{authorName}</Text>
       {hasSeries ? (
         <Text numberOfLines={1} style={styles.bookSeries}>
@@ -483,9 +482,13 @@ function LibraryRowCard({
   const isDnf = book.userStatus.status === "dnf";
 
   const openGetLink = () => {
-    const query = encodeURIComponent(`${book.title} ${authorName}`);
-    // Amazon search with affiliate tag — swap tag for your Associates ID
-    void Linking.openURL(`https://www.amazon.com/s?k=${query}&tag=bookliz-20`);
+    const isbn = book.isbn?.replace(/[^0-9X]/gi, "");
+    const url = isbn && isbn.length >= 10
+      // ISBN direct link → goes straight to the product page, best conversion
+      ? `https://www.amazon.com/dp/${isbn}?tag=bookliz-20`
+      // Fallback: title + author search
+      : `https://www.amazon.com/s?k=${encodeURIComponent(`${book.title} ${authorName}`)}&tag=bookliz-20`;
+    void Linking.openURL(url);
   };
 
   return (
@@ -694,8 +697,10 @@ function createStyles(c: AppColors, isDark: boolean) {
       borderWidth: 1,
       flexDirection: "row",
       gap: 5,
+      minHeight: 44,
       paddingHorizontal: spacing.sm,
-      paddingVertical: 7
+      paddingVertical: 7,
+      justifyContent: "center",
     },
     sortOptionActive: {
       backgroundColor: activeControlBackground,
@@ -766,16 +771,16 @@ function createStyles(c: AppColors, isDark: boolean) {
     grid: {
       flexDirection: "row",
       flexWrap: "wrap",
-      gap: spacing.sm,
+      justifyContent: "space-between",
       marginTop: spacing.lg,
+      rowGap: spacing.lg,
     },
     bookTile: {
-      width: "48%",
+      width: "30.5%",
     },
-    // Outer box: defines shape + dark bg. Inner image: full cover, no crop.
     tileCoverWrap: {
       aspectRatio: 2 / 3,
-      backgroundColor: "#111827",   // near-black — neutral backdrop for any cover
+      backgroundColor: "#111827",
       borderRadius: 10,
       overflow: "hidden",
       shadowColor: "#000",
@@ -817,7 +822,7 @@ function createStyles(c: AppColors, isDark: boolean) {
       fontSize: 13,
       fontWeight: "800",
       lineHeight: 18,
-      marginTop: 8,
+      marginTop: 10,
     },
     bookAuthor: {
       color: c.muted,

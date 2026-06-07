@@ -1092,7 +1092,7 @@ export function BookIntakeScreen() {
       </Pressable>
       <View style={styles.reviewHeader}>
           {reviewBook.coverImageUri ? (
-            <Image source={{ uri: reviewBook.coverImageUri }} style={styles.reviewCover} />
+            <Image source={{ uri: reviewBook.coverImageUri.replace(/zoom=1(?=&|$)/, "zoom=0") }} style={styles.reviewCover} />
           ) : (
             <View style={styles.reviewCoverFallback}>
               <Ionicons name="book-outline" size={28} color={c.gold} />
@@ -1109,15 +1109,8 @@ export function BookIntakeScreen() {
         </View>
       </View>
 
-      {reviewInsight ? (
-        <View style={styles.reviewInsightCard}>
-          <Ionicons name="sparkles-outline" size={16} color={c.tealDark} />
-          <Text style={styles.reviewInsightText}>{reviewInsight}</Text>
-        </View>
-      ) : null}
-
       <View style={styles.metadataStrip}>
-        <View style={styles.metadataItem}>
+        <View style={styles.metadataItemNarrow}>
           <Text style={styles.metadataLabel}>Pages</Text>
           <Text style={styles.metadataValue}>{reviewBook.pages ?? "—"}</Text>
         </View>
@@ -1240,16 +1233,19 @@ export function BookIntakeScreen() {
             )}
             <Text style={styles.primaryReviewButtonText}>{isSubmittingReview ? "Saving..." : "Add to library"}</Text>
           </Pressable>
-          {reviewBook?.source === "isbn" ? (
-            <Pressable style={styles.scanAgainBtn} onPress={() => { setScanned(false); setMode("isbn"); }}>
-              <Ionicons name="barcode-outline" size={16} color={c.tealDark} />
-              <Text style={styles.scanAgainText}>Wrong book? Scan again</Text>
+          {/* Secondary actions — scan again (isbn only) and discard in one row */}
+          <View style={styles.reviewSecondaryRow}>
+            {reviewBook?.source === "isbn" ? (
+              <Pressable style={styles.reviewSecondaryLink} onPress={() => { setScanned(false); setMode("isbn"); }}>
+                <Ionicons name="barcode-outline" size={14} color={c.muted} />
+                <Text style={styles.reviewSecondaryLinkText}>Scan again</Text>
+              </Pressable>
+            ) : <View style={{ flex: 1 }} />}
+            <Pressable style={styles.reviewSecondaryLink} onPress={() => setMode("menu")}>
+              <Ionicons name="close-outline" size={14} color={c.muted} />
+              <Text style={styles.reviewSecondaryLinkText}>Discard</Text>
             </Pressable>
-          ) : null}
-          <Pressable style={styles.secondaryReviewButton} onPress={() => setMode("menu")}>
-            <Ionicons name="close-outline" size={18} color={c.muted} />
-            <Text style={styles.secondaryReviewButtonText}>Cancel this draft</Text>
-          </Pressable>
+          </View>
         </View>
 
         {/* ── Duplicate book dialog ────────────────────────────────────── */}
@@ -2465,6 +2461,10 @@ function createStyles(c: AppColors, isDark: boolean) {
   metadataItem: {
     flex: 1
   },
+  metadataItemNarrow: {
+    flex: 0,
+    minWidth: 54
+  },
   metadataLabel: {
     color: c.muted,
     fontFamily: fonts.body,
@@ -2597,7 +2597,7 @@ function createStyles(c: AppColors, isDark: boolean) {
   },
   primaryReviewButton: {
     alignItems: "center",
-    backgroundColor: c.navy,
+    backgroundColor: isDark ? c.teal : c.navy,
     borderRadius: radii.pill,
     flexDirection: "row",
     gap: 8,
@@ -2626,6 +2626,23 @@ function createStyles(c: AppColors, isDark: boolean) {
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900"
+  },
+  reviewSecondaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: spacing.xs
+  },
+  reviewSecondaryLink: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+    paddingVertical: 8
+  },
+  reviewSecondaryLinkText: {
+    color: c.muted,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    fontWeight: "700"
   },
   resultsWrap: {
     gap: spacing.md,
@@ -3024,7 +3041,7 @@ function createStyles(c: AppColors, isDark: boolean) {
     textAlign: "center"
   },
   saveButton: {
-    backgroundColor: c.navy,
+    backgroundColor: isDark ? c.teal : c.navy,
     borderRadius: radii.pill,
     marginTop: spacing.lg,
     paddingVertical: 15

@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Image, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Image, Linking, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { GoogleConnectionCard } from "../components/GoogleConnectionCard";
 import { Screen } from "../components/Screen";
 import { useBookliz } from "../data/BooklizContext";
@@ -171,6 +171,27 @@ export function SettingsScreen() {
         <Text style={styles.sectionHint}>{t("settings.accountBody")}</Text>
       </View>
       <GoogleConnectionCard variant="settings" />
+
+      {/* ── Legal ─────────────────────────────────────────────────────────── */}
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionIconWrap}>
+            <Ionicons name="document-text-outline" size={18} color={c.tealDark} />
+          </View>
+          <View style={styles.sectionCopy}>
+            <Text style={styles.sectionTitle}>Legal</Text>
+            <Text style={styles.sectionBody}>Privacy policy and terms of use.</Text>
+          </View>
+        </View>
+
+        <Pressable
+          style={styles.linkRow}
+          onPress={() => void Linking.openURL("https://bookliz.app/privacy")}
+        >
+          <Text style={styles.linkRowText}>Privacy Policy</Text>
+          <Ionicons name="open-outline" size={14} color={c.muted} />
+        </Pressable>
+      </View>
 
       <View style={styles.dangerSection}>
         <Text style={styles.dangerEyebrow}>{t("settings.dangerEyebrow")}</Text>
@@ -513,6 +534,24 @@ function createStyles(c: AppColors) {
       fontFamily: fonts.body,
       fontSize: 14,
       fontWeight: "900",
+    },
+    linkRow: {
+      alignItems: "center",
+      backgroundColor: c.surfaceAlt,
+      borderColor: c.border,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      minHeight: 44,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 12,
+    },
+    linkRowText: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 14,
+      fontWeight: "800",
     },
   });
 }

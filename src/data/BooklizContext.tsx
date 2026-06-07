@@ -1146,6 +1146,10 @@ export function BooklizProvider({ children }: PropsWithChildren) {
               ...book.userStatus,
               status: newStatus,
               ...(rating !== undefined ? { rating } : {}),
+              // Wishlist: book is desired but not owned
+              ...(newStatus === "wishlist"
+                ? { wishlist: true, ownership: "not-owned" as const, wantToBuy: false }
+                : { wishlist: false }),
               ...(newStatus === "reading"
                 ? shouldStartReread
                   ? {

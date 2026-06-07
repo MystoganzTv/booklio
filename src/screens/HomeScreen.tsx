@@ -132,9 +132,11 @@ export function HomeScreen() {
   const shouldShowPersonalizedDiscovery = books.length >= 3 && recommendationSpecs.length > 0;
   const [personalizedSections, setPersonalizedSections] = useState<PersonalizedRecommendationSection[]>([]);
   const [loadingPersonalized, setLoadingPersonalized] = useState(false);
+  const [personalizedNetworkError, setPersonalizedNetworkError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    setPersonalizedNetworkError(false);
 
     if (!shouldShowPersonalizedDiscovery) {
       setPersonalizedSections([]);
@@ -157,6 +159,7 @@ export function HomeScreen() {
       .catch(() => {
         if (cancelled) return;
         setPersonalizedSections([]);
+        setPersonalizedNetworkError(true);
       })
       .finally(() => {
         if (cancelled) return;
@@ -271,7 +274,7 @@ export function HomeScreen() {
       {/* Continue reading */}
       {continueBook ? (
         <View style={styles.continueCard}>
-          <BookCover book={continueBook} size="sm" style={styles.continueCover} />
+          <BookCover book={continueBook} size="sm" hideProgress style={styles.continueCover} />
           <View style={styles.continueCopy}>
             <Text style={styles.sectionEyebrow}>{t("home.continueReading")}</Text>
             <Text style={styles.continueTitle}>{continueBook.title}</Text>
@@ -325,6 +328,13 @@ export function HomeScreen() {
         <View style={styles.personalizedLoading}>
           <ActivityIndicator size="small" color={c.teal} />
         </View>
+      ) : personalizedNetworkError ? (
+        <View style={styles.personalizedNetworkError}>
+          <Ionicons name="wifi-outline" size={20} color={c.muted} />
+          <Text style={styles.personalizedNetworkErrorText}>
+            Connection lost. Please check your internet and try again.
+          </Text>
+        </View>
       ) : personalizedSections.length > 0 ? (
         <>
           <SectionHeader
@@ -355,7 +365,7 @@ export function HomeScreen() {
                 style={styles.personalizedRail}
                 contentContainerStyle={styles.personalizedRailContent}
               >
-                {section.books.map((book) => (
+                {[...new Map(section.books.map((b) => [b.id, b])).values()].map((book) => (
                   <CatalogBookCard
                     key={`${section.id}-${book.id}`}
                     book={book}
@@ -670,6 +680,20 @@ function createStyles(c: AppColors) {
       justifyContent: "center",
       marginBottom: spacing.md,
       minHeight: 72,
+    },
+    personalizedNetworkError: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: spacing.sm,
+      marginBottom: spacing.lg,
+      paddingHorizontal: spacing.xs,
+    },
+    personalizedNetworkErrorText: {
+      color: c.muted,
+      flex: 1,
+      fontFamily: fonts.bodyRegular,
+      fontSize: 13,
+      lineHeight: 18,
     },
     personalizedBlock: { marginBottom: spacing.md },
     personalizedHeaderRow: {

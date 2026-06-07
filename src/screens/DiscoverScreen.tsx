@@ -272,11 +272,14 @@ export function DiscoverScreen() {
   // Trending — fetched once on mount
   const [trending, setTrending] = useState<GenreBookResult[]>([]);
   const [loadingTrending, setLoadingTrending] = useState(true);
+  const [trendingNetworkError, setTrendingNetworkError] = useState(false);
   const [personalizedSections, setPersonalizedSections] = useState<PersonalizedRecommendationSection[]>([]);
   const [loadingPersonalized, setLoadingPersonalized] = useState(true);
+  const [personalizedNetworkError, setPersonalizedNetworkError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    setTrendingNetworkError(false);
 
     Promise.all(
       CURATED_TRENDING_TITLES.map(async (seed) => {
@@ -294,7 +297,10 @@ export function DiscoverScreen() {
         setTrending(books.filter((book): book is GenreBookResult => Boolean(book)));
       })
       .catch(() => {
-        if (!cancelled) setTrending([]);
+        if (!cancelled) {
+          setTrending([]);
+          setTrendingNetworkError(true);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingTrending(false);
@@ -307,6 +313,7 @@ export function DiscoverScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    setPersonalizedNetworkError(false);
 
     if (recommendationSpecs.length === 0) {
       setPersonalizedSections([]);
@@ -327,7 +334,10 @@ export function DiscoverScreen() {
         setPersonalizedSections(sections);
       })
       .catch(() => {
-        if (!cancelled) setPersonalizedSections([]);
+        if (!cancelled) {
+          setPersonalizedSections([]);
+          setPersonalizedNetworkError(true);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingPersonalized(false);
@@ -423,7 +433,7 @@ export function DiscoverScreen() {
                 style={styles.personalizedScroll}
                 contentContainerStyle={styles.personalizedContent}
               >
-                {section.books.map((book) => (
+                {[...new Map(section.books.map((b) => [b.id, b])).values()].map((book) => (
                   <CatalogBookCard
                     key={`${section.id}-${book.id}`}
                     book={book}
@@ -440,6 +450,14 @@ export function DiscoverScreen() {
             </View>
           ))}
         </>
+      ) : personalizedNetworkError ? (
+        <View style={styles.personalizedEmpty}>
+          <Ionicons name="wifi-outline" size={24} color={c.muted} />
+          <Text style={styles.personalizedEmptyTitle}>Connection lost</Text>
+          <Text style={styles.personalizedEmptyBody}>
+            Please check your internet and try again.
+          </Text>
+        </View>
       ) : (
         // Empty state: not enough signal yet — show quietly, no CTA
         <View style={styles.personalizedEmpty}>
