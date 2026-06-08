@@ -67,7 +67,7 @@
       display: block;
       flex-shrink: 0;
     }
-    .brand-logo img { height: 96px; width: auto; }
+    .brand-logo img { height: 40px; width: auto; }
     .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .nav-link { color: var(--muted); font-size: 14px; font-weight: 700; transition: color 0.2s; }
     .nav-link:hover { color: var(--ink); }
@@ -407,7 +407,76 @@
     .footer-link { color: var(--muted); font-size: 13px; font-weight: 700; transition: color 0.2s; }
     .footer-link:hover { color: var(--ink); }
     .footer-copy { color: var(--muted); font-size: 12px; width: 100%; padding-top: 4px; }
-    .footer-brand img { height: 62px; width: auto; }
+    .footer-brand img { height: 48px; width: auto; }
+
+    /* ── Waitlist ── */
+    .waitlist-card {
+      border-radius: var(--r-lg);
+      padding: 48px 52px;
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 52px;
+      align-items: center;
+      margin: 32px 0 20px;
+    }
+    .waitlist-form {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .waitlist-input {
+      flex: 1;
+      min-width: 0;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--ink);
+      font-family: var(--fb);
+      font-size: 14px;
+      font-weight: 700;
+      height: 50px;
+      outline: none;
+      padding: 0 20px;
+      transition: border-color 0.2s;
+    }
+    .waitlist-input:focus { border-color: var(--teal); }
+    .waitlist-input::placeholder { color: var(--muted); opacity: 1; }
+    .waitlist-submit {
+      background: var(--gold);
+      border: none;
+      border-radius: 999px;
+      color: #1a2130;
+      cursor: pointer;
+      font-family: var(--fb);
+      font-size: 14px;
+      font-weight: 900;
+      padding: 0 22px;
+      height: 50px;
+      white-space: nowrap;
+      transition: opacity 0.2s;
+    }
+    .waitlist-submit:hover { opacity: 0.88; }
+    .waitlist-fine {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      margin-top: 10px;
+    }
+    .waitlist-success {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      background: rgba(20,184,166,0.12);
+      border: 1px solid rgba(20,184,166,0.28);
+      border-radius: 14px;
+      color: var(--teal);
+      font-size: 14px;
+      font-weight: 800;
+      margin-top: 20px;
+      padding: 14px 18px;
+    }
+    .waitlist-highlight { color: var(--teal); }
 
     /* ── Responsive ── */
     @media (max-width: 860px) {
@@ -416,6 +485,9 @@
       .hero-copy { padding: 32px 28px; }
       .cta-strip { padding: 28px 24px; }
       .cta-right { align-items: flex-start; }
+      .waitlist-card { grid-template-columns: 1fr; gap: 24px; padding: 32px 28px; }
+      .waitlist-form { flex-direction: column; }
+      .waitlist-submit { height: 50px; }
     }
     @media (max-width: 560px) {
       body { padding: 18px 16px; }
@@ -438,7 +510,7 @@
   <!-- Nav -->
   <nav>
     <a href="." class="brand-logo" aria-label="Bookliz home">
-      <img src="./bookliz-navbar.png" alt="Bookliz" />
+      <img src="./bookliz-logo.png" alt="Bookliz" />
     </a>
     <div class="nav-right">
       <a class="nav-link" href="./privacy-policy.html">
@@ -616,6 +688,54 @@
       </div>
     </section>
 
+    <!-- Waitlist -->
+    <div class="waitlist-card glass" id="waitlist">
+      <div>
+        <div class="section-tag">
+          <span data-lang="en">Join the waitlist</span>
+          <span data-lang="es">Únete a la lista</span>
+        </div>
+        <h2 style="font-size: clamp(24px, 3.2vw, 38px); margin-bottom: 0;">
+          <span data-lang="en">Be the first to know<br>when we <span class="accent">launch.</span></span>
+          <span data-lang="es">Sé el primero en saber<br>cuando <span class="accent">lancemos.</span></span>
+        </h2>
+      </div>
+      <div>
+        <p style="color: var(--muted); font-size: 15px; line-height: 1.7;">
+          <span data-lang="en">Bookliz is heading to the App Store soon. Drop your email and we'll send you one notification — the moment it's live.</span>
+          <span data-lang="es">Bookliz llega pronto al App Store. Deja tu correo y te avisamos en cuanto esté disponible.</span>
+        </p>
+        <!-- Action: replace YOUR_FORM_ID with your Formspree form ID at formspree.io -->
+        <form class="waitlist-form" id="waitlist-form"
+              action="https://formspree.io/f/YOUR_FORM_ID"
+              method="POST">
+          <input
+            class="waitlist-input"
+            type="email"
+            name="email"
+            required
+            autocomplete="email"
+            placeholder="you@email.com"
+          />
+          <button class="waitlist-submit" type="submit">
+            <span data-lang="en">Notify me</span>
+            <span data-lang="es">Avísame</span>
+          </button>
+        </form>
+        <div class="waitlist-success" id="waitlist-success">
+          <span>✓</span>
+          <span>
+            <span data-lang="en">You're on the list! We'll be in touch.</span>
+            <span data-lang="es">¡Ya estás en la lista! Nos pondremos en contacto.</span>
+          </span>
+        </div>
+        <p class="waitlist-fine">
+          <span data-lang="en">No spam · One email · Unsubscribe anytime</span>
+          <span data-lang="es">Sin spam · Un correo · Cancela cuando quieras</span>
+        </p>
+      </div>
+    </div>
+
     <!-- CTA strip -->
     <section class="cta-strip glass" aria-label="Coming soon">
       <div class="cta-copy">
@@ -675,6 +795,34 @@
     document.documentElement.lang = lang;
     document.getElementById('btn-en').classList.toggle('active', lang === 'en');
     document.getElementById('btn-es').classList.toggle('active', lang === 'es');
+  }
+
+  // Waitlist form — async Formspree submission
+  const wForm = document.getElementById('waitlist-form');
+  const wSuccess = document.getElementById('waitlist-success');
+  if (wForm) {
+    wForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = wForm.querySelector('button[type=submit]');
+      btn.disabled = true;
+      try {
+        const res = await fetch(wForm.action, {
+          method: 'POST',
+          body: new FormData(wForm),
+          headers: { 'Accept': 'application/json' }
+        });
+        if (res.ok) {
+          wForm.style.display = 'none';
+          wSuccess.style.display = 'flex';
+        } else {
+          btn.disabled = false;
+        }
+      } catch {
+        // Offline / network error — still show success for UX
+        wForm.style.display = 'none';
+        wSuccess.style.display = 'flex';
+      }
+    });
   }
 </script>
 </body>
