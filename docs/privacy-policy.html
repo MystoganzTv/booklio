@@ -20,6 +20,19 @@
       border-bottom: 1px solid #E8E2D9;
       margin-bottom: 40px;
     }
+    .top-links {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .top-links a {
+      color: #2D8A8A;
+      font-size: 14px;
+      font-weight: 700;
+      text-decoration: none;
+    }
+    .top-links a:hover { text-decoration: underline; }
     .logo { font-size: 22px; font-weight: 900; color: #1A1A2E; letter-spacing: -0.5px; }
     .logo span { color: #C9A84C; }
     h1 { font-size: 32px; font-weight: 900; margin-top: 16px; line-height: 1.2; }
@@ -56,6 +69,10 @@
 <body>
 <div class="wrap">
   <header>
+    <div class="top-links">
+      <a href="./">Home</a>
+      <a href="./terms.html">Terms of Use</a>
+    </div>
     <div class="logo">Book<span>liz</span></div>
     <h1>Privacy Policy</h1>
     <p class="meta">Last updated: May 28, 2026 &nbsp;·&nbsp; Effective: May 28, 2026</p>

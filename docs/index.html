@@ -56,7 +56,40 @@
       padding: 4px 0 36px;
       flex-wrap: wrap;
     }
-    .brand-logo img { display: block; }
+    .brand-logo,
+    .footer-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+    }
+    .brand-logo img,
+    .footer-brand img {
+      display: block;
+      border-radius: 16px;
+      flex-shrink: 0;
+    }
+    .brand-copy {
+      display: flex;
+      flex-direction: column;
+      line-height: 1;
+    }
+    .brand-word {
+      color: var(--ink);
+      font-family: var(--fd);
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      text-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+    }
+    .brand-sub {
+      color: var(--gold);
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 0.16em;
+      margin-top: 6px;
+      text-transform: uppercase;
+    }
     .nav-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .nav-link { color: var(--muted); font-size: 14px; font-weight: 700; transition: color 0.2s; }
     .nav-link:hover { color: var(--ink); }
@@ -392,11 +425,17 @@
       padding: 16px 0 6px;
       border-top: 1px solid var(--border);
     }
-    .footer-brand img { display: block; }
     .footer-links { display: flex; gap: 16px; flex-wrap: wrap; }
     .footer-link { color: var(--muted); font-size: 13px; font-weight: 700; transition: color 0.2s; }
     .footer-link:hover { color: var(--ink); }
     .footer-copy { color: var(--muted); font-size: 12px; width: 100%; padding-top: 4px; }
+    .footer-brand .brand-word {
+      font-size: 24px;
+    }
+    .footer-brand .brand-sub {
+      font-size: 9px;
+      margin-top: 5px;
+    }
 
     /* ── Responsive ── */
     @media (max-width: 860px) {
@@ -411,6 +450,7 @@
       nav { flex-direction: column; align-items: flex-start; }
       .features { grid-template-columns: 1fr; }
       footer { flex-direction: column; align-items: flex-start; }
+      .brand-word { font-size: 28px; }
     }
 
     /* ── i18n ── */
@@ -424,7 +464,13 @@
 
   <!-- Nav -->
   <nav>
-    <a href="." class="brand-logo"><img src="./bookliz-logo.png" alt="Bookliz" height="46" /></a>
+    <a href="." class="brand-logo" aria-label="Bookliz home">
+      <img src="./bookliz-icon-only.png" alt="Bookliz" height="58" />
+      <span class="brand-copy">
+        <span class="brand-word">Bookliz</span>
+        <span class="brand-sub">Tu historia, cada libro.</span>
+      </span>
+    </a>
     <div class="nav-right">
       <a class="nav-link" href="./privacy-policy.html">
         <span data-lang="en">Privacy Policy</span>
@@ -628,7 +674,13 @@
 
   <!-- Footer -->
   <footer>
-    <a href="." class="footer-brand"><img src="./bookliz-logo.png" alt="Bookliz" height="32" /></a>
+    <a href="." class="footer-brand" aria-label="Bookliz home">
+      <img src="./bookliz-icon-only.png" alt="Bookliz" height="42" />
+      <span class="brand-copy">
+        <span class="brand-word">Bookliz</span>
+        <span class="brand-sub">Tu historia, cada libro.</span>
+      </span>
+    </a>
     <div class="footer-links">
       <a class="footer-link" href="./privacy-policy.html">
         <span data-lang="en">Privacy Policy</span>
