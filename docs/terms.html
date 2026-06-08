@@ -34,7 +34,12 @@
     }
     .top-links a:hover { text-decoration: underline; }
     .logo { font-size: 22px; font-weight: 900; color: #1A1A2E; letter-spacing: -0.5px; }
-    .logo span { color: #C9A84C; }
+    .logo img {
+      display: block;
+      height: 72px;
+      width: auto;
+      max-width: min(100%, 360px);
+    }
     h1 { font-size: 32px; font-weight: 900; margin-top: 16px; line-height: 1.2; }
     .meta { color: #6B7280; font-size: 14px; margin-top: 8px; }
     h2 {
@@ -73,7 +78,9 @@
       <a href="./">Home</a>
       <a href="./privacy-policy.html">Privacy Policy</a>
     </div>
-    <div class="logo">Book<span>liz</span></div>
+    <a class="logo" href="./" aria-label="Bookliz home">
+      <img src="./bookliz-navbar.png" alt="Bookliz" />
+    </a>
     <h1>Terms of Use</h1>
     <p class="meta">Last updated: June 7, 2026 &nbsp;·&nbsp; Effective: June 7, 2026</p>
   </header>
