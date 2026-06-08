@@ -19,6 +19,7 @@ import { EditBookScreen } from "../screens/EditBookScreen";
 import { AchievementsScreen } from "../screens/AchievementsScreen";
 import { WriteReviewScreen } from "../screens/WriteReviewScreen";
 import { GenreBrowseScreen } from "../screens/GenreBrowseScreen";
+import { AuthorBooksScreen } from "../screens/AuthorBooksScreen";
 import { WelcomeScreen } from "../screens/WelcomeScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
 import { OnboardingWelcomeScreen } from "../screens/onboarding/OnboardingWelcomeScreen";
@@ -160,6 +161,7 @@ export function AppNavigator() {
         <Stack.Screen component={AchievementsScreen} name="Achievements" options={{ title: "" }} />
         <Stack.Screen component={WriteReviewScreen} name="WriteReview" options={{ title: t("nav.stack.writeReview") }} />
         <Stack.Screen component={GenreBrowseScreen} name="GenreBrowse" options={({ route }) => ({ title: (route.params as { genre: string }).genre })} />
+        <Stack.Screen component={AuthorBooksScreen} name="AuthorBooks" options={{ headerShown: false }} />
         <Stack.Screen component={StatsScreen} name={"Stats" as any} options={{ title: t("nav.tabs.stats") }} />
       </Stack.Navigator>
       {/* Shown once per app version after onboarding is complete */}

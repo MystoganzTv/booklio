@@ -92,19 +92,22 @@ function isLikelyTitle(query: string): boolean {
  * or a book title / keyword (→ general search)?
  *
  * Rules:
- * - Single word                           → general (likely a title like "Dune")
- * - > 3 words                             → general (too long for a name)
- * - Contains digits                       → general (ISBN-like, year, etc.)
- * - Starts with an article                → general ("The Da Vinci Code")
- * - Contains & : — – ,                   → general (subtitle punctuation)
- * - 2–3 words, all look like name parts  → author
+ * - Single capitalized word (not a known title word)  → author (e.g. "Yarros",
+ *     "Sanderson"). Fallback 6b handles the case where inauthor: returns too
+ *     few results and retries as intitle: — so "Dune", "Eragon" etc. still work.
+ * - Single lowercase or known-title word              → general
+ * - > 3 words                                         → general (too long for a name)
+ * - Contains digits                                   → general (ISBN, year, etc.)
+ * - Starts with an article                            → general ("The Da Vinci Code")
+ * - Contains & : — – ,                               → general (subtitle punctuation)
+ * - 2–3 words, all look like name parts              → author
  *     Accepts any case: "dan brown", "Dan Brown", "david baldacci"
  *     Accepts initials with or without dot: "J.", "J.K.", "J" (Sarah J Maas)
  */
 export function detectQueryIntent(query: string): "author" | "general" {
   const words = query.trim().split(/\s+/);
 
-  if (words.length < 2 || words.length > 3) return "general";
+  if (words.length === 0 || words.length > 3) return "general";
   if (/\d/.test(query)) return "general";
   if (TITLE_STARTERS.has(words[0]!.toLowerCase())) return "general";
   if (/[&:—–,]/.test(query)) return "general";
@@ -119,6 +122,19 @@ export function detectQueryIntent(query: string): "author" | "general" {
     /^[A-Za-záéíóúñüàèìòùâêîôûãõÁÉÍÓÚÑÜÀÈÌÒÙÂÊÎÔÛÃÕ][A-Za-záéíóúñüàèìòùâêîôûãõÁÉÍÓÚÑÜÀÈÌÒÙÂÊÎÔÛÃÕ'-]*$/.test(w) ||
     /^[A-Za-z]\.?$/.test(w) ||          // single initial: "J" or "J."
     /^[A-Za-z]\.[A-Za-z]\.?$/.test(w);  // double initial: "J.K." or "J.K"
+
+  // Single-word special case: only flag as author if it looks like a proper
+  // noun (starts with a capital letter) and passes the name-like check.
+  // Lowercase single words ("dune") stay general.
+  // If inauthor: returns < 3 results for a word like "Dune", fallback 6b
+  // automatically retries with intitle: so title searches are not broken.
+  if (words.length === 1) {
+    const w = words[0]!;
+    const isProperNoun = /^[A-ZÁÉÍÓÚÑÜÀÈÌÒÙÂÊÎÔÛÃÕ]/.test(w);
+    const intent = isProperNoun && isNameLike(w) ? "author" : "general";
+    console.log(`[QUERY_CLASSIFIER] query="${query}" intent=${intent} (single-word)`);
+    return intent;
+  }
 
   const intent = words.every(isNameLike) ? "author" : "general";
   console.log(`[QUERY_CLASSIFIER] query="${query}" intent=${intent}`);

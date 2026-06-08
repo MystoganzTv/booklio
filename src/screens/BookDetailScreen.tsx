@@ -9,6 +9,7 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo, useState } from "react";
 import {
   ImageBackground,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -72,8 +73,38 @@ export function BookDetailScreen() {
   const genres = cleanGenres(book.genre);
   const isReading = book.userStatus.status === "reading";
   const isDone = book.userStatus.status === "read";
+  const isDnf = book.userStatus.status === "dnf";
+  const isWishlist = !isReading && !isDone && !isDnf;
   const hasSessions = stats.totalSessions > 0;
   const statusLabel = formatStatusLabel(book.userStatus.status);
+
+  const primaryAction = (() => {
+    if (isReading) return { label: t("bookDetail.logSession"), icon: "pencil" as const, onPress: () => navigation.navigate("AddReadingSession", { bookId: book.id }) };
+    if (isDone)    return { label: "Re-read", icon: "refresh-outline" as const, onPress: () => setStatusSheetOpen(true) };
+    if (isDnf)     return { label: "Try again", icon: "refresh-outline" as const, onPress: () => setStatusSheetOpen(true) };
+    return { label: "Start reading", icon: "book-outline" as const, onPress: () => updateBookStatus(book.id, "reading", book.userStatus.rating) };
+  })();
+
+  const handleBuy = () => {
+    const raw = book.isbn?.replace(/[^0-9X]/gi, "") ?? "";
+    let asin: string | null = null;
+    if (raw.length === 10) {
+      asin = raw;
+    } else if (raw.length === 13 && raw.startsWith("978")) {
+      const nine = raw.slice(3, 12);
+      let sum = 0;
+      for (let i = 0; i < 9; i++) sum += parseInt(nine[i]) * (10 - i);
+      const check = (11 - (sum % 11)) % 11;
+      asin = nine + (check === 10 ? "X" : String(check));
+    }
+    const authorName = author?.name ?? "";
+    const url = asin
+      ? `https://www.amazon.com/dp/${asin}?tag=bookliz-20`
+      : raw.length > 0
+        ? `https://www.amazon.com/s?k=${raw}&tag=bookliz-20`
+        : `https://www.amazon.com/s?k=${encodeURIComponent(`${book.title} ${authorName}`)}&tag=bookliz-20`;
+    void Linking.openURL(url);
+  };
 
   const relatedRecs = getRecommendationsForBook(book.id, 4)
     .map((rec) => ({ rec, recBook: getBook(rec.bookId) }))
@@ -156,29 +187,34 @@ export function BookDetailScreen() {
         <View style={styles.actionRow}>
           <Pressable
             style={[styles.primaryBtn, { backgroundColor: c.teal }]}
-            onPress={() => navigation.navigate("AddReadingSession", { bookId: book.id })}
+            onPress={primaryAction.onPress}
           >
-            <Ionicons name="pencil" size={16} color="#fff" />
-            <Text style={styles.primaryBtnText}>{t("bookDetail.logSession")}</Text>
+            <Ionicons name={primaryAction.icon} size={16} color="#fff" />
+            <Text style={styles.primaryBtnText}>{primaryAction.label}</Text>
           </Pressable>
           <Pressable style={styles.iconBtn} onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}>
             <Ionicons name={review ? "star" : "star-outline"} size={20} color={review ? c.gold : c.ink} />
           </Pressable>
-          <Pressable style={styles.iconBtn} onPress={() => navigation.navigate("ReadingLog", { bookId: book.id })}>
-            <Ionicons name="time-outline" size={20} color={c.ink} />
-          </Pressable>
+          {hasSessions ? (
+            <Pressable style={styles.iconBtn} onPress={() => navigation.navigate("ReadingLog", { bookId: book.id })}>
+              <Ionicons name="time-outline" size={20} color={c.ink} />
+            </Pressable>
+          ) : null}
           {book.seriesId ? (
             <Pressable style={styles.iconBtn} onPress={() => navigation.navigate("SeriesTracker", { seriesId: book.seriesId! })}>
               <Ionicons name="layers-outline" size={20} color={c.ink} />
             </Pressable>
           ) : null}
-          <Pressable style={styles.iconBtn} onPress={() => navigation.navigate("EditBook", { bookId: book.id })}>
-            <Ionicons name="create-outline" size={20} color={c.ink} />
-          </Pressable>
           <Pressable style={styles.iconBtn} onPress={() => setListSheetOpen(true)}>
             <Ionicons name="bookmarks-outline" size={20} color={c.ink} />
           </Pressable>
-          {/* Timer button — start or stop */}
+          {/* C — Get on Amazon: only for wishlist / unstarted */}
+          {isWishlist ? (
+            <Pressable style={styles.iconBtn} onPress={handleBuy}>
+              <Ionicons name="cart-outline" size={20} color={c.ink} />
+            </Pressable>
+          ) : null}
+          {/* Timer button */}
           <Pressable
             style={[styles.iconBtn, isRunning && timerBookId === book.id && { backgroundColor: c.coral + "22", borderColor: c.coral }]}
             onPress={() => {
@@ -195,6 +231,9 @@ export function BookDetailScreen() {
               size={20}
               color={isRunning && timerBookId === book.id ? c.coral : c.ink}
             />
+          </Pressable>
+          <Pressable style={styles.iconBtn} onPress={() => navigation.navigate("EditBook", { bookId: book.id })}>
+            <Ionicons name="create-outline" size={20} color={c.ink} />
           </Pressable>
         </View>
 
@@ -274,6 +313,26 @@ export function BookDetailScreen() {
             <View key={tag} style={styles.metaChip}><Text style={styles.metaChipText}>{tag}</Text></View>
           ))}
         </View>
+
+        {/* ── D: AUTHOR CARD ───────────────────────────────────────────────── */}
+        {author ? (
+          <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
+            <Text style={styles.sectionTitle}>Author</Text>
+            <Pressable
+              style={[styles.authorCard, { marginTop: spacing.sm }]}
+              onPress={() => navigation.navigate("AuthorBooks", { authorId: book.authorId, authorName: author.name })}
+            >
+              <View style={styles.authorAvatar}>
+                <Ionicons name="person" size={22} color={c.muted} />
+              </View>
+              <View style={styles.authorInfo}>
+                <Text style={styles.authorName}>{author.name}</Text>
+                <Text style={styles.authorSub}>View all books by this author</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={c.muted} />
+            </Pressable>
+          </View>
+        ) : null}
 
         {/* ── REVIEW ───────────────────────────────────────────────────────── */}
         <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
@@ -356,6 +415,32 @@ export function BookDetailScreen() {
             </View>
           </View>
         ) : null}
+
+        {/* ── B: ABOUT THIS EDITION ────────────────────────────────────────── */}
+        {(() => {
+          const rows = [
+            { label: "Publisher",  value: book.publisher || null },
+            { label: "Published",  value: book.publishedDate ? book.publishedDate.slice(0, 4) : null },
+            { label: "Language",   value: book.language || null },
+            { label: "Format",     value: book.format || null },
+            { label: "Pages",      value: book.pages ? String(book.pages) : null },
+            { label: "ISBN",       value: book.isbn || null },
+          ].filter((r): r is { label: string; value: string } => Boolean(r.value));
+          if (rows.length === 0) return null;
+          return (
+            <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
+              <Text style={styles.sectionTitle}>About this edition</Text>
+              <View style={[styles.card, { marginTop: spacing.sm, paddingHorizontal: 0, paddingVertical: 0 }]}>
+                {rows.map((row, i) => (
+                  <View key={row.label} style={[styles.editionRow, i < rows.length - 1 && styles.editionRowDivider]}>
+                    <Text style={styles.editionLabel}>{row.label}</Text>
+                    <Text style={styles.editionValue} numberOfLines={1}>{row.value}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          );
+        })()}
 
         {/* ── SIMILAR BOOKS ────────────────────────────────────────────────── */}
         {relatedRecs.length > 0 ? (
@@ -546,5 +631,46 @@ function createStyles(c: AppColors) {
     },
     quoteIcon: { marginTop: 2 },
     quoteText: { color: c.ink, flex: 1, fontFamily: fonts.bodyRegular, fontSize: 14, fontStyle: "italic", lineHeight: 22 },
+
+    // D — Author card
+    authorCard: {
+      ...shadows.card,
+      alignItems: "center",
+      backgroundColor: c.surface,
+      borderColor: c.border,
+      borderRadius: radii.sm,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.md,
+      padding: spacing.md,
+    },
+    authorAvatar: {
+      alignItems: "center",
+      backgroundColor: c.surfaceAlt,
+      borderColor: c.border,
+      borderRadius: 999,
+      borderWidth: 1,
+      height: 44,
+      justifyContent: "center",
+      width: 44,
+    },
+    authorInfo: { flex: 1, gap: 2 },
+    authorName: { color: c.ink, fontFamily: fonts.body, fontSize: 15, fontWeight: "800" },
+    authorSub: { color: c.muted, fontFamily: fonts.bodyRegular, fontSize: 12 },
+
+    // B — About this edition
+    editionRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.md,
+      paddingVertical: 13,
+    },
+    editionRowDivider: {
+      borderBottomColor: c.border,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    editionLabel: { color: c.muted, fontFamily: fonts.body, fontSize: 13, fontWeight: "700" },
+    editionValue: { color: c.ink, flex: 1, fontFamily: fonts.body, fontSize: 13, fontWeight: "800", textAlign: "right" },
   });
 }

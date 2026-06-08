@@ -47,21 +47,34 @@ export const SORT_OPTIONS = [
 
 export type LibrarySort = typeof SORT_OPTIONS[number]["key"];
 
+// ── Language options ──────────────────────────────────────────────────────────
+export const LANGUAGE_OPTIONS = [
+  { key: "da", label: "Danish" },
+  { key: "en", label: "English" },
+  { key: "fr", label: "French" },
+  { key: "de", label: "German" },
+  { key: "it", label: "Italian" },
+  { key: "es", label: "Spanish" },
+  { key: "sv", label: "Swedish" },
+] as const;
+
+export type LanguageKey = typeof LANGUAGE_OPTIONS[number]["key"];
+
 // ── Filter state (persisted in LibraryScreen) ─────────────────────────────────
 export type FilterState = {
   formats: Set<FormatKey>;
-  minRating: number | null;
+  languages: Set<LanguageKey>;
   sort: LibrarySort;
 };
 
 export const DEFAULT_FILTERS: FilterState = {
   formats: new Set(),
-  minRating: null,
+  languages: new Set(),
   sort: "personalRank",
 };
 
 export function activeFilterCount(f: FilterState): number {
-  return f.formats.size + (f.minRating !== null ? 1 : 0) + (f.sort !== "personalRank" ? 1 : 0);
+  return f.formats.size + f.languages.size + (f.sort !== "personalRank" ? 1 : 0);
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -77,14 +90,14 @@ export function FilterSheet({ open, filters, resultCount, onApply, onClose }: Pr
   const c = useColors();
   const styles = useMemo(() => createStyles(c), [c]);
 
-  const [localFormats, setLocalFormats] = useState<Set<FormatKey>>(new Set(filters.formats));
-  const [localRating, setLocalRating]   = useState<number | null>(filters.minRating);
-  const [localSort,   setLocalSort]     = useState<LibrarySort>(filters.sort);
+  const [localFormats,   setLocalFormats]   = useState<Set<FormatKey>>(new Set(filters.formats));
+  const [localLanguages, setLocalLanguages] = useState<Set<LanguageKey>>(new Set(filters.languages));
+  const [localSort,      setLocalSort]      = useState<LibrarySort>(filters.sort);
 
   useEffect(() => {
     if (open) {
       setLocalFormats(new Set(filters.formats));
-      setLocalRating(filters.minRating);
+      setLocalLanguages(new Set(filters.languages));
       setLocalSort(filters.sort);
     }
   }, [open]);
@@ -97,14 +110,25 @@ export function FilterSheet({ open, filters, resultCount, onApply, onClose }: Pr
     });
   };
 
+  const toggleLanguage = (key: LanguageKey) => {
+    setLocalLanguages((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+
   const handleClear = () => {
+    const cleared: FilterState = { formats: new Set(), languages: new Set(), sort: "personalRank" };
     setLocalFormats(new Set());
-    setLocalRating(null);
+    setLocalLanguages(new Set());
     setLocalSort("personalRank");
+    onApply(cleared);
+    onClose();
   };
 
   const handleApply = () => {
-    onApply({ formats: localFormats, minRating: localRating, sort: localSort });
+    onApply({ formats: localFormats, languages: localLanguages, sort: localSort });
     onClose();
   };
 
@@ -142,19 +166,20 @@ export function FilterSheet({ open, filters, resultCount, onApply, onClose }: Pr
               })}
             </View>
 
-            {/* ── Rating ── */}
-            <Text style={styles.sectionLabel}>Minimum rating</Text>
+            {/* ── Language ── */}
+            <Text style={styles.sectionLabel}>Language</Text>
             <View style={styles.chipRow}>
-              {[1, 2, 3, 4, 5].map((r) => {
-                const active = localRating === r;
+              {LANGUAGE_OPTIONS.map((lang) => {
+                const active = localLanguages.has(lang.key);
                 return (
                   <Pressable
-                    key={r}
+                    key={lang.key}
                     style={[styles.chip, active && styles.chipActive]}
-                    onPress={() => setLocalRating(active ? null : r)}
+                    onPress={() => toggleLanguage(lang.key)}
                   >
+                    {active && <Ionicons name="checkmark" size={13} color={colors.navy} />}
                     <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                      {"★".repeat(r)}{r < 5 ? " & up" : ""}
+                      {lang.label}
                     </Text>
                   </Pressable>
                 );
@@ -298,14 +323,14 @@ function createStyles(c: AppColors) {
     },
     applyBtn: {
       alignItems: "center",
-      backgroundColor: c.navy,
+      backgroundColor: c.teal,
       borderRadius: radii.pill,
       flex: 2,
       justifyContent: "center",
       minHeight: 52,
     },
     applyText: {
-      color: c.cream,
+      color: colors.navy,
       fontFamily: fonts.body,
       fontSize: 15,
       fontWeight: "900",

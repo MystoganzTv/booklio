@@ -54,6 +54,27 @@ export function LibraryScreen() {
   const [statusSheetBook, setStatusSheetBook] = useState<Book | null>(null);
   const deferredQuery = useDeferredValue(query);
 
+  const openAmazon = (book: Book, authorName: string) => {
+    const raw = book.isbn?.replace(/[^0-9X]/gi, "") ?? "";
+    // Amazon /dp/ requires an ISBN-10 (ASIN). Convert ISBN-13 → ISBN-10 when prefix is 978.
+    let asin: string | null = null;
+    if (raw.length === 10) {
+      asin = raw;
+    } else if (raw.length === 13 && raw.startsWith("978")) {
+      const nine = raw.slice(3, 12);
+      let sum = 0;
+      for (let i = 0; i < 9; i++) sum += parseInt(nine[i]) * (10 - i);
+      const check = (11 - (sum % 11)) % 11;
+      asin = nine + (check === 10 ? "X" : String(check));
+    }
+    const url = asin
+      ? `https://www.amazon.com/dp/${asin}?tag=bookliz-20`
+      : raw.length > 0
+        ? `https://www.amazon.com/s?k=${raw}&tag=bookliz-20`
+        : `https://www.amazon.com/s?k=${encodeURIComponent(`${book.title} ${authorName}`)}&tag=bookliz-20`;
+    void Linking.openURL(url);
+  };
+
   const clearFilters = () => {
     setQuery("");
     setFilter("all");
@@ -154,8 +175,10 @@ export function LibraryScreen() {
         return false;
       })
       .filter((book) => {
-        if (advFilters.minRating === null) return true;
-        return (book.userStatus.rating ?? 0) >= advFilters.minRating;
+        if (advFilters.languages.size === 0) return true;
+        // Match against languageCode (ISO 639-1) or language string
+        const code = book.languageCode?.toLowerCase() ?? book.language?.slice(0, 2).toLowerCase();
+        return code ? advFilters.languages.has(code as never) : false;
       })
       .sort((a, b) => {
         const s = advFilters.sort;
@@ -342,6 +365,7 @@ export function LibraryScreen() {
                   ? () => navigation.navigate("SeriesTracker", { seriesId: book.seriesId! })
                   : undefined
               }
+              onBuy={() => openAmazon(book, getAuthor(book.authorId)?.name ?? "")}
             />
           ))}
         </View>
@@ -402,9 +426,15 @@ export function LibraryScreen() {
             ? () => navigation.navigate("SeriesTracker", { seriesId: contextBook.book.seriesId! })
             : undefined
         }
-        onAddToList={() => {
-          /* list sheet already handles this — open it */
-          setCreateListOpen(true);
+        onViewAuthor={
+          contextBook?.book.authorId
+            ? () => navigation.navigate("AuthorBooks", { authorId: contextBook.book.authorId, authorName: contextBook.authorName })
+            : undefined
+        }
+        onAddToList={() => setCreateListOpen(true)}
+        onBuy={() => {
+          if (!contextBook) return;
+          openAmazon(contextBook.book, contextBook.authorName);
         }}
         onRemove={() => {
           if (contextBook) setDeleteTarget({ id: contextBook.book.id, title: contextBook.book.title });
@@ -553,6 +583,7 @@ function LibraryRowCard({
   onPress,
   onMenu,
   onOpenSeries,
+  onBuy,
 }: {
   book: Book;
   authorName: string;
@@ -561,6 +592,7 @@ function LibraryRowCard({
   onPress: () => void;
   onMenu: () => void;
   onOpenSeries?: () => void;
+  onBuy: () => void;
 }) {
   const c = useColors();
   const progress = book.userStatus.progressPercent ?? 0;
@@ -568,22 +600,16 @@ function LibraryRowCard({
   const isRead = book.userStatus.status === "read";
   const isDnf = book.userStatus.status === "dnf";
 
-  const openGetLink = () => {
-    const isbn = book.isbn?.replace(/[^0-9X]/gi, "");
-    const url = isbn && isbn.length >= 10
-      // ISBN direct link → goes straight to the product page, best conversion
-      ? `https://www.amazon.com/dp/${isbn}?tag=bookliz-20`
-      // Fallback: title + author search
-      : `https://www.amazon.com/s?k=${encodeURIComponent(`${book.title} ${authorName}`)}&tag=bookliz-20`;
-    void Linking.openURL(url);
-  };
-
   return (
     <Pressable style={styles.rowCard} onPress={onPress}>
+      {/* Portrait cover */}
       <BookCover book={book} size="sm" style={styles.rowCover} hideProgress />
 
+      {/* Content */}
       <View style={styles.rowCopy}>
-        <Text numberOfLines={2} style={styles.rowTitle}>{book.title}</Text>
+        <View style={styles.rowTitleRow}>
+          <Text numberOfLines={2} style={styles.rowTitle}>{book.title}</Text>
+        </View>
         <Text numberOfLines={1} style={styles.rowAuthor}>{authorName}</Text>
 
         {book.seriesName ? (
@@ -596,26 +622,36 @@ function LibraryRowCard({
 
         {isReading && progress > 0 ? (
           <View style={styles.rowProgressWrap}>
-            <Text style={styles.rowProgressText}>{progress}% complete</Text>
             <View style={styles.rowProgressTrack}>
               <View style={[styles.rowProgressFill, { width: `${progress}%` as `${number}%` }]} />
             </View>
+            <Text style={styles.rowProgressText}>{progress}%</Text>
           </View>
         ) : isRead ? (
-          <Text style={styles.rowStatusFinished}>Finished</Text>
+          <View style={styles.rowStatusPill}>
+            <Ionicons name="checkmark-circle" size={11} color={c.teal} />
+            <Text style={styles.rowStatusFinished}>Finished</Text>
+          </View>
         ) : isDnf ? (
-          <Text style={styles.rowStatusDnf}>Did not finish</Text>
+          <View style={styles.rowStatusPill}>
+            <Ionicons name="close-circle" size={11} color={c.danger} />
+            <Text style={styles.rowStatusDnf}>Did not finish</Text>
+          </View>
         ) : null}
       </View>
 
-      <View style={styles.rowActions}>
-        <Pressable style={styles.rowGetBtn} onPress={openGetLink} hitSlop={8}>
+      {/* Get button — hide if already reading or finished */}
+      {!isReading && !isRead && (
+        <Pressable style={styles.rowGetBtn} onPress={onBuy} hitSlop={8}>
+          <Ionicons name="cart-outline" size={13} color={c.teal} />
           <Text style={styles.rowGetText}>Get</Text>
         </Pressable>
-        <Pressable style={styles.rowMenuBtn} onPress={onMenu} hitSlop={8}>
-          <Ionicons name="ellipsis-vertical" size={18} color={c.muted} />
-        </Pressable>
-      </View>
+      )}
+
+      {/* 3-dot menu */}
+      <Pressable style={styles.rowMenuBtn} onPress={onMenu} hitSlop={12}>
+        <Ionicons name="ellipsis-vertical" size={18} color={c.muted} />
+      </Pressable>
     </Pressable>
   );
 }
@@ -939,20 +975,25 @@ function createStyles(c: AppColors, isDark: boolean) {
       borderBottomColor: c.border,
       borderBottomWidth: StyleSheet.hairlineWidth,
       flexDirection: "row",
-      gap: spacing.md,
-      paddingVertical: spacing.md,
+      gap: 14,
+      paddingVertical: 14,
     },
     rowCover: {
-      borderRadius: 12,
-      height: 80,
-      width: 80,   // square, like Audible
+      borderRadius: 10,
+      height: 76,
+      width: 52,   // portrait ratio
     },
     rowCopy: {
       flex: 1,
-      gap: 3,
+      gap: 2,
+    },
+    rowTitleRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
     },
     rowTitle: {
       color: c.ink,
+      flex: 1,
       fontFamily: fonts.body,
       fontSize: 15,
       fontWeight: "800",
@@ -969,63 +1010,72 @@ function createStyles(c: AppColors, isDark: boolean) {
       fontFamily: fonts.body,
       fontSize: 12,
       fontWeight: "700",
+      marginTop: 1,
     },
     rowProgressWrap: {
-      gap: 4,
-      marginTop: 2,
-    },
-    rowProgressText: {
-      color: c.gold,
-      fontFamily: fonts.body,
-      fontSize: 12,
-      fontWeight: "700",
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 6,
+      marginTop: 5,
     },
     rowProgressTrack: {
       backgroundColor: c.border,
       borderRadius: 2,
-      height: 3,
+      flex: 1,
+      height: 2,
       overflow: "hidden",
-      width: "100%",
     },
     rowProgressFill: {
       backgroundColor: c.gold,
       borderRadius: 2,
-      height: 3,
+      height: 2,
+    },
+    rowProgressText: {
+      color: c.gold,
+      fontFamily: fonts.body,
+      fontSize: 11,
+      fontWeight: "800",
+    },
+    rowStatusPill: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 4,
+      marginTop: 4,
     },
     rowStatusFinished: {
-      color: c.muted,
-      fontFamily: fonts.bodyRegular,
+      color: c.teal,
+      fontFamily: fonts.body,
       fontSize: 12,
-      marginTop: 2,
+      fontWeight: "700",
     },
     rowStatusDnf: {
       color: c.danger,
-      fontFamily: fonts.bodyRegular,
+      fontFamily: fonts.body,
       fontSize: 12,
-      marginTop: 2,
-    },
-    rowActions: {
-      alignItems: "center",
-      flexDirection: "column",
-      gap: spacing.xs,
+      fontWeight: "700",
     },
     rowGetBtn: {
-      backgroundColor: c.gold,
+      alignItems: "center",
+      borderColor: c.teal + "60",
       borderRadius: radii.pill,
-      paddingHorizontal: 16,
-      paddingVertical: 9,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 3,
+      justifyContent: "center",
+      paddingHorizontal: 8,
+      paddingVertical: 5,
     },
     rowGetText: {
-      color: "#0F172A",
+      color: c.teal,
       fontFamily: fonts.body,
-      fontSize: 13,
-      fontWeight: "900",
+      fontSize: 11,
+      fontWeight: "800",
     },
     rowMenuBtn: {
       alignItems: "center",
       justifyContent: "center",
-      height: 32,
-      width: 32,
+      height: 44,
+      width: 36,
     },
     // Grid tile: cover wrapper + 3-dot overlay
     tileCoverContainer: {

@@ -1233,19 +1233,19 @@ export function BookIntakeScreen() {
             )}
             <Text style={styles.primaryReviewButtonText}>{isSubmittingReview ? "Saving..." : "Add to library"}</Text>
           </Pressable>
-          {/* Secondary actions — scan again (isbn only) and discard in one row */}
-          <View style={styles.reviewSecondaryRow}>
-            {reviewBook?.source === "isbn" ? (
-              <Pressable style={styles.reviewSecondaryLink} onPress={() => { setScanned(false); setMode("isbn"); }}>
-                <Ionicons name="barcode-outline" size={14} color={c.muted} />
-                <Text style={styles.reviewSecondaryLinkText}>Scan again</Text>
-              </Pressable>
-            ) : <View style={{ flex: 1 }} />}
-            <Pressable style={styles.reviewSecondaryLink} onPress={() => setMode("menu")}>
-              <Ionicons name="close-outline" size={14} color={c.muted} />
-              <Text style={styles.reviewSecondaryLinkText}>Discard</Text>
+          {/* Discard — clear outlined button */}
+          <Pressable style={styles.discardBtn} onPress={() => setMode("menu")}>
+            <Ionicons name="trash-outline" size={15} color={c.danger} />
+            <Text style={styles.discardBtnText}>Discard</Text>
+          </Pressable>
+
+          {/* Scan again — small text link, ISBN source only */}
+          {reviewBook?.source === "isbn" ? (
+            <Pressable style={styles.reviewSecondaryLink} onPress={() => { setScanned(false); setMode("isbn"); }}>
+              <Ionicons name="barcode-outline" size={13} color={c.muted} />
+              <Text style={styles.reviewSecondaryLinkText}>Scan a different book</Text>
             </Pressable>
-          </View>
+          ) : null}
         </View>
 
         {/* ── Duplicate book dialog ────────────────────────────────────── */}
@@ -2627,16 +2627,30 @@ function createStyles(c: AppColors, isDark: boolean) {
     fontSize: 13,
     fontWeight: "900"
   },
-  reviewSecondaryRow: {
+  discardBtn: {
+    alignItems: "center",
+    borderColor: c.danger + "55",
+    borderRadius: radii.pill,
+    borderWidth: 1.5,
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: spacing.xs
+    gap: 6,
+    justifyContent: "center",
+    marginTop: spacing.sm,
+    paddingVertical: 13,
+  },
+  discardBtnText: {
+    color: c.danger,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    fontWeight: "800",
   },
   reviewSecondaryLink: {
     alignItems: "center",
     flexDirection: "row",
     gap: 4,
-    paddingVertical: 8
+    justifyContent: "center",
+    marginTop: spacing.xs,
+    paddingVertical: 6,
   },
   reviewSecondaryLinkText: {
     color: c.muted,

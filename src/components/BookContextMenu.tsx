@@ -20,10 +20,12 @@ type Props = {
   authorName: string;
   onClose: () => void;
   onViewDetails: () => void;
+  onViewAuthor?: () => void;
   onUpdateStatus: () => void;
   onLogSession: () => void;
   onOpenSeries: (() => void) | undefined;
   onAddToList: () => void;
+  onBuy: () => void;
   onRemove: () => void;
 };
 
@@ -33,10 +35,12 @@ export function BookContextMenu({
   authorName,
   onClose,
   onViewDetails,
+  onViewAuthor,
   onUpdateStatus,
   onLogSession,
   onOpenSeries,
   onAddToList,
+  onBuy,
   onRemove,
 }: Props) {
   const c = useColors();
@@ -51,8 +55,9 @@ export function BookContextMenu({
   const actionGroups: ActionItem[][] = [
     // Group 1 — navigation
     [
-      { key: "details",  label: "View details",       icon: "book-outline" },
+      { key: "details",  label: "Title Details",      icon: "book-outline" },
       { key: "series",   label: "More in series",     icon: "layers-outline",   hidden: !hasSeries },
+      { key: "author",   label: authorName,           icon: "person-outline",   hidden: !onViewAuthor },
     ],
     // Group 2 — status & tracking
     [
@@ -62,6 +67,7 @@ export function BookContextMenu({
     // Group 3 — organisation
     [
       { key: "list",     label: "Add to list",        icon: "bookmark-outline" },
+      { key: "buy",      label: "Get on Amazon",      icon: "cart-outline" },
     ],
     // Group 4 — destructive
     [
@@ -78,7 +84,9 @@ export function BookContextMenu({
         case "status":  return onUpdateStatus();
         case "session": return onLogSession();
         case "series":  return onOpenSeries?.();
+        case "author":  return onViewAuthor?.();
         case "list":    return onAddToList();
+        case "buy":     return onBuy();
         case "remove":  return onRemove();
       }
     }, 180);

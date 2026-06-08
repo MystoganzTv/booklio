@@ -1,9 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMemo, useState } from "react";
-import { Alert, Pressable, Share, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { BarChart } from "../components/BarChart";
 import { Screen } from "../components/Screen";
 import { useBookliz } from "../data/BooklizContext";
+import { ReadingSession } from "../types/models";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
 import { useI18n } from "../i18n/LocalizationContext";
@@ -15,7 +16,7 @@ export function StatsScreen() {
   const c = useColors();
   const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
-  const { books, overallStats, userProfile } = useBookliz();
+  const { books, overallStats, userProfile, readingSessions } = useBookliz();
   const [activeTab, setActiveTab] = useState<Tab>("books");
 
   const unfinishedCount = books.filter((b) => b.userStatus.status === "dnf").length;
@@ -128,6 +129,24 @@ export function StatsScreen() {
         </View>
       </View>
 
+      {/* ── STREAK CARD ── */}
+      <View style={[styles.chartCard, styles.streakCard]}>
+        <View style={styles.streakCol}>
+          <Text style={styles.streakFire}>🔥</Text>
+          <Text style={[styles.streakVal, { color: overallStats.currentStreak > 0 ? c.coral : c.muted }]}>
+            {overallStats.currentStreak}d
+          </Text>
+          <Text style={styles.streakLbl}>Current streak</Text>
+        </View>
+        <View style={styles.streakDivider} />
+        <View style={styles.streakCol}>
+          <Text style={styles.streakFire}>🏆</Text>
+          <Text style={[styles.streakVal, { color: c.gold }]}>{overallStats.longestStreak}d</Text>
+          <Text style={styles.streakLbl}>Best streak</Text>
+        </View>
+      </View>
+
+      {/* ── MONTHLY ACTIVITY ── */}
       <View style={styles.chartCard}>
         <View style={styles.chartHeader}>
           <Text style={styles.sectionTitle}>{t("stats.monthlyActivity")}</Text>
@@ -146,6 +165,19 @@ export function StatsScreen() {
           </View>
         </View>
         <BarChart data={chartData[activeTab]} />
+      </View>
+
+      {/* ── READING HEATMAP ── */}
+      <View style={styles.chartCard}>
+        <Text style={[styles.sectionTitle, { marginBottom: spacing.sm }]}>Reading activity</Text>
+        <ReadingHeatmap sessions={readingSessions} c={c} />
+        <View style={styles.heatmapLegend}>
+          <Text style={styles.heatmapLegendLabel}>Less</Text>
+          {["00", "50", "80", "B0", "FF"].map((a) => (
+            <View key={a} style={[styles.heatmapLegendCell, { backgroundColor: a === "00" ? c.border : c.teal + a }]} />
+          ))}
+          <Text style={styles.heatmapLegendLabel}>More</Text>
+        </View>
       </View>
 
       <View style={styles.chartCard}>
@@ -179,6 +211,20 @@ export function StatsScreen() {
           <CollectorTile styles={styles} label={t("stats.topFormat")} value={topFormat} sub={t("stats.dominantFormat")} accent={c.coral} />
         </View>
       </View>
+
+      {overallStats.mostActiveDays.length > 0 && (
+        <View style={styles.chartCard}>
+          <Text style={styles.sectionTitle}>Most active days</Text>
+          <BarChart data={overallStats.mostActiveDays} />
+        </View>
+      )}
+
+      {overallStats.speedOverTime.length > 1 && (
+        <View style={styles.chartCard}>
+          <Text style={styles.sectionTitle}>Reading speed trend</Text>
+          <BarChart data={overallStats.speedOverTime} />
+        </View>
+      )}
 
       {overallStats.genreCounts.length > 0 && (
         <View style={styles.chartCard}>
@@ -319,6 +365,87 @@ function YearMeta({
       <Text style={styles.yearMetaLabel}>{label}</Text>
       <Text style={styles.yearMetaValue} numberOfLines={1}>{value}</Text>
     </View>
+  );
+}
+
+// ── Reading heatmap ───────────────────────────────────────────────────────────
+
+function ReadingHeatmap({ sessions, c }: { sessions: ReadingSession[]; c: AppColors }) {
+  const WEEKS = 52;
+  const CELL = 10;
+  const GAP = 2;
+
+  const { grid, monthLabels } = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const s of sessions) {
+      if (s.date) map[s.date] = (map[s.date] ?? 0) + (s.minutesRead || 0);
+    }
+
+    const today = new Date();
+    const dayOfWeek = today.getDay(); // 0=Sun…6=Sat
+    const start = new Date(today);
+    start.setDate(start.getDate() - (WEEKS * 7 - 1 + dayOfWeek));
+
+    const todayStr = today.toISOString().slice(0, 10);
+    const labels: { label: string; col: number }[] = [];
+    let lastMonth = -1;
+    const grid: { mins: number; future: boolean }[][] = [];
+    const cur = new Date(start);
+
+    for (let w = 0; w < WEEKS; w++) {
+      const week: { mins: number; future: boolean }[] = [];
+      for (let d = 0; d < 7; d++) {
+        const ds = cur.toISOString().slice(0, 10);
+        if (d === 0 && cur.getMonth() !== lastMonth) {
+          labels.push({ label: cur.toLocaleDateString("en-US", { month: "short" }), col: w });
+          lastMonth = cur.getMonth();
+        }
+        week.push({ mins: map[ds] ?? 0, future: ds > todayStr });
+        cur.setDate(cur.getDate() + 1);
+      }
+      grid.push(week);
+    }
+
+    return { grid, monthLabels: labels };
+  }, [sessions]);
+
+  const cellColor = (mins: number, future: boolean): string => {
+    if (future) return "transparent";
+    if (mins === 0) return c.border;
+    if (mins < 20)  return c.teal + "50";
+    if (mins < 45)  return c.teal + "80";
+    if (mins < 90)  return c.teal + "B0";
+    return c.teal;
+  };
+
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+      <View>
+        {/* Month labels */}
+        <View style={{ flexDirection: "row", height: 14, marginBottom: GAP, position: "relative" }}>
+          {monthLabels.map(({ label, col }) => (
+            <View key={label + col} style={{ left: col * (CELL + GAP), position: "absolute" }}>
+              <Text style={{ color: c.muted, fontFamily: fonts.body, fontSize: 9, fontWeight: "700" }}>
+                {label}
+              </Text>
+            </View>
+          ))}
+        </View>
+        {/* Day columns */}
+        <View style={{ flexDirection: "row", gap: GAP }}>
+          {grid.map((week, wi) => (
+            <View key={wi} style={{ flexDirection: "column", gap: GAP }}>
+              {week.map((day, di) => (
+                <View
+                  key={di}
+                  style={{ backgroundColor: cellColor(day.mins, day.future), borderRadius: 2, height: CELL, width: CELL }}
+                />
+              ))}
+            </View>
+          ))}
+        </View>
+      </View>
+    </ScrollView>
   );
 }
 
@@ -648,6 +775,57 @@ function createStyles(c: AppColors) {
       fontSize: 14,
       lineHeight: 21,
       textAlign: "center"
-    }
+    },
+
+    // Streak card
+    streakCard: {
+      flexDirection: "row",
+      alignItems: "center",
+    },
+    streakCol: {
+      alignItems: "center",
+      flex: 1,
+      gap: 2,
+    },
+    streakDivider: {
+      backgroundColor: c.border,
+      height: 48,
+      width: 1,
+    },
+    streakFire: {
+      fontSize: 22,
+    },
+    streakVal: {
+      fontFamily: fonts.display,
+      fontSize: 26,
+      fontWeight: "900",
+    },
+    streakLbl: {
+      color: c.muted,
+      fontFamily: fonts.body,
+      fontSize: 10,
+      fontWeight: "800",
+      textTransform: "uppercase",
+    },
+
+    // Heatmap legend
+    heatmapLegend: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 4,
+      justifyContent: "flex-end",
+      marginTop: spacing.sm,
+    },
+    heatmapLegendCell: {
+      borderRadius: 2,
+      height: 10,
+      width: 10,
+    },
+    heatmapLegendLabel: {
+      color: c.muted,
+      fontFamily: fonts.body,
+      fontSize: 9,
+      fontWeight: "700",
+    },
   });
 }

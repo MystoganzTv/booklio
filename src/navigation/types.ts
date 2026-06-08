@@ -41,6 +41,10 @@ export type RootStackParamList = {
     /** Optional editorial seed titles to prioritize first */
     curatedTitles?: Array<{ title: string; author?: string }>;
   };
+  AuthorBooks: {
+    authorId: string;
+    authorName: string;
+  };
 };
 
 export type MainTabParamList = {
