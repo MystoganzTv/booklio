@@ -6,7 +6,10 @@ import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, Vie
 import { Badge } from "../components/Badge";
 import { BooklioDialog } from "../components/BooklioDialog";
 import { BookCover } from "../components/BookCover";
+import { BookContextMenu } from "../components/BookContextMenu";
+import { BookStatusSheet } from "../components/BookStatusSheet";
 import { FilterChip } from "../components/FilterChip";
+import { FilterSheet, FilterState, DEFAULT_FILTERS, activeFilterCount, FORMAT_GROUPS } from "../components/FilterSheet";
 import { Screen } from "../components/Screen";
 import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
@@ -18,11 +21,8 @@ import { formatStatusLabel } from "../utils/statusLabels";
 import { normalizeBookGenres } from "../utils/genres";
 import { CreateListSheet } from "../components/CreateListSheet";
 
-const sortOptions = ["personalRank", "rating", "dateRead", "author", "seriesOrder", "releaseDate", "mostRecentlyLogged"] as const;
-
 type ViewMode = "grid" | "list";
 type LibraryFilter = "all" | "reading" | "read" | "wishlist";
-type LibrarySort = typeof sortOptions[number];
 
 const SIMPLE_FILTERS: { key: LibraryFilter; label: string }[] = [
   { key: "all",      label: "All" },
@@ -38,11 +38,11 @@ export function LibraryScreen() {
   const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   const activeControlTextColor = isDark ? c.ink : "#FFFFFF";
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { books, getAuthor, readingSessions, userLists, createUserList, deleteUserList, renameUserList, deleteBook } = useBookliz();
+  const { books, getAuthor, readingSessions, userLists, createUserList, deleteUserList, renameUserList, deleteBook, updateBookStatus } = useBookliz();
   const [filter, setFilter] = useState<LibraryFilter>("all");
-  const [sortBy, setSortBy] = useState<LibrarySort>("personalRank");
+  const [advFilters, setAdvFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [sortOpen, setSortOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [genreFilter, setGenreFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
@@ -50,6 +50,8 @@ export function LibraryScreen() {
   const [createListOpen, setCreateListOpen] = useState(false);
   const [renamingList, setRenamingList] = useState<{ id: string; name: string; emoji?: string } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const [contextBook, setContextBook] = useState<{ book: Book; authorName: string } | null>(null);
+  const [statusSheetBook, setStatusSheetBook] = useState<Book | null>(null);
   const deferredQuery = useDeferredValue(query);
 
   const clearFilters = () => {
@@ -58,7 +60,7 @@ export function LibraryScreen() {
     setGenreFilter(null);
     setTagFilter(null);
     setListFilter(null);
-    setSortOpen(false);
+    setAdvFilters(DEFAULT_FILTERS);
   };
 
   // Only filter by query when 2+ chars — avoids "no match" flash on first keystroke
@@ -142,16 +144,30 @@ export function LibraryScreen() {
           .toLowerCase()
           .includes(normalized);
       })
+      .filter((book) => {
+        // Format filter
+        if (advFilters.formats.size === 0) return true;
+        const fmt = book.format as string;
+        for (const fg of FORMAT_GROUPS) {
+          if (advFilters.formats.has(fg.key) && fg.formats.includes(fmt as never)) return true;
+        }
+        return false;
+      })
+      .filter((book) => {
+        if (advFilters.minRating === null) return true;
+        return (book.userStatus.rating ?? 0) >= advFilters.minRating;
+      })
       .sort((a, b) => {
-        if (sortBy === "rating") return (b.userStatus.rating ?? 0) - (a.userStatus.rating ?? 0);
-        if (sortBy === "dateRead") return (b.userStatus.finishDate ?? "").localeCompare(a.userStatus.finishDate ?? "");
-        if (sortBy === "author") return (getAuthor(a.authorId)?.name ?? "").localeCompare(getAuthor(b.authorId)?.name ?? "");
-        if (sortBy === "seriesOrder") return (a.seriesName ?? "").localeCompare(b.seriesName ?? "") || (a.sagaOrder ?? 99) - (b.sagaOrder ?? 99);
-        if (sortBy === "releaseDate") return b.publishedDate.localeCompare(a.publishedDate);
-        if (sortBy === "mostRecentlyLogged") return (latestLogByBook[b.id] ?? "").localeCompare(latestLogByBook[a.id] ?? "");
+        const s = advFilters.sort;
+        if (s === "rating") return (b.userStatus.rating ?? 0) - (a.userStatus.rating ?? 0);
+        if (s === "dateRead") return (b.userStatus.finishDate ?? "").localeCompare(a.userStatus.finishDate ?? "");
+        if (s === "author") return (getAuthor(a.authorId)?.name ?? "").localeCompare(getAuthor(b.authorId)?.name ?? "");
+        if (s === "seriesOrder") return (a.seriesName ?? "").localeCompare(b.seriesName ?? "") || (a.sagaOrder ?? 99) - (b.sagaOrder ?? 99);
+        if (s === "releaseDate") return b.publishedDate.localeCompare(a.publishedDate);
+        if (s === "mostRecentlyLogged") return (latestLogByBook[b.id] ?? "").localeCompare(latestLogByBook[a.id] ?? "");
         return (a.userStatus.personalRanking ?? 999) - (b.userStatus.personalRanking ?? 999);
       });
-  }, [books, effectiveQuery, filter, genreFilter, tagFilter, listFilter, userLists, getAuthor, latestLogByBook, sortBy]);
+  }, [books, effectiveQuery, filter, genreFilter, tagFilter, listFilter, userLists, getAuthor, latestLogByBook, advFilters]);
 
   const collectorShelves = [
     {
@@ -224,7 +240,7 @@ export function LibraryScreen() {
         </ScrollView>
       ) : null}
 
-      {/* ── Search + view toggle ── */}
+      {/* ── Search + controls ── */}
       <View style={styles.searchRow}>
         <TextInput
           placeholder={t("library.searchPlaceholder")}
@@ -236,6 +252,19 @@ export function LibraryScreen() {
           returnKeyType="search"
           clearButtonMode="while-editing"
         />
+        {/* Filter button */}
+        <Pressable
+          style={[styles.controlBtn, activeFilterCount(advFilters) > 0 && styles.controlBtnActive]}
+          onPress={() => setFilterSheetOpen(true)}
+        >
+          <Ionicons name="options-outline" size={17} color={activeFilterCount(advFilters) > 0 ? activeControlTextColor : c.ink} />
+          {activeFilterCount(advFilters) > 0 && (
+            <View style={styles.filterBadge}>
+              <Text style={styles.filterBadgeText}>{activeFilterCount(advFilters)}</Text>
+            </View>
+          )}
+        </Pressable>
+        {/* Grid / list toggle */}
         <Pressable
           style={styles.controlBtn}
           onPress={() => setViewMode((v) => v === "grid" ? "list" : "grid")}
@@ -293,7 +322,7 @@ export function LibraryScreen() {
               authorName={getAuthor(book.authorId)?.name ?? ""}
               styles={styles}
               onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
-              onLongPress={() => setDeleteTarget({ id: book.id, title: book.title })}
+              onMenu={() => setContextBook({ book, authorName: getAuthor(book.authorId)?.name ?? "" })}
             />
           ))}
         </View>
@@ -307,7 +336,7 @@ export function LibraryScreen() {
               latestLogDate={latestLogByBook[book.id]}
               styles={styles}
               onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
-              onLongPress={() => setDeleteTarget({ id: book.id, title: book.title })}
+              onMenu={() => setContextBook({ book, authorName: getAuthor(book.authorId)?.name ?? "" })}
               onOpenSeries={
                 book.seriesId
                   ? () => navigation.navigate("SeriesTracker", { seriesId: book.seriesId! })
@@ -343,6 +372,58 @@ export function LibraryScreen() {
         }}
         onClose={() => setRenamingList(null)}
       />
+
+      {/* Filter sheet */}
+      <FilterSheet
+        open={filterSheetOpen}
+        filters={advFilters}
+        resultCount={filteredBooks.length}
+        onApply={(f) => setAdvFilters(f)}
+        onClose={() => setFilterSheetOpen(false)}
+      />
+
+      {/* Book context menu (3-dot) */}
+      <BookContextMenu
+        open={Boolean(contextBook)}
+        book={contextBook?.book ?? null}
+        authorName={contextBook?.authorName ?? ""}
+        onClose={() => setContextBook(null)}
+        onViewDetails={() => {
+          if (contextBook) navigation.navigate("BookDetail", { bookId: contextBook.book.id });
+        }}
+        onUpdateStatus={() => {
+          if (contextBook) setStatusSheetBook(contextBook.book);
+        }}
+        onLogSession={() => {
+          if (contextBook) navigation.navigate("AddReadingSession", { bookId: contextBook.book.id });
+        }}
+        onOpenSeries={
+          contextBook?.book.seriesId
+            ? () => navigation.navigate("SeriesTracker", { seriesId: contextBook.book.seriesId! })
+            : undefined
+        }
+        onAddToList={() => {
+          /* list sheet already handles this — open it */
+          setCreateListOpen(true);
+        }}
+        onRemove={() => {
+          if (contextBook) setDeleteTarget({ id: contextBook.book.id, title: contextBook.book.title });
+        }}
+      />
+
+      {/* Status sheet triggered from context menu */}
+      {statusSheetBook && (
+        <BookStatusSheet
+          open={Boolean(statusSheetBook)}
+          currentStatus={statusSheetBook.userStatus.status}
+          currentRating={statusSheetBook.userStatus.rating}
+          onSave={(status, rating) => {
+            updateBookStatus(statusSheetBook.id, status, rating);
+            setStatusSheetBook(null);
+          }}
+          onClose={() => setStatusSheetBook(null)}
+        />
+      )}
 
       {/* Delete confirmation dialog */}
       <BooklioDialog
@@ -421,13 +502,13 @@ function GridBookTile({
   authorName,
   styles,
   onPress,
-  onLongPress,
+  onMenu,
 }: {
   book: Book;
   authorName: string;
   styles: ReturnType<typeof createStyles>;
   onPress: () => void;
-  onLongPress: () => void;
+  onMenu: () => void;
 }) {
   const hasSeries = book.seriesName && book.seriesNumber;
   // Render cover image directly — bypasses BookCover dimension constraints
@@ -447,8 +528,13 @@ function GridBookTile({
   );
 
   return (
-    <Pressable style={styles.bookTile} onPress={onPress} onLongPress={onLongPress}>
-      {coverEl}
+    <Pressable style={styles.bookTile} onPress={onPress}>
+      <View style={styles.tileCoverContainer}>
+        {coverEl}
+        <Pressable style={styles.tileMenuBtn} onPress={onMenu} hitSlop={8}>
+          <Ionicons name="ellipsis-horizontal" size={14} color="#fff" />
+        </Pressable>
+      </View>
       <Text numberOfLines={1} style={styles.bookTitle}>{book.title}</Text>
       <Text numberOfLines={1} style={styles.bookAuthor}>{authorName}</Text>
       {hasSeries ? (
@@ -465,7 +551,7 @@ function LibraryRowCard({
   authorName,
   styles,
   onPress,
-  onLongPress,
+  onMenu,
   onOpenSeries,
 }: {
   book: Book;
@@ -473,9 +559,10 @@ function LibraryRowCard({
   latestLogDate?: string;
   styles: ReturnType<typeof createStyles>;
   onPress: () => void;
-  onLongPress: () => void;
+  onMenu: () => void;
   onOpenSeries?: () => void;
 }) {
+  const c = useColors();
   const progress = book.userStatus.progressPercent ?? 0;
   const isReading = book.userStatus.status === "reading";
   const isRead = book.userStatus.status === "read";
@@ -492,7 +579,7 @@ function LibraryRowCard({
   };
 
   return (
-    <Pressable style={styles.rowCard} onPress={onPress} onLongPress={onLongPress}>
+    <Pressable style={styles.rowCard} onPress={onPress}>
       <BookCover book={book} size="sm" style={styles.rowCover} hideProgress />
 
       <View style={styles.rowCopy}>
@@ -521,9 +608,14 @@ function LibraryRowCard({
         ) : null}
       </View>
 
-      <Pressable style={styles.rowGetBtn} onPress={openGetLink} hitSlop={8}>
-        <Text style={styles.rowGetText}>Get</Text>
-      </Pressable>
+      <View style={styles.rowActions}>
+        <Pressable style={styles.rowGetBtn} onPress={openGetLink} hitSlop={8}>
+          <Text style={styles.rowGetText}>Get</Text>
+        </Pressable>
+        <Pressable style={styles.rowMenuBtn} onPress={onMenu} hitSlop={8}>
+          <Ionicons name="ellipsis-vertical" size={18} color={c.muted} />
+        </Pressable>
+      </View>
     </Pressable>
   );
 }
@@ -912,6 +1004,11 @@ function createStyles(c: AppColors, isDark: boolean) {
       fontSize: 12,
       marginTop: 2,
     },
+    rowActions: {
+      alignItems: "center",
+      flexDirection: "column",
+      gap: spacing.xs,
+    },
     rowGetBtn: {
       backgroundColor: c.gold,
       borderRadius: radii.pill,
@@ -922,6 +1019,45 @@ function createStyles(c: AppColors, isDark: boolean) {
       color: "#0F172A",
       fontFamily: fonts.body,
       fontSize: 13,
+      fontWeight: "900",
+    },
+    rowMenuBtn: {
+      alignItems: "center",
+      justifyContent: "center",
+      height: 32,
+      width: 32,
+    },
+    // Grid tile: cover wrapper + 3-dot overlay
+    tileCoverContainer: {
+      position: "relative",
+    },
+    tileMenuBtn: {
+      position: "absolute",
+      top: 6,
+      right: 6,
+      backgroundColor: "rgba(0,0,0,0.45)",
+      borderRadius: 999,
+      height: 26,
+      width: 26,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    // Filter badge on the filter button
+    filterBadge: {
+      position: "absolute",
+      top: -4,
+      right: -4,
+      backgroundColor: c.coral,
+      borderRadius: 999,
+      height: 16,
+      width: 16,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    filterBadgeText: {
+      color: "#fff",
+      fontFamily: fonts.body,
+      fontSize: 9,
       fontWeight: "900",
     },
     emptyState: {
