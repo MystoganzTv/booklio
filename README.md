@@ -1,6 +1,6 @@
-# Booklio
+# Bookliz
 
-Booklio is a premium, mobile-first Expo app for personal book tracking, collection management, reading session logs, saga tracking, stats, wishlists, and recommendations.
+Bookliz is a premium, mobile-first Expo app for personal book tracking, collection management, reading session logs, saga tracking, stats, wishlists, and recommendations.
 
 ## Run
 

@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Booklio</string>
+	<string>Bookliz</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -27,14 +27,14 @@
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>booklio</string>
-				<string>com.mystodev.booklio</string>
+				<string>bookliz</string>
+				<string>com.mystodev.bookliz</string>
 			</array>
 		</dict>
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>exp+booklio</string>
+				<string>exp+bookliz</string>
 			</array>
 		</dict>
 		<dict>
@@ -58,13 +58,13 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Booklio uses the camera to photograph book covers and scan ISBN barcodes.</string>
+	<string>Bookliz uses the camera to photograph book covers and scan ISBN barcodes.</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Allow $(PRODUCT_NAME) to access your Face ID biometric data.</string>
+	<string>Allow Bookliz to access your Face ID biometric data.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Allow $(PRODUCT_NAME) to access your microphone</string>
+	<string>Allow Bookliz to access your microphone.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Booklio uses your photo library to import pictures of physical books.</string>
+	<string>Bookliz uses your photo library to import pictures of physical books.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
