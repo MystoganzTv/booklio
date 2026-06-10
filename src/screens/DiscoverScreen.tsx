@@ -14,7 +14,6 @@
 import { NavigationProp, useNavigation } from "@react-navigation/native";
 import { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Image,
   ImageSourcePropType,
   Pressable,
@@ -29,6 +28,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { CatalogBookCard } from "../components/CatalogBookCard";
 import { Screen } from "../components/Screen";
+import { Skeleton } from "../components/Skeleton";
 import { useBookliz } from "../data/BooklizContext";
 import { RootStackParamList, MainTabParamList } from "../navigation/types";
 import { fetchByKeyword, GenreBookResult } from "../services/googleBooksProvider";
@@ -375,19 +375,8 @@ export function DiscoverScreen() {
   }
 
   function openTrendingBook(book: GenreBookResult) {
-    navigation.navigate("BookIntake", {
-      initialBookSelection: {
-        title: book.title,
-        authorName: book.authors[0] ?? "Unknown Author",
-        isbn: book.isbn13,
-        pages: book.pageCount,
-        genre: book.genres,
-        publishedDate: book.publishedYear ? `${book.publishedYear}-01-01` : undefined,
-        language: book.language,
-        synopsis: book.description,
-        coverImageUri: book.coverUrl,
-      },
-    });
+    // Rich preview first — the user decides there whether to add it.
+    navigation.navigate("BookPreview", { book });
   }
 
   const trendingShowcase = trending.slice(0, 6);
@@ -403,8 +392,19 @@ export function DiscoverScreen() {
       </Pressable>
 
       {loadingPersonalized ? (
-        <View style={styles.personalizedLoading}>
-          <ActivityIndicator size="small" color={c.teal} />
+        // Shape-accurate skeleton: section header + row of book cards
+        <View style={styles.personalizedBlock}>
+          <Skeleton style={{ height: 22, marginBottom: 8, width: 170 }} />
+          <Skeleton style={{ height: 14, marginBottom: spacing.md, width: 230 }} />
+          <View style={{ flexDirection: "row", gap: 12 }}>
+            {[0, 1, 2].map((i) => (
+              <View key={i} style={{ width: 118 }}>
+                <Skeleton style={{ borderRadius: radii.lg, height: 172, marginBottom: 8, width: 118 }} />
+                <Skeleton style={{ height: 13, marginBottom: 6, width: 102 }} />
+                <Skeleton style={{ height: 11, width: 72 }} />
+              </View>
+            ))}
+          </View>
         </View>
       ) : personalizedSections.length > 0 ? (
         <>
@@ -520,8 +520,20 @@ export function DiscoverScreen() {
         <Text style={styles.sectionSubtitle}>Fresh picks readers can&apos;t stop sharing.</Text>
       </View>
       {loadingTrending ? (
-        <View style={styles.trendingLoader}>
-          <ActivityIndicator size="small" color={c.teal} />
+        // Skeleton mirrors the real mosaic layout — zero layout shift on load
+        <View style={[styles.trendingMosaic, { marginBottom: spacing.xl }]}>
+          <View style={styles.trendingColumn}>
+            <Skeleton style={{ borderRadius: radii.lg, height: 160, width: 108 }} />
+            <Skeleton style={{ borderRadius: radii.lg, height: 160, width: 108 }} />
+          </View>
+          <View style={styles.trendingColumn}>
+            <Skeleton style={{ borderRadius: radii.lg, height: 210, width: 140 }} />
+            <Skeleton style={{ borderRadius: radii.lg, height: 220, width: 140 }} />
+          </View>
+          <View style={styles.trendingColumn}>
+            <Skeleton style={{ borderRadius: radii.lg, height: 160, width: 108 }} />
+            <Skeleton style={{ borderRadius: radii.lg, height: 160, width: 108 }} />
+          </View>
         </View>
       ) : trendingShowcase.length === 0 ? (
         <View style={styles.trendingEmpty}>

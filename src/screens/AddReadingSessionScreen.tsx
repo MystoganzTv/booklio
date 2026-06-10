@@ -1,7 +1,9 @@
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
+import { useDialog } from "../components/DialogProvider";
+import { hapticSuccess } from "../utils/haptics";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, KeyboardAvoidingView, Platform } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, KeyboardAvoidingView, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { BookCover } from "../components/BookCover";
 import { Screen } from "../components/Screen";
@@ -29,7 +31,8 @@ export function AddReadingSessionScreen() {
   ];
   const route = useRoute<RouteProp<RootStackParamList, "AddReadingSession">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { addReadingSession, books, deleteReadingSession, getBook, getAuthor, getReadingSession, readingSessions, updateReadingSession } = useBookliz();
+  const dialog = useDialog();
+  const { addReadingSession, books, deleteReadingSession, getBook, getAuthor, getReadingSession, readingSessions, updateBookFormat, updateReadingSession } = useBookliz();
   const editingSession = route.params?.sessionId ? getReadingSession(route.params.sessionId) : undefined;
   const isEditing = Boolean(editingSession);
   const today = new Date().toISOString().split("T")[0];
@@ -43,13 +46,13 @@ export function AddReadingSessionScreen() {
   const [bookId, setBookId] = useState(preferredBookId);
   const selectedBook = getBook(bookId);
 
-  const totalPages = selectedBook?.pages ?? 1;
+  const totalPages = selectedBook?.pages || 1; // 0 = unknown page count
 
   // ── Page mode (Physical / Kindle) ────────────────────────────────────
   const lastPage = editingSession
     ? Math.max(1, editingSession.startPage - 1)
     : selectedBook
-      ? Math.max(1, Math.round((selectedBook.userStatus.progressPercent / 100) * selectedBook.pages))
+      ? Math.max(1, Math.round((selectedBook.userStatus.progressPercent / 100) * (selectedBook.pages || 1)))
       : 1;
   // Start at the last tracked page — user adjusts with +/- or taps to type directly
   const [currentPage, setCurrentPage] = useState(
@@ -66,11 +69,11 @@ export function AddReadingSessionScreen() {
 
   // ── Audiobook mode ────────────────────────────────────────────────────
   const lastPct = editingSession && selectedBook
-    ? Math.round((Math.max(0, editingSession.startPage - 1) / selectedBook.pages) * 100)
+    ? Math.round((Math.max(0, editingSession.startPage - 1) / (selectedBook.pages || 1)) * 100)
     : selectedBook?.userStatus.progressPercent ?? 0;
   const [currentPct, setCurrentPct] = useState(
     editingSession && selectedBook
-      ? Math.min(100, Math.round((editingSession.endPage / selectedBook.pages) * 100))
+      ? Math.min(100, Math.round((editingSession.endPage / (selectedBook.pages || 1)) * 100))
       : lastPct
   );
   const gainedPct = Math.max(0, currentPct - lastPct);
@@ -81,7 +84,7 @@ export function AddReadingSessionScreen() {
   const [pctInputOpen, setPctInputOpen] = useState(false);
   const [pctInputText, setPctInputText] = useState(String(
     editingSession && selectedBook
-      ? Math.min(100, Math.round((editingSession.endPage / selectedBook.pages) * 100))
+      ? Math.min(100, Math.round((editingSession.endPage / (selectedBook.pages || 1)) * 100))
       : lastPct
   ));
 
@@ -129,36 +132,35 @@ export function AddReadingSessionScreen() {
   const switchBook = (book: typeof selectedBook) => {
     if (!book) return;
     setBookId(book.id);
-    const lp = Math.max(1, Math.round((book.userStatus.progressPercent / 100) * book.pages));
-    setCurrentPage(Math.min(book.pages, lp + 30));
+    const lp = Math.max(1, Math.round((book.userStatus.progressPercent / 100) * (book.pages || 1)));
+    setCurrentPage(Math.min(book.pages || lp + 30, lp + 30));
     setCurrentPct(book.userStatus.progressPercent);
   };
 
   const deleteSession = () => {
     if (!editingSession) return;
-    Alert.alert(t("logSession.deleteTitle"), t("logSession.deleteBody"), [
-      { text: t("common.cancel"), style: "cancel" },
-      {
-        text: t("logSession.deleteConfirm"),
-        style: "destructive",
-        onPress: () => {
-          deleteReadingSession(editingSession.id);
-          navigation.goBack();
-        }
-      }
-    ]);
+    dialog.confirm({
+      title: t("logSession.deleteTitle"),
+      body: t("logSession.deleteBody"),
+      confirmLabel: t("logSession.deleteConfirm"),
+      destructive: true,
+      onConfirm: () => {
+        deleteReadingSession(editingSession.id);
+        navigation.goBack();
+      },
+    });
   };
 
   const handleSave = () => {
     if (!selectedBook) return;
     if (!effectiveLocation) {
-      Alert.alert(t("logSession.noLocation"), t("logSession.noLocationBody"));
+      dialog.alert(t("logSession.noLocation"), t("logSession.noLocationBody"));
       return;
     }
 
     if (isAudiobook) {
       if (gainedPct === 0) {
-        Alert.alert(t("logSession.noProgress"), t("logSession.noProgressBody"));
+        dialog.alert(t("logSession.noProgress"), t("logSession.noProgressBody"));
         return;
       }
       const startPage = Math.min(totalPages, Math.round((lastPct / 100) * totalPages) + 1);
@@ -180,17 +182,20 @@ export function AddReadingSessionScreen() {
       } else {
         addReadingSession(sessionInput);
       }
-      Alert.alert(
+      // Reading in a different format? The book itself just changed format.
+      if (selectedBook.format !== format) updateBookFormat(selectedBook.id, format);
+      hapticSuccess();
+      dialog.alert(
         editingSession ? t("logSession.sessionUpdated") : t("logSession.sessionLogged"),
         `+${gainedPct}% ${t("logSession.progressLbl")} · ${effectiveMinutes}m ${t("logSession.listened")}`,
-        [{ text: t("logSession.done"), onPress: () => navigation.goBack() }]
+        () => navigation.goBack()
       );
       return;
     }
 
     // Physical / Kindle
     if (pagesRead === 0) {
-      Alert.alert(t("logSession.noPages"), t("logSession.noPagesBody"));
+      dialog.alert(t("logSession.noPages"), t("logSession.noPagesBody"));
       return;
     }
     const sessionInput: NewReadingSessionInput = {
@@ -210,10 +215,12 @@ export function AddReadingSessionScreen() {
     } else {
       addReadingSession(sessionInput);
     }
-    Alert.alert(
+    if (selectedBook.format !== format) updateBookFormat(selectedBook.id, format);
+    hapticSuccess();
+    dialog.alert(
       editingSession ? t("logSession.sessionUpdated") : t("logSession.sessionLogged"),
       `${pagesRead} ${t("readingLog.pages")} · ${speed} ${t("logSession.ppH")} · ${progressPct}% through the book`,
-      [{ text: t("logSession.done"), onPress: () => navigation.goBack() }]
+      () => navigation.goBack()
     );
   };
 
@@ -225,10 +232,7 @@ export function AddReadingSessionScreen() {
   return (
     <Screen>
       {/* Cancel button */}
-      <Pressable style={styles.cancelBtn} onPress={() => navigation.goBack()}>
-        <Ionicons name="chevron-back" size={18} color={c.tealDark} />
-        <Text style={styles.cancelBtnText}>Cancel</Text>
-      </Pressable>
+
 
       <View style={styles.pageHeader}>
         <Text style={styles.pageEyebrow}>{isEditing ? t("logSession.eyebrowEdit") : t("logSession.eyebrowNew")}</Text>
@@ -257,7 +261,7 @@ export function AddReadingSessionScreen() {
       {/* Book hero */}
       {selectedBook ? (
         <View style={styles.bookHero}>
-          <BookCover book={selectedBook} size="md" />
+          <BookCover book={selectedBook} size="md" hideProgress />
           <View style={styles.bookInfo}>
             <Text style={styles.bookTitle} numberOfLines={2}>{selectedBook.title}</Text>
             <Text style={styles.bookAuthor}>{getAuthor(selectedBook.authorId)?.name}</Text>

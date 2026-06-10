@@ -403,18 +403,18 @@ export async function fetchWorksByQuery(
     const url = `${GB_BASE}?q=${queryStr}&maxResults=${maxResults}${apiKey()}`;
 
     // ── DEBUG: log the exact URL and raw results ──────────────────────────────
-    console.log(`[GB] mode=${mode} url=${url.replace(/key=[^&]+/, "key=REDACTED")}`);
+    if (__DEV__) console.log(`[GB] mode=${mode} url=${url.replace(/key=[^&]+/, "key=REDACTED")}`);
 
     const res = await fetch(url);
     if (!res.ok) {
-      console.log(`[GB] HTTP ${res.status}`);
+      if (__DEV__) console.log(`[GB] HTTP ${res.status}`);
       return [];
     }
     const data = (await res.json()) as GBResponse;
     const items = data.items ?? [];
-    console.log(`[GB] raw results: ${items.length}`);
+    if (__DEV__) console.log(`[GB] raw results: ${items.length}`);
     items.forEach((vol, i) => {
-      console.log(`  [${i}] "${vol.volumeInfo.title}" — authors: ${JSON.stringify(vol.volumeInfo.authors ?? [])}`);
+      if (__DEV__) console.log(`  [${i}] "${vol.volumeInfo.title}" — authors: ${JSON.stringify(vol.volumeInfo.authors ?? [])}`);
     });
 
     const q: ScoringQuery = query ?? { title, author };
@@ -423,7 +423,7 @@ export async function fetchWorksByQuery(
       gbRank: idx,
     }));
   } catch (err) {
-    console.log("[GB] fetch error:", err);
+    if (__DEV__) console.log("[GB] fetch error:", err);
     return [];
   }
 }

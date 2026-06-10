@@ -63,6 +63,8 @@ export interface Book {
   id: string;
   title: string;
   authorId: string;
+  /** Additional authors beyond the primary one (e.g. co-written books). Display only. */
+  coAuthorNames?: string[];
   seriesId?: string;
   seriesName?: string;
   seriesNumber?: number;
@@ -231,6 +233,8 @@ export type NewReadingSessionInput = Omit<
 export interface NewBookInput {
   title: string;
   authorName: string;
+  /** Additional authors beyond the primary one. */
+  coAuthorNames?: string[];
   isbn?: string;
   pages?: number;
   genre?: string[];

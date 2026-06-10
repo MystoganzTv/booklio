@@ -25,29 +25,45 @@ export function buildBookSpecificRecommendations(
   authors: Author[],
   limit = 4
 ): Recommendation[] {
-  const discoverable = books.filter((book) => isDiscoverable(book) && book.id !== targetBook.id);
+  const targetSeriesNum = targetBook.seriesNumber ?? targetBook.sagaOrder;
+
+  const discoverable = books.filter((book) => {
+    if (!isDiscoverable(book) || book.id === targetBook.id) return false;
+    // Exclude books at the same or earlier position in the same series
+    if (targetBook.seriesId && book.seriesId === targetBook.seriesId && targetSeriesNum != null) {
+      const bookNum = book.seriesNumber ?? book.sagaOrder;
+      if (bookNum != null && bookNum <= targetSeriesNum) return false;
+    }
+    // Exclude likely different-language editions of the same work (same author + similar title)
+    if (book.authorId === targetBook.authorId && titlesAreProbablySameWork(book.title, targetBook.title)) return false;
+    return true;
+  });
   const recommendations: Recommendation[] = [];
 
+  // Priority: next book(s) in the same series
   if (targetBook.seriesId) {
     discoverable
       .filter((book) => book.seriesId === targetBook.seriesId)
       .sort(bySeriesOrder)
       .slice(0, 2)
       .forEach((book, index) => {
+        const bookNum = book.seriesNumber ?? book.sagaOrder;
+        const numStr = bookNum != null ? ` #${bookNum}` : "";
         recommendations.push(
           makeRecommendation(
-            `same-saga-${targetBook.id}-${book.id}`,
+            `continue-saga-${targetBook.id}-${book.id}`,
             book.id,
-            "same-saga",
-            94 - index * 4,
-            `Stay inside ${targetBook.seriesName}. ${book.title} keeps the saga moving.`
+            "continue-saga",
+            97 - index * 3,
+            `Next in ${targetBook.seriesName ?? "the series"}${numStr}. Keep the story going.`
           )
         );
       });
   }
 
+  // Same author — excluding books already captured as series continuations
   discoverable
-    .filter((book) => book.authorId === targetBook.authorId)
+    .filter((book) => book.authorId === targetBook.authorId && book.seriesId !== targetBook.seriesId)
     .slice(0, 2)
     .forEach((book, index) => {
       const authorName = authors.find((author) => author.id === targetBook.authorId)?.name ?? "this author";
@@ -56,7 +72,7 @@ export function buildBookSpecificRecommendations(
           `same-author-${targetBook.id}-${book.id}`,
           book.id,
           "same-author",
-          90 - index * 5,
+          88 - index * 5,
           `You already have a connection with ${authorName}. ${book.title} is the next logical shelf move.`
         )
       );
@@ -294,6 +310,28 @@ function sharedGenreCount(a: Book, b: Book) {
 
 function getSharedGenres(a: Book, b: Book) {
   return a.genre.filter((genre) => b.genre.includes(genre));
+}
+
+function normalizeTitle(title: string): string {
+  return title
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Returns true if two titles are likely the same work (e.g., different-language editions).
+// Compares significant words (>3 chars) — needs ≥2 matches AND ≥60% overlap.
+function titlesAreProbablySameWork(a: string, b: string): boolean {
+  const na = normalizeTitle(a).split(" ").filter((w) => w.length > 3);
+  const nb = normalizeTitle(b).split(" ").filter((w) => w.length > 3);
+  if (!na.length || !nb.length) return false;
+  const shorter = na.length <= nb.length ? na : nb;
+  const longerSet = new Set(na.length > nb.length ? na : nb);
+  const matches = shorter.filter((word) => longerSet.has(word)).length;
+  return matches >= 2 && matches / shorter.length >= 0.6;
 }
 
 function getTopCount(values: string[]) {

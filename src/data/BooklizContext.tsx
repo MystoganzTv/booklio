@@ -107,6 +107,8 @@ type BooklizContextValue = {
   deleteBook: (bookId: string) => void;
   updateBook: (bookId: string, input: UpdateBookInput) => void;
   updateBookStatus: (bookId: string, status: CoreTrackingStatus, rating?: number) => void;
+  updateBookFormat: (bookId: string, format: Book["format"]) => void;
+  updateBookSynopsis: (bookId: string, synopsis: string) => void;
   updateUserProfile: (input: UpdateUserProfileInput) => void;
   getAuthor: (authorId: string) => Author | undefined;
   getBook: (bookId: string) => Book | undefined;
@@ -186,6 +188,14 @@ const mergeSeedBookMetadata = (books: Book[]) =>
       }
     });
   });
+
+/** Coarse format family — print / digital / audio. Same book in a different
+ * family is a separate copy, not a duplicate. */
+const formatGroupOf = (format?: string): "print" | "digital" | "audio" => {
+  if (format === "audiobook") return "audio";
+  if (format === "kindle" || format === "ebook") return "digital";
+  return "print";
+};
 
 const normalizeReadState = (book: Book): Book => {
   const readCount = book.userStatus.readCount ?? (book.userStatus.status === "read" ? 1 : 0);
@@ -498,7 +508,7 @@ const syncBookWithSessions = (book: Book, sessions: ReadingSession[]) => {
   const sorted = [...sessions].sort((a, b) => a.date.localeCompare(b.date));
   const firstSession = sorted[0];
   const latestSession = sorted[sorted.length - 1];
-  const latestProgress = Math.min(100, Math.round((latestSession.endPage / book.pages) * 100));
+  const latestProgress = Math.min(100, Math.round((latestSession.endPage / (book.pages || 1)) * 100));
   const completed = latestProgress >= 100;
 
   return normalizeReadState({
@@ -772,7 +782,7 @@ export function BooklizProvider({ children }: PropsWithChildren) {
           try {
             await repositoryRef.current.save(createBooklizSnapshot(latestStateRef.current));
             await clearQueue();
-            console.log("[Booklio] Offline queue flushed via full Supabase sync.");
+            if (__DEV__) console.log("[Booklio] Offline queue flushed via full Supabase sync.");
           } catch (err) {
             console.warn("[Booklio] Could not flush offline queue", err);
           }
@@ -998,7 +1008,8 @@ export function BooklizProvider({ children }: PropsWithChildren) {
           normalizeTitle(candidate.title) === normalizedTitle &&
           normalizeAuthorName(candidateAuthor) === normalizedAuthor
         );
-        return (sameIsbn || sameTitleAndAuthor) && sameLanguage;
+        const sameFormat = formatGroupOf(input.format) === formatGroupOf(candidate.format);
+        return (sameIsbn || sameTitleAndAuthor) && sameLanguage && sameFormat;
       }) ?? null;
     };
 
@@ -1021,8 +1032,9 @@ export function BooklizProvider({ children }: PropsWithChildren) {
           normalizedIncomingTitle &&
           normalizeTitle(candidate.title) === normalizedIncomingTitle &&
           normalizeAuthorName(candidateAuthor) === normalizedIncomingAuthor;
-        // Same ISBN in a different language = different edition, not a duplicate
-        return (sameIsbn || sameTitleAndAuthor) && sameLanguage;
+        // Same ISBN in a different language or format family = a different copy
+        const sameFormat = formatGroupOf(input.format) === formatGroupOf(candidate.format);
+        return (sameIsbn || sameTitleAndAuthor) && sameLanguage && sameFormat;
       });
 
       if (!existingAuthor) {
@@ -1042,6 +1054,7 @@ export function BooklizProvider({ children }: PropsWithChildren) {
           ...existingBook,
           title: input.title.trim() || existingBook.title,
           authorId,
+          coAuthorNames: input.coAuthorNames?.length ? input.coAuthorNames : existingBook.coAuthorNames,
           synopsis: input.synopsis?.trim() || existingBook.synopsis,
           genre: input.genre?.length ? normalizeBookGenres(input.genre) : normalizeBookGenres(existingBook.genre),
           pages: input.pages ?? existingBook.pages,
@@ -1075,15 +1088,15 @@ export function BooklizProvider({ children }: PropsWithChildren) {
         id: `b-${slugify(input.title || "captured-book")}-${Date.now()}`,
         title: input.title.trim() || "Untitled Book",
         authorId,
-        synopsis:
-          input.synopsis ??
-          `Book added from ${input.source === "isbn" ? "ISBN scan" : input.source === "photo" ? "cover photo" : input.source === "search" ? "book search" : "manual entry"}. Metadata is ready for review.`,
+        coAuthorNames: input.coAuthorNames?.length ? input.coAuthorNames : undefined,
+        synopsis: input.synopsis ?? "", // "" = unknown, UI offers "Find synopsis"
         genre: normalizeBookGenres(input.genre),
-        pages: input.pages ?? 320,
-        publishedDate: input.publishedDate ?? "2026-01-01",
-        publisher: input.publisher ?? "Publisher pending confirmation",
+        // 0 / "" = unknown — never fabricate metadata the source didn't provide.
+        pages: input.pages ?? 0,
+        publishedDate: input.publishedDate ?? "",
+        publisher: input.publisher ?? "",
         language: input.language ?? "English",
-        isbn: input.isbn ?? "ISBN pending",
+        isbn: input.isbn ?? "",
         format: input.format ?? "physical",
         coverGradient: [colorsFromSource(input.source).start, colorsFromSource(input.source).end],
         coverImageUri: input.coverImageUri,
@@ -1106,6 +1119,14 @@ export function BooklizProvider({ children }: PropsWithChildren) {
 
       setBooks((current) => [book, ...current]);
       return book;
+    };
+
+    const updateBookFormat = (bookId: string, format: Book["format"]) => {
+      setBooks((current) => current.map((b) => (b.id === bookId ? { ...b, format } : b)));
+    };
+
+    const updateBookSynopsis = (bookId: string, synopsis: string) => {
+      setBooks((current) => current.map((b) => (b.id === bookId ? { ...b, synopsis } : b)));
     };
 
     const updateBookStatus = (bookId: string, newStatus: CoreTrackingStatus, rating?: number) => {
@@ -1418,6 +1439,8 @@ export function BooklizProvider({ children }: PropsWithChildren) {
       deleteBook,
       updateBook,
       updateBookStatus,
+      updateBookFormat,
+      updateBookSynopsis,
       updateUserProfile,
       getAuthor,
       getBook,

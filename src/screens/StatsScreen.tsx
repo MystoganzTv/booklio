@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useDialog } from "../components/DialogProvider";
 import { useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { BarChart } from "../components/BarChart";
 import { Screen } from "../components/Screen";
 import { useBookliz } from "../data/BooklizContext";
@@ -15,6 +16,7 @@ type StatsStyles = ReturnType<typeof createStyles>;
 export function StatsScreen() {
   const c = useColors();
   const { t } = useI18n();
+  const dialog = useDialog();
   const styles = useMemo(() => createStyles(c), [c]);
   const { books, overallStats, userProfile, readingSessions } = useBookliz();
   const [activeTab, setActiveTab] = useState<Tab>("books");
@@ -62,7 +64,7 @@ export function StatsScreen() {
     try {
       await Share.share({ message: text });
     } catch {
-      Alert.alert(t("stats.shareError"), t("stats.shareErrorBody"));
+      dialog.alert(t("stats.shareError"), t("stats.shareErrorBody"));
     }
   };
 

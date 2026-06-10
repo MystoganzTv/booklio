@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useDialog } from "../components/DialogProvider";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Screen } from "../components/Screen";
 import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
@@ -22,6 +23,7 @@ export function EditProfileScreen() {
   const c = useColors();
   const styles = useMemo(() => createStyles(c), [c]);
   const { t } = useI18n();
+  const dialog = useDialog();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { updateUserProfile, userProfile } = useBookliz();
   const [name, setName] = useState(userProfile.name);
@@ -38,7 +40,7 @@ export function EditProfileScreen() {
       favoriteAuthors: splitList(favoriteAuthors),
       favoriteGenres: splitList(favoriteGenres)
     });
-    Alert.alert(t("editProfile.savedTitle"), t("editProfile.savedBody"));
+    dialog.alert(t("editProfile.savedTitle"), t("editProfile.savedBody"));
     navigation.goBack();
   };
 

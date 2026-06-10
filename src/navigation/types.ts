@@ -16,6 +16,7 @@ export type RootStackParamList = {
         initialBookSelection?: {
           title: string;
           authorName: string;
+          coAuthorNames?: string[];
           isbn?: string;
           pages?: number;
           genre?: string[];
@@ -42,8 +43,27 @@ export type RootStackParamList = {
     curatedTitles?: Array<{ title: string; author?: string }>;
   };
   AuthorBooks: {
-    authorId: string;
+    /** Library author id when known; catalog-only authors navigate by name alone. */
+    authorId?: string;
     authorName: string;
+  };
+  /** In-app legal documents. */
+  Legal: { doc: "privacy" | "terms" };
+  /** Rich preview for a catalog book (not yet in the library). */
+  BookPreview: {
+    book: {
+      title: string;
+      authors: string[];
+      isbn13?: string;
+      coverUrl?: string;
+      publishedYear?: number;
+      pageCount?: number;
+      description?: string;
+      genres?: string[];
+      language?: string;
+      averageRating?: number;
+      ratingsCount?: number;
+    };
   };
 };
 

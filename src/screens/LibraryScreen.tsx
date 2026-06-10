@@ -4,8 +4,8 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useDeferredValue, useMemo, useState } from "react";
 import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Badge } from "../components/Badge";
-import { BooklioDialog } from "../components/BooklioDialog";
-import { BookCover } from "../components/BookCover";
+import { BooklizDialog } from "../components/BooklizDialog";
+import { BookCover, FormatBadge, isMutedBook } from "../components/BookCover";
 import { BookContextMenu } from "../components/BookContextMenu";
 import { BookStatusSheet } from "../components/BookStatusSheet";
 import { FilterChip } from "../components/FilterChip";
@@ -49,6 +49,7 @@ export function LibraryScreen() {
   const [listFilter, setListFilter] = useState<string | null>(null);
   const [createListOpen, setCreateListOpen] = useState(false);
   const [renamingList, setRenamingList] = useState<{ id: string; name: string; emoji?: string } | null>(null);
+  const [deleteListTarget, setDeleteListTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const [contextBook, setContextBook] = useState<{ book: Book; authorName: string } | null>(null);
   const [statusSheetBook, setStatusSheetBook] = useState<Book | null>(null);
@@ -394,7 +395,29 @@ export function LibraryScreen() {
           }
           setRenamingList(null);
         }}
+        onDelete={() => {
+          if (renamingList) setDeleteListTarget({ id: renamingList.id, name: renamingList.name });
+          setRenamingList(null);
+        }}
         onClose={() => setRenamingList(null)}
+      />
+
+      {/* Delete list confirmation */}
+      <BooklizDialog
+        open={Boolean(deleteListTarget)}
+        title={t("lists.deleteConfirmTitle")}
+        body={t("lists.deleteConfirmBody", { name: deleteListTarget?.name ?? "" })}
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        variant="destructive"
+        onConfirm={() => {
+          if (deleteListTarget) {
+            deleteUserList(deleteListTarget.id);
+            if (listFilter === deleteListTarget.id) setListFilter(null);
+          }
+          setDeleteListTarget(null);
+        }}
+        onCancel={() => setDeleteListTarget(null)}
       />
 
       {/* Filter sheet */}
@@ -456,7 +479,7 @@ export function LibraryScreen() {
       )}
 
       {/* Delete confirmation dialog */}
-      <BooklioDialog
+      <BooklizDialog
         open={Boolean(deleteTarget)}
         title={deleteTarget?.title ?? ""}
         body="Remove this book from your library?"
@@ -541,6 +564,8 @@ function GridBookTile({
   onMenu: () => void;
 }) {
   const hasSeries = book.seriesName && book.seriesNumber;
+  // Same dimming rule as BookCover (list mode) — keeps grid & list consistent
+  const muted = isMutedBook(book);
   // Render cover image directly — bypasses BookCover dimension constraints
   const coverEl = book.coverImageUri ? (
     <View style={styles.tileCoverWrap}>
@@ -549,11 +574,13 @@ function GridBookTile({
         style={styles.tileCoverImg}
         resizeMode="contain"
       />
+      {muted ? <View style={styles.tileMutedOverlay} /> : null}
     </View>
   ) : (
     <View style={[styles.tileCoverWrap, styles.tileCoverFallback]}>
       <Text numberOfLines={3} style={styles.tileCoverFallbackTitle}>{book.title}</Text>
       {authorName ? <Text numberOfLines={1} style={styles.tileCoverFallbackAuthor}>{authorName}</Text> : null}
+      {muted ? <View style={styles.tileMutedOverlay} /> : null}
     </View>
   );
 
@@ -561,6 +588,7 @@ function GridBookTile({
     <Pressable style={styles.bookTile} onPress={onPress}>
       <View style={styles.tileCoverContainer}>
         {coverEl}
+        <FormatBadge format={book.format} size={13} style={styles.tileFormatBadge} />
         <Pressable style={styles.tileMenuBtn} onPress={onMenu} hitSlop={8}>
           <Ionicons name="ellipsis-horizontal" size={14} color="#fff" />
         </Pressable>
@@ -1091,6 +1119,15 @@ function createStyles(c: AppColors, isDark: boolean) {
       width: 26,
       alignItems: "center",
       justifyContent: "center",
+    },
+    // Same dim as BookCover.mutedOverlay — grid & list must match
+    tileMutedOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(94,89,82,0.52)",
+    },
+    tileFormatBadge: {
+      bottom: 6,
+      left: 6,
     },
     // Filter badge on the filter button
     filterBadge: {

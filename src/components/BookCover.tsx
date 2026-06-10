@@ -1,6 +1,7 @@
+import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { ImageBackground, StyleProp, StyleSheet, Text, View, ViewStyle } from "react-native";
-import { Book } from "../types/models";
+import { Book, ReadingFormat } from "../types/models";
 import { colors, fonts, radii, shadows } from "../theme/theme";
 import { formatStatusLabel } from "../utils/statusLabels";
 import { Badge } from "./Badge";
@@ -19,8 +20,33 @@ const dimensions = {
   lg: { width: 176, height: 252 }
 };
 
-const isMuted = (book: Book) =>
+/** Wishlist-ish statuses render dimmed. Exported so grid & list views stay consistent. */
+export const isMutedBook = (book: Book) =>
   ["want-to-read", "wishlist", "want-to-buy", "upcoming-release"].includes(book.userStatus.status);
+
+const isMuted = isMutedBook;
+
+/** Icon for non-physical formats; null = physical, no badge. */
+export function formatBadgeIcon(format: ReadingFormat): "headset" | "tablet-portrait" | null {
+  if (format === "audiobook") return "headset";
+  if (format === "ebook" || format === "kindle") return "tablet-portrait";
+  return null;
+}
+
+/** Small overlay chip marking audiobooks / ebooks on a cover. */
+export function FormatBadge({ format, size = 12, style }: {
+  format: ReadingFormat;
+  size?: number;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const icon = formatBadgeIcon(format);
+  if (!icon) return null;
+  return (
+    <View style={[styles.formatBadge, style]}>
+      <Ionicons name={icon} size={size} color="#FFFFFF" />
+    </View>
+  );
+}
 
 export function BookCover({ book, size = "md", style, hideProgress = false }: BookCoverProps) {
   const muted = isMuted(book);
@@ -31,7 +57,13 @@ export function BookCover({ book, size = "md", style, hideProgress = false }: Bo
   return (
     <View style={[styles.wrap, dimensions[size], style, dimmed && styles.dimmed]}>
       {book.coverImageUri ? (
-        <ImageBackground source={{ uri: book.coverImageUri }} style={styles.cover} imageStyle={styles.imageCover}>
+        <ImageBackground
+          source={{ uri: book.coverImageUri }}
+          style={styles.cover}
+          // Audiobook editions often ship square art — contain shows it whole.
+          // Everything else keeps the full-bleed cover look.
+          imageStyle={[styles.imageCover, book.format === "audiobook" && { resizeMode: "contain" }]}
+        >
           {muted ? <View style={styles.mutedOverlay} /> : null}
           <CoverContent book={book} size={size} showTypographyOverlay={showTypographyOverlay} hideProgress={hideProgress} />
         </ImageBackground>
@@ -71,6 +103,7 @@ function CoverContent({
           <Badge label={formatStatusLabel(book.userStatus.status)} tone="danger" />
         </View>
       ) : null}
+      <FormatBadge format={book.format} size={size === "sm" ? 13 : 15} />
     </>
   );
 }
@@ -93,7 +126,8 @@ const styles = StyleSheet.create({
     padding: 12
   },
   imageCover: {
-    borderRadius: 22
+    borderRadius: 22,
+    resizeMode: "cover"
   },
   mutedOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -146,5 +180,23 @@ const styles = StyleSheet.create({
   },
   dimmed: {
     opacity: 0.58
+  },
+  formatBadge: {
+    alignItems: "center",
+    backgroundColor: "#14B8A6",
+    borderColor: "rgba(255,255,255,0.85)",
+    borderRadius: 999,
+    borderWidth: 1.5,
+    bottom: 7,
+    elevation: 4,
+    height: 28,
+    justifyContent: "center",
+    left: 7,
+    position: "absolute",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    width: 28
   }
 });

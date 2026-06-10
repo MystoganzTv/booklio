@@ -1,6 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useDialog } from "../components/DialogProvider";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Image, Linking, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { RootStackParamList } from "../navigation/types";
 import { GoogleConnectionCard } from "../components/GoogleConnectionCard";
 import { Screen } from "../components/Screen";
 import { useBookliz } from "../data/BooklizContext";
@@ -18,6 +22,8 @@ export function SettingsScreen() {
   const { colors: c, isDark, toggleTheme } = useTheme();
   const { locale, setLocale, t } = useI18n();
   const { resetApp, clearLibrary, userProfile } = useBookliz();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const dialog = useDialog();
   const styles = useMemo(() => createStyles(c), [c]);
 
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>({ enabled: false, hour: 20, minute: 0 });
@@ -30,7 +36,7 @@ export function SettingsScreen() {
     const { prefs, permissionGranted } = await setReminderEnabled(value, notifPrefs.hour, notifPrefs.minute);
     setNotifPrefs(prefs);
     if (!permissionGranted) {
-      Alert.alert(t("notifications.permissionDenied"), t("notifications.permissionDeniedBody"));
+      dialog.alert(t("notifications.permissionDenied"), t("notifications.permissionDeniedBody"));
     }
   }, [notifPrefs.hour, notifPrefs.minute, t]);
 
@@ -186,10 +192,17 @@ export function SettingsScreen() {
 
         <Pressable
           style={styles.linkRow}
-          onPress={() => void Linking.openURL("https://bookliz.app/privacy")}
+          onPress={() => navigation.navigate("Legal", { doc: "privacy" })}
         >
-          <Text style={styles.linkRowText}>Privacy Policy</Text>
-          <Ionicons name="open-outline" size={14} color={c.muted} />
+          <Text style={styles.linkRowText}>{t("legal.privacyTitle")}</Text>
+          <Ionicons name="chevron-forward" size={14} color={c.muted} />
+        </Pressable>
+        <Pressable
+          style={styles.linkRow}
+          onPress={() => navigation.navigate("Legal", { doc: "terms" })}
+        >
+          <Text style={styles.linkRowText}>{t("legal.termsTitle")}</Text>
+          <Ionicons name="chevron-forward" size={14} color={c.muted} />
         </Pressable>
       </View>
 
@@ -202,14 +215,13 @@ export function SettingsScreen() {
         <Pressable
           style={styles.clearDemoButton}
           onPress={() =>
-            Alert.alert(
-              "Clear library data?",
-              "This removes all books, reading sessions, and lists. Your account and settings stay intact.",
-              [
-                { text: "Cancel", style: "cancel" },
-                { text: "Clear", style: "destructive", onPress: () => { void clearLibrary(); } },
-              ]
-            )
+            dialog.confirm({
+              title: "Clear library data?",
+              body: "This removes all books, reading sessions, and lists. Your account and settings stay intact.",
+              confirmLabel: "Clear",
+              destructive: true,
+              onConfirm: () => { void clearLibrary(); },
+            })
           }
         >
           <Ionicons name="refresh-outline" size={16} color={c.muted} />
@@ -219,14 +231,13 @@ export function SettingsScreen() {
         <Pressable
           style={[styles.dangerButton, { marginTop: spacing.sm }]}
           onPress={() =>
-            Alert.alert(
-              t("settings.deletePromptTitle"),
-              t("settings.deletePromptBody"),
-              [
-                { text: t("common.cancel"), style: "cancel" },
-                { text: t("settings.deleteConfirm"), style: "destructive", onPress: () => resetApp() },
-              ]
-            )
+            dialog.confirm({
+              title: t("settings.deletePromptTitle"),
+              body: t("settings.deletePromptBody"),
+              confirmLabel: t("settings.deleteConfirm"),
+              destructive: true,
+              onConfirm: () => { void resetApp(); },
+            })
           }
         >
           <Ionicons name="trash-outline" size={16} color={c.danger} />

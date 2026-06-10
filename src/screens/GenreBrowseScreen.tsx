@@ -22,6 +22,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { Skeleton } from "../components/Skeleton";
 import { useBookliz } from "../data/BooklizContext";
 import { RootStackParamList } from "../navigation/types";
 import { fetchByGenre, fetchByKeyword, GenreBookResult } from "../services/googleBooksProvider";
@@ -247,8 +248,7 @@ export function GenreBrowseScreen() {
     if (libBook) {
       navigation.navigate("BookDetail", { bookId: libBook.id });
     } else {
-      // Navigate to Add screen — in the future could pre-fill ISBN
-      navigation.navigate("BookIntake");
+      navigation.navigate("BookPreview", { book });
     }
   }
 
@@ -326,11 +326,15 @@ export function GenreBrowseScreen() {
     <View style={[styles.root, { backgroundColor: c.bg }]}>
       {/* Main catalog list */}
       {loading ? (
-        <View style={styles.loadingState}>
-          <ActivityIndicator size="large" color={c.teal} />
-          <Text style={[styles.loadingText, { color: c.muted }]}>
-            Finding {currentGenre.toLowerCase()} books…
-          </Text>
+        // Skeleton grid matching the real 2-col catalog layout
+        <View style={styles.skeletonGrid}>
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <View key={i} style={styles.skeletonCard}>
+              <Skeleton style={styles.skeletonCover} />
+              <Skeleton style={{ height: 13, marginTop: 8, width: "85%" }} />
+              <Skeleton style={{ height: 11, marginTop: 5, width: "55%" }} />
+            </View>
+          ))}
         </View>
       ) : (
         <FlatList
@@ -447,9 +451,23 @@ function createStyles(c: AppColors) {
   return StyleSheet.create({
     root: { flex: 1 },
 
-    // ── Loading ────────────────────────────────────────────────────────────
-    loadingState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
-    loadingText: { fontFamily: fonts.body, fontSize: 14, fontWeight: "700" },
+    // ── Loading (skeleton grid) ────────────────────────────────────────────
+    skeletonGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      paddingTop: spacing.lg,
+    },
+    skeletonCard: {
+      paddingBottom: spacing.md,
+      paddingLeft: spacing.md,
+      paddingRight: spacing.sm,
+      width: "50%",
+    },
+    skeletonCover: {
+      aspectRatio: 0.67,
+      borderRadius: radii.sm,
+      width: "100%",
+    },
 
     // ── List ───────────────────────────────────────────────────────────────
     listContent: { paddingBottom: 40 },

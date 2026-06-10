@@ -329,17 +329,15 @@ function getRepositoryCopy(
     };
   }
 
-  if (repositoryStatus.remoteEnabled) {
+  // Only claim cloud sync when the user is actually signed in to a cloud account.
+  // Otherwise be honest: data lives on this device only.
+  if (repositoryStatus.remoteEnabled && repositoryStatus.cloudSignedIn) {
     return {
       accent: c.teal,
-      title: repositoryStatus.cloudSignedIn
-        ? repositoryStatus.lastSavedAt ? t("profile.cloudSyncActive") : t("profile.cloudSyncConnected")
-        : t("profile.cloudSyncReady"),
+      title: repositoryStatus.lastSavedAt ? t("profile.cloudSyncActive") : t("profile.cloudSyncConnected"),
       body: repositoryStatus.lastSavedAt
         ? t("profile.syncLastSaved", { time: formatSyncTime(repositoryStatus.lastSavedAt, locale) })
-        : repositoryStatus.cloudSignedIn
-          ? t("profile.cloudConnectedBody")
-          : t("profile.cloudReadyBody")
+        : t("profile.cloudConnectedBody")
     };
   }
 

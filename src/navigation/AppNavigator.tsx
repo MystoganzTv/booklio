@@ -20,6 +20,8 @@ import { AchievementsScreen } from "../screens/AchievementsScreen";
 import { WriteReviewScreen } from "../screens/WriteReviewScreen";
 import { GenreBrowseScreen } from "../screens/GenreBrowseScreen";
 import { AuthorBooksScreen } from "../screens/AuthorBooksScreen";
+import { BookPreviewScreen } from "../screens/BookPreviewScreen";
+import { LegalScreen } from "../screens/LegalScreen";
 import { WelcomeScreen } from "../screens/WelcomeScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
 import { OnboardingWelcomeScreen } from "../screens/onboarding/OnboardingWelcomeScreen";
@@ -127,6 +129,7 @@ export function AppNavigator() {
         screenOptions={{
           contentStyle: { backgroundColor: c.bg },
           headerBackButtonDisplayMode: "minimal",
+          headerBackButtonMenuEnabled: false, // long-press shouldn't pop a history menu
           headerShadowVisible: false,
           headerStyle: { backgroundColor: c.navBg },
           headerTintColor: c.navText,
@@ -143,7 +146,8 @@ export function AppNavigator() {
           <Stack.Screen component={AppTabs} name="AppTabs" options={{ headerShown: false, title: "" }} />
         )}
         <Stack.Screen component={WelcomeScreen} name="Welcome" options={{ headerShown: false }} />
-        <Stack.Screen component={BookDetailScreen} name="BookDetail" options={{ title: "" }} />
+        {/* Transparent header: the blurred cover hero extends under the status bar */}
+        <Stack.Screen component={BookDetailScreen} name="BookDetail" options={{ title: "", headerTransparent: true }} />
         <Stack.Screen component={ReadingLogScreen} name="ReadingLog" options={{ title: "" }} />
         <Stack.Screen component={AddReadingSessionScreen} name="AddReadingSession" options={{ title: "" }} />
         <Stack.Screen
@@ -162,6 +166,8 @@ export function AppNavigator() {
         <Stack.Screen component={WriteReviewScreen} name="WriteReview" options={{ title: t("nav.stack.writeReview") }} />
         <Stack.Screen component={GenreBrowseScreen} name="GenreBrowse" options={({ route }) => ({ title: (route.params as { genre: string }).genre })} />
         <Stack.Screen component={AuthorBooksScreen} name="AuthorBooks" options={{ headerShown: false }} />
+        <Stack.Screen component={BookPreviewScreen} name="BookPreview" options={{ title: "", headerTransparent: true }} />
+        <Stack.Screen component={LegalScreen} name="Legal" options={{ title: "" }} />
         <Stack.Screen component={StatsScreen} name={"Stats" as any} options={{ title: t("nav.tabs.stats") }} />
       </Stack.Navigator>
       {/* Shown once per app version after onboarding is complete */}

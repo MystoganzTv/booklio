@@ -8,8 +8,10 @@ import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   ImageBackground,
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -28,6 +30,8 @@ import { RootStackParamList } from "../navigation/types";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useTheme } from "../theme/ThemeContext";
 import { useI18n } from "../i18n/LocalizationContext";
+import { hapticLight, hapticMedium } from "../utils/haptics";
+import { isPlaceholderText, resolveBookMetadata } from "../utils/bookMetadata";
 import { formatStatusLabel } from "../utils/statusLabels";
 
 function cleanGenres(raw: string[]): string[] {
@@ -42,14 +46,14 @@ function cleanGenres(raw: string[]): string[] {
 export function BookDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, "BookDetail">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { colors: c } = useTheme();
+  const { colors: c, isDark } = useTheme();
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
-  const styles = useMemo(() => createStyles(c), [c]);
+  const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
 
   const {
     getAuthor, getBook, getBookStats,
-    getRecommendationsForBook, updateBookStatus, getReviewForBook,
+    getRecommendationsForBook, updateBookStatus, updateBookSynopsis, getReviewForBook,
   } = useBookliz();
 
   const { isRunning, bookId: timerBookId, start: startTimer, stop: stopTimer } = useReadingTimer();
@@ -57,12 +61,15 @@ export function BookDetailScreen() {
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
   const [statusSheetOpen, setStatusSheetOpen] = useState(false);
   const [listSheetOpen, setListSheetOpen] = useState(false);
+  const [moreSheetOpen, setMoreSheetOpen] = useState(false);
+  const [isFetchingSynopsis, setIsFetchingSynopsis] = useState(false);
+  const [synopsisFetchFailed, setSynopsisFetchFailed] = useState(false);
 
   if (!book) {
     return (
       <View style={[styles.notFound, { paddingTop: insets.top + 16 }]}>
         <Ionicons name="book-outline" size={40} color={c.muted} />
-        <Text style={styles.notFoundText}>Book not found.</Text>
+        <Text style={styles.notFoundText}>{t("bookDetail.notFound")}</Text>
       </View>
     );
   }
@@ -80,9 +87,9 @@ export function BookDetailScreen() {
 
   const primaryAction = (() => {
     if (isReading) return { label: t("bookDetail.logSession"), icon: "pencil" as const, onPress: () => navigation.navigate("AddReadingSession", { bookId: book.id }) };
-    if (isDone)    return { label: "Re-read", icon: "refresh-outline" as const, onPress: () => setStatusSheetOpen(true) };
-    if (isDnf)     return { label: "Try again", icon: "refresh-outline" as const, onPress: () => setStatusSheetOpen(true) };
-    return { label: "Start reading", icon: "book-outline" as const, onPress: () => updateBookStatus(book.id, "reading", book.userStatus.rating) };
+    if (isDone)    return { label: t("bookDetail.reRead"), icon: "refresh-outline" as const, onPress: () => setStatusSheetOpen(true) };
+    if (isDnf)     return { label: t("bookDetail.tryAgain"), icon: "refresh-outline" as const, onPress: () => setStatusSheetOpen(true) };
+    return { label: t("bookDetail.startReading"), icon: "book-outline" as const, onPress: () => updateBookStatus(book.id, "reading", book.userStatus.rating) };
   })();
 
   const handleBuy = () => {
@@ -116,22 +123,26 @@ export function BookDetailScreen() {
 
   const HeroInner = (
     <LinearGradient
-      colors={["transparent", "rgba(7,17,35,0.65)", "rgba(7,17,35,0.97)"]}
+      colors={
+        isDark
+          ? ["rgba(17,24,39,0.10)", "rgba(17,24,39,0.62)", c.bg]
+          : ["rgba(252,248,241,0.10)", "rgba(252,248,241,0.62)", c.bg]
+      }
       style={styles.heroGradient}
     >
-      {!book.coverImageUri ? (
-        <BookCover book={book} size="lg" style={styles.heroCoverFloat} />
-      ) : null}
+      <BookCover book={book} size="lg" style={styles.heroCoverFloat} hideProgress />
       <Text numberOfLines={3} style={styles.heroTitle}>{book.title}</Text>
-      <Text numberOfLines={1} style={styles.heroAuthor}>{author?.name}</Text>
+      <Text numberOfLines={2} style={styles.heroAuthor}>
+        {[author?.name, ...(book.coAuthorNames ?? [])].filter(Boolean).join(" & ")}
+      </Text>
       {book.seriesName ? (
         <Pressable
           onPress={() => book.seriesId && navigation.navigate("SeriesTracker", { seriesId: book.seriesId! })}
           style={styles.heroSeriesBtn}
         >
-          <Ionicons name="layers-outline" size={12} color={c.teal} style={{ marginRight: 4 }} />
+          <Ionicons name="layers-outline" size={12} color={c.tealDark} style={{ marginRight: 4 }} />
           <Text style={styles.heroSeries}>
-            {book.seriesName}{book.seriesNumber ? ` · Book ${book.seriesNumber}` : ""}
+            {book.seriesName}{book.seriesNumber ? ` · ${t("bookDetail.seriesBookN", { number: book.seriesNumber })}` : ""}
           </Text>
         </Pressable>
       ) : null}
@@ -151,7 +162,7 @@ export function BookDetailScreen() {
             <Text style={styles.heroRating}>{book.userStatus.rating}</Text>
           </>
         ) : null}
-        <Ionicons name="chevron-down" size={12} color="rgba(255,255,255,0.45)" style={{ marginLeft: 4 }} />
+        <Ionicons name="chevron-down" size={12} color={c.muted} style={{ marginLeft: 4 }} />
       </Pressable>
     </LinearGradient>
   );
@@ -169,12 +180,13 @@ export function BookDetailScreen() {
             source={{ uri: book.coverImageUri.replace(/zoom=1(?=&|$)/, "zoom=0") }}
             style={[styles.hero, { paddingTop: insets.top + 52 }]}
             imageStyle={styles.heroImageStyle}
+            blurRadius={26}
           >
             {HeroInner}
           </ImageBackground>
         ) : (
           <LinearGradient
-            colors={[gradTop, gradBot, "rgba(7,17,35,0.97)"]}
+            colors={[gradTop, gradBot, c.bg]}
             start={{ x: 0.2, y: 0 }}
             end={{ x: 0.8, y: 1 }}
             style={[styles.hero, { paddingTop: insets.top + 52 }]}
@@ -187,7 +199,7 @@ export function BookDetailScreen() {
         <View style={styles.actionRow}>
           <Pressable
             style={[styles.primaryBtn, { backgroundColor: c.teal }]}
-            onPress={primaryAction.onPress}
+            onPress={() => { hapticMedium(); primaryAction.onPress(); }}
           >
             <Ionicons name={primaryAction.icon} size={16} color="#fff" />
             <Text style={styles.primaryBtnText}>{primaryAction.label}</Text>
@@ -195,29 +207,11 @@ export function BookDetailScreen() {
           <Pressable style={styles.iconBtn} onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}>
             <Ionicons name={review ? "star" : "star-outline"} size={20} color={review ? c.gold : c.ink} />
           </Pressable>
-          {hasSessions ? (
-            <Pressable style={styles.iconBtn} onPress={() => navigation.navigate("ReadingLog", { bookId: book.id })}>
-              <Ionicons name="time-outline" size={20} color={c.ink} />
-            </Pressable>
-          ) : null}
-          {book.seriesId ? (
-            <Pressable style={styles.iconBtn} onPress={() => navigation.navigate("SeriesTracker", { seriesId: book.seriesId! })}>
-              <Ionicons name="layers-outline" size={20} color={c.ink} />
-            </Pressable>
-          ) : null}
-          <Pressable style={styles.iconBtn} onPress={() => setListSheetOpen(true)}>
-            <Ionicons name="bookmarks-outline" size={20} color={c.ink} />
-          </Pressable>
-          {/* C — Get on Amazon: only for wishlist / unstarted */}
-          {isWishlist ? (
-            <Pressable style={styles.iconBtn} onPress={handleBuy}>
-              <Ionicons name="cart-outline" size={20} color={c.ink} />
-            </Pressable>
-          ) : null}
           {/* Timer button */}
           <Pressable
             style={[styles.iconBtn, isRunning && timerBookId === book.id && { backgroundColor: c.coral + "22", borderColor: c.coral }]}
             onPress={() => {
+              hapticLight();
               if (isRunning && timerBookId === book.id) {
                 const minutes = stopTimer();
                 navigation.navigate("AddReadingSession", { bookId: book.id, prefillMinutes: minutes } as any);
@@ -232,8 +226,9 @@ export function BookDetailScreen() {
               color={isRunning && timerBookId === book.id ? c.coral : c.ink}
             />
           </Pressable>
-          <Pressable style={styles.iconBtn} onPress={() => navigation.navigate("EditBook", { bookId: book.id })}>
-            <Ionicons name="create-outline" size={20} color={c.ink} />
+          {/* Everything else lives in the "more" sheet — keeps the row breathable */}
+          <Pressable style={styles.iconBtn} onPress={() => setMoreSheetOpen(true)}>
+            <Ionicons name="ellipsis-horizontal" size={20} color={c.ink} />
           </Pressable>
         </View>
 
@@ -241,7 +236,7 @@ export function BookDetailScreen() {
         {(isReading || isDone) ? (
           <View style={[styles.card, { marginTop: spacing.md }]}>
             <View style={styles.progressTopRow}>
-              <Text style={styles.eyebrow}>{isReading ? "Reading now" : "Completed"}</Text>
+              <Text style={styles.eyebrow}>{isReading ? t("bookDetail.readingNow") : t("bookDetail.completed")}</Text>
               <Text style={[styles.progressPct, { color: isReading ? c.teal : c.green }]}>
                 {book.userStatus.progressPercent}%
               </Text>
@@ -253,8 +248,8 @@ export function BookDetailScreen() {
               }]} />
             </View>
             <View style={styles.progressDates}>
-              {book.userStatus.startDate ? <Text style={styles.mutedSm}>Started {book.userStatus.startDate}</Text> : null}
-              {book.userStatus.finishDate ? <Text style={styles.mutedSm}>Finished {book.userStatus.finishDate}</Text> : null}
+              {book.userStatus.startDate ? <Text style={styles.mutedSm}>{t("bookDetail.started")} {book.userStatus.startDate}</Text> : null}
+              {book.userStatus.finishDate ? <Text style={styles.mutedSm}>{t("bookDetail.finished")} {book.userStatus.finishDate}</Text> : null}
             </View>
           </View>
         ) : null}
@@ -268,30 +263,72 @@ export function BookDetailScreen() {
             <View style={styles.statDivider} />
             <StatBox label={t("bookDetail.statPpH")} value={String(stats.averageSpeed)} accent={c.coral} styles={styles} />
             <View style={styles.statDivider} />
-            <StatBox label="Times read" value={String(book.userStatus.readCount ?? 0)} accent={c.green} styles={styles} />
+            <StatBox label={t("bookDetail.timesRead")} value={String(book.userStatus.readCount ?? 0)} accent={c.green} styles={styles} />
           </View>
         ) : null}
 
         {/* ── COLLECTOR ROW ────────────────────────────────────────────────── */}
         <View style={[styles.collectorRow, { marginTop: spacing.sm }]}>
-          <CollectorChip icon="trophy-outline" label="Rank" value={book.userStatus.personalRanking ? `#${book.userStatus.personalRanking}` : "—"} styles={styles} c={c} />
-          <CollectorChip icon="chatbubble-ellipses-outline" label="Quotes" value={String(book.userStatus.favoriteQuotes.length)} styles={styles} c={c} />
-          <CollectorChip icon="pricetag-outline" label="Format" value={book.format} styles={styles} c={c} />
-          {book.pages ? <CollectorChip icon="document-text-outline" label="Pages" value={String(book.pages)} styles={styles} c={c} /> : null}
+          <CollectorChip icon="trophy-outline" label={t("bookDetail.rank")} value={book.userStatus.personalRanking ? `#${book.userStatus.personalRanking}` : "—"} styles={styles} c={c} />
+          <CollectorChip icon="chatbubble-ellipses-outline" label={t("bookDetail.quotes")} value={String(book.userStatus.favoriteQuotes.length)} styles={styles} c={c} />
+          <CollectorChip icon="pricetag-outline" label={t("bookDetail.labelFormat")} value={book.format} styles={styles} c={c} />
+          {book.pages ? <CollectorChip icon="document-text-outline" label={t("bookDetail.labelPages")} value={String(book.pages)} styles={styles} c={c} /> : null}
         </View>
 
         {/* ── SYNOPSIS ─────────────────────────────────────────────────────── */}
-        {book.synopsis ? (
+        {book.synopsis && !isPlaceholderText(book.synopsis) ? (
           <View style={[styles.card, { marginTop: spacing.md }]}>
-            <Text style={styles.eyebrow}>Synopsis</Text>
+            <Text style={styles.eyebrow}>{t("bookDetail.synopsis")}</Text>
             <Pressable onPress={() => setSynopsisExpanded((v) => !v)}>
               <Text style={styles.synopsisText} numberOfLines={synopsisExpanded ? undefined : 4}>
                 {book.synopsis}
               </Text>
-              <Text style={styles.synopsisToggle}>{synopsisExpanded ? "Show less ↑" : "Read more ↓"}</Text>
+              <Text style={styles.synopsisToggle}>{synopsisExpanded ? t("bookDetail.showLess") : t("bookDetail.readMore")}</Text>
             </Pressable>
           </View>
-        ) : null}
+        ) : (
+          /* No synopsis on this edition — offer a one-tap metadata lookup */
+          <View style={[styles.card, { marginTop: spacing.md }]}>
+            <Text style={styles.eyebrow}>{t("bookDetail.synopsis")}</Text>
+            <Text style={styles.synopsisMissing}>
+              {synopsisFetchFailed ? t("bookDetail.synopsisNotFound") : t("bookDetail.noSynopsis")}
+            </Text>
+            {!synopsisFetchFailed ? (
+              <Pressable
+                style={styles.findSynopsisBtn}
+                disabled={isFetchingSynopsis}
+                onPress={async () => {
+                  setIsFetchingSynopsis(true);
+                  try {
+                    const meta = await resolveBookMetadata({
+                      isbn: book.isbn || undefined,
+                      title: book.title,
+                      authorName: author?.name,
+                    });
+                    if (meta?.synopsis && !isPlaceholderText(meta.synopsis)) {
+                      updateBookSynopsis(book.id, meta.synopsis);
+                    } else {
+                      setSynopsisFetchFailed(true);
+                    }
+                  } catch {
+                    setSynopsisFetchFailed(true);
+                  } finally {
+                    setIsFetchingSynopsis(false);
+                  }
+                }}
+              >
+                {isFetchingSynopsis ? (
+                  <ActivityIndicator size="small" color={c.tealDark} />
+                ) : (
+                  <Ionicons name="sparkles-outline" size={14} color={c.tealDark} />
+                )}
+                <Text style={styles.findSynopsisText}>
+                  {isFetchingSynopsis ? t("bookDetail.findingSynopsis") : t("bookDetail.findSynopsis")}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        )}
 
         {/* ── GENRE / META CHIPS ───────────────────────────────────────────── */}
         <View style={[styles.metaChipRow, { marginTop: spacing.sm }]}>
@@ -306,7 +343,7 @@ export function BookDetailScreen() {
           {book.isBestseller ? (
             <View style={[styles.metaChip, { backgroundColor: c.gold + "22", borderColor: c.gold + "55" }]}>
               <Ionicons name="star" size={10} color={c.gold} style={{ marginRight: 3 }} />
-              <Text style={[styles.metaChipText, { color: c.gold }]}>Bestseller</Text>
+              <Text style={[styles.metaChipText, { color: c.gold }]}>{t("bookDetail.bestseller")}</Text>
             </View>
           ) : null}
           {book.tags?.map((tag) => (
@@ -317,7 +354,7 @@ export function BookDetailScreen() {
         {/* ── D: AUTHOR CARD ───────────────────────────────────────────────── */}
         {author ? (
           <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
-            <Text style={styles.sectionTitle}>Author</Text>
+            <Text style={styles.sectionTitle}>{t("bookDetail.author")}</Text>
             <Pressable
               style={[styles.authorCard, { marginTop: spacing.sm }]}
               onPress={() => navigation.navigate("AuthorBooks", { authorId: book.authorId, authorName: author.name })}
@@ -327,7 +364,7 @@ export function BookDetailScreen() {
               </View>
               <View style={styles.authorInfo}>
                 <Text style={styles.authorName}>{author.name}</Text>
-                <Text style={styles.authorSub}>View all books by this author</Text>
+                <Text style={styles.authorSub}>{t("bookDetail.viewAllByAuthor")}</Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color={c.muted} />
             </Pressable>
@@ -337,9 +374,9 @@ export function BookDetailScreen() {
         {/* ── REVIEW ───────────────────────────────────────────────────────── */}
         <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
           <View style={styles.sectionBlockHeader}>
-            <Text style={styles.sectionTitle}>Your review</Text>
+            <Text style={styles.sectionTitle}>{t("bookDetail.yourReview")}</Text>
             <Pressable onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}>
-              <Text style={styles.sectionAction}>{review ? "Edit" : "Write"}</Text>
+              <Text style={styles.sectionAction}>{review ? t("bookDetail.edit") : t("bookDetail.write")}</Text>
             </Pressable>
           </View>
           {review ? (
@@ -356,7 +393,7 @@ export function BookDetailScreen() {
           ) : (
             <Pressable style={styles.reviewEmpty} onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}>
               <Ionicons name="create-outline" size={22} color={c.muted} />
-              <Text style={styles.reviewEmptyText}>No review yet — tap to write one</Text>
+              <Text style={styles.reviewEmptyText}>{t("bookDetail.noReviewYet")}</Text>
             </Pressable>
           )}
         </View>
@@ -365,9 +402,9 @@ export function BookDetailScreen() {
         {hasSessions ? (
           <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
             <View style={styles.sectionBlockHeader}>
-              <Text style={styles.sectionTitle}>Reading sessions</Text>
+              <Text style={styles.sectionTitle}>{t("bookDetail.readingSessions")}</Text>
               <Pressable onPress={() => navigation.navigate("ReadingLog", { bookId: book.id })}>
-                <Text style={styles.sectionAction}>All</Text>
+                <Text style={styles.sectionAction}>{t("bookDetail.all")}</Text>
               </Pressable>
             </View>
             {stats.latestSessions.slice(0, 3).map((session) => (
@@ -385,9 +422,9 @@ export function BookDetailScreen() {
         {book.userStatus.notes ? (
           <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
             <View style={styles.sectionBlockHeader}>
-              <Text style={styles.sectionTitle}>Your notes</Text>
+              <Text style={styles.sectionTitle}>{t("bookDetail.yourNotes")}</Text>
               <Pressable onPress={() => navigation.navigate("EditBook", { bookId: book.id })}>
-                <Text style={styles.sectionAction}>Edit</Text>
+                <Text style={styles.sectionAction}>{t("bookDetail.edit")}</Text>
               </Pressable>
             </View>
             <View style={styles.card}>
@@ -400,9 +437,9 @@ export function BookDetailScreen() {
         {book.userStatus.favoriteQuotes.length > 0 ? (
           <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
             <View style={styles.sectionBlockHeader}>
-              <Text style={styles.sectionTitle}>Favourite quotes</Text>
+              <Text style={styles.sectionTitle}>{t("bookDetail.favouriteQuotes")}</Text>
               <Pressable onPress={() => navigation.navigate("EditBook", { bookId: book.id })}>
-                <Text style={styles.sectionAction}>Edit</Text>
+                <Text style={styles.sectionAction}>{t("bookDetail.edit")}</Text>
               </Pressable>
             </View>
             <View style={{ gap: spacing.sm }}>
@@ -419,17 +456,17 @@ export function BookDetailScreen() {
         {/* ── B: ABOUT THIS EDITION ────────────────────────────────────────── */}
         {(() => {
           const rows = [
-            { label: "Publisher",  value: book.publisher || null },
-            { label: "Published",  value: book.publishedDate ? book.publishedDate.slice(0, 4) : null },
-            { label: "Language",   value: book.language || null },
-            { label: "Format",     value: book.format || null },
-            { label: "Pages",      value: book.pages ? String(book.pages) : null },
-            { label: "ISBN",       value: book.isbn || null },
+            { label: t("bookDetail.labelPublisher"), value: book.publisher || null },
+            { label: t("bookDetail.labelPublished"), value: book.publishedDate ? book.publishedDate.slice(0, 4) : null },
+            { label: t("bookDetail.labelLanguage"),  value: book.language || null },
+            { label: t("bookDetail.labelFormat"),    value: book.format || null },
+            { label: t("bookDetail.labelPages"),     value: book.pages ? String(book.pages) : null },
+            { label: t("bookDetail.labelIsbn"),      value: book.isbn || null },
           ].filter((r): r is { label: string; value: string } => Boolean(r.value));
           if (rows.length === 0) return null;
           return (
             <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
-              <Text style={styles.sectionTitle}>About this edition</Text>
+              <Text style={styles.sectionTitle}>{t("bookDetail.aboutEdition")}</Text>
               <View style={[styles.card, { marginTop: spacing.sm, paddingHorizontal: 0, paddingVertical: 0 }]}>
                 {rows.map((row, i) => (
                   <View key={row.label} style={[styles.editionRow, i < rows.length - 1 && styles.editionRowDivider]}>
@@ -469,7 +506,53 @@ export function BookDetailScreen() {
         onClose={() => setStatusSheetOpen(false)}
       />
       <BookListSheet open={listSheetOpen} bookId={book.id} onClose={() => setListSheetOpen(false)} />
+
+      {/* ── More actions sheet ─────────────────────────────────────────────── */}
+      <Modal
+        visible={moreSheetOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setMoreSheetOpen(false)}
+      >
+        <Pressable style={styles.moreOverlay} onPress={() => setMoreSheetOpen(false)}>
+          <Pressable style={styles.moreSheet} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.moreHandle} />
+            {hasSessions ? (
+              <MoreAction icon="time-outline" label={t("bookDetail.moreReadingLog")} styles={styles} c={c}
+                onPress={() => { setMoreSheetOpen(false); navigation.navigate("ReadingLog", { bookId: book.id }); }} />
+            ) : null}
+            {book.seriesId ? (
+              <MoreAction icon="layers-outline" label={t("bookDetail.moreSeriesTracker")} styles={styles} c={c}
+                onPress={() => { setMoreSheetOpen(false); navigation.navigate("SeriesTracker", { seriesId: book.seriesId! }); }} />
+            ) : null}
+            <MoreAction icon="bookmarks-outline" label={t("bookDetail.moreAddToList")} styles={styles} c={c}
+              onPress={() => { setMoreSheetOpen(false); setListSheetOpen(true); }} />
+            {isWishlist ? (
+              <MoreAction icon="cart-outline" label={t("bookDetail.moreGetOnAmazon")} styles={styles} c={c}
+                onPress={() => { setMoreSheetOpen(false); handleBuy(); }} />
+            ) : null}
+            <MoreAction icon="create-outline" label={t("bookDetail.moreEditBook")} styles={styles} c={c}
+              onPress={() => { setMoreSheetOpen(false); navigation.navigate("EditBook", { bookId: book.id }); }} />
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
+  );
+}
+
+function MoreAction({ icon, label, onPress, styles, c }: {
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  label: string;
+  onPress: () => void;
+  styles: ReturnType<typeof createStyles>;
+  c: AppColors;
+}) {
+  return (
+    <Pressable style={styles.moreRow} onPress={onPress}>
+      <Ionicons name={icon} size={20} color={c.ink} />
+      <Text style={styles.moreRowText}>{label}</Text>
+      <Ionicons name="chevron-forward" size={15} color={c.muted} />
+    </Pressable>
   );
 }
 
@@ -500,35 +583,42 @@ function CollectorChip({ icon, label, value, styles, c }: {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-function createStyles(c: AppColors) {
+function createStyles(c: AppColors, isDark: boolean) {
   return StyleSheet.create({
     root: { backgroundColor: c.bg, flex: 1 },
     scroll: { flex: 1 },
     notFound: { alignItems: "center", flex: 1, gap: 12, justifyContent: "center" },
     notFoundText: { color: c.muted, fontFamily: fonts.body, fontSize: 16 },
 
-    // Hero
+    // Hero — blurred cover backdrop, sharp floating cover, theme-aware scrim
     hero: { justifyContent: "flex-end", minHeight: 420 },
     heroImageStyle: { resizeMode: "cover" },
-    heroGradient: { paddingBottom: spacing.lg, paddingHorizontal: spacing.md, paddingTop: 80 },
-    heroCoverFloat: { alignSelf: "center", marginBottom: spacing.lg },
-    heroTitle: {
-      color: "#FFFFFF", fontFamily: fonts.display, fontSize: 30, fontWeight: "900", lineHeight: 35,
-      textShadowColor: "rgba(7,17,35,0.5)", textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 12,
+    heroGradient: { alignItems: "center", paddingBottom: spacing.lg, paddingHorizontal: spacing.md, paddingTop: spacing.lg },
+    heroCoverFloat: {
+      alignSelf: "center", marginBottom: spacing.lg,
+      ...shadows.card, shadowOpacity: 0.35, shadowRadius: 22,
     },
-    heroAuthor: { color: "rgba(255,255,255,0.72)", fontFamily: fonts.body, fontSize: 15, fontWeight: "700", marginTop: 5 },
-    heroSeriesBtn: { alignItems: "center", flexDirection: "row", marginTop: 8 },
-    heroSeries: { color: c.teal, fontFamily: fonts.body, fontSize: 13, fontWeight: "800" },
+    heroTitle: {
+      color: c.ink, fontFamily: fonts.display, fontSize: 28, fontWeight: "900", lineHeight: 33,
+      textAlign: "center",
+      ...(isDark ? {
+        textShadowColor: "rgba(7,17,35,0.5)", textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 12,
+      } : null),
+    },
+    heroAuthor: { color: c.muted, fontFamily: fonts.body, fontSize: 15, fontWeight: "700", marginTop: 5, textAlign: "center" },
+    heroSeriesBtn: { alignItems: "center", alignSelf: "center", flexDirection: "row", marginTop: 8 },
+    heroSeries: { color: c.tealDark, fontFamily: fonts.body, fontSize: 13, fontWeight: "800" },
     heroStatusPill: {
-      alignItems: "center", alignSelf: "flex-start",
-      backgroundColor: "rgba(255,255,255,0.12)", borderColor: "rgba(255,255,255,0.20)",
+      alignItems: "center", alignSelf: "center",
+      backgroundColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.06)",
+      borderColor: isDark ? "rgba(255,255,255,0.20)" : "rgba(15,23,42,0.14)",
       borderRadius: radii.pill, borderWidth: 1, flexDirection: "row",
       gap: 5, marginTop: spacing.md, paddingHorizontal: 12, paddingVertical: 7,
     },
     heroStatusDot: { borderRadius: 4, height: 8, width: 8 },
-    heroStatusText: { color: "#FFFFFF", fontFamily: fonts.body, fontSize: 12, fontWeight: "900" },
-    heroStatusSep: { color: "rgba(255,255,255,0.4)", fontFamily: fonts.body, fontSize: 12 },
-    heroRating: { color: c.gold, fontFamily: fonts.body, fontSize: 12, fontWeight: "900" },
+    heroStatusText: { color: c.ink, fontFamily: fonts.body, fontSize: 12, fontWeight: "900" },
+    heroStatusSep: { color: c.muted, fontFamily: fonts.body, fontSize: 12 },
+    heroRating: { color: isDark ? c.gold : "#B8860B", fontFamily: fonts.body, fontSize: 12, fontWeight: "900" },
 
     // Action row
     actionRow: {
@@ -587,6 +677,21 @@ function createStyles(c: AppColors) {
     // Synopsis
     synopsisText: { color: c.ink, fontFamily: fonts.bodyRegular, fontSize: 14, lineHeight: 22 },
     synopsisToggle: { color: c.teal, fontFamily: fonts.body, fontSize: 12, fontWeight: "800", marginTop: 8 },
+    synopsisMissing: { color: c.muted, fontFamily: fonts.bodyRegular, fontSize: 13, lineHeight: 19 },
+    findSynopsisBtn: {
+      alignItems: "center",
+      alignSelf: "flex-start",
+      backgroundColor: c.teal + "14",
+      borderColor: c.teal + "33",
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 6,
+      marginTop: spacing.sm,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+    },
+    findSynopsisText: { color: c.tealDark, fontFamily: fonts.body, fontSize: 12, fontWeight: "800" },
 
     // Meta chips
     metaChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginHorizontal: spacing.md },
@@ -672,5 +777,25 @@ function createStyles(c: AppColors) {
     },
     editionLabel: { color: c.muted, fontFamily: fonts.body, fontSize: 13, fontWeight: "700" },
     editionValue: { color: c.ink, flex: 1, fontFamily: fonts.body, fontSize: 13, fontWeight: "800", textAlign: "right" },
+
+    // More actions sheet
+    moreOverlay: { backgroundColor: "rgba(0,0,0,0.45)", flex: 1, justifyContent: "flex-end" },
+    moreSheet: {
+      backgroundColor: c.surface,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      paddingBottom: 36,
+      paddingHorizontal: spacing.md,
+      paddingTop: 10,
+    },
+    moreHandle: {
+      alignSelf: "center", backgroundColor: c.border, borderRadius: 2,
+      height: 4, marginBottom: spacing.sm, width: 40,
+    },
+    moreRow: {
+      alignItems: "center", flexDirection: "row", gap: spacing.md,
+      paddingHorizontal: spacing.xs, paddingVertical: 14,
+    },
+    moreRowText: { color: c.ink, flex: 1, fontFamily: fonts.body, fontSize: 15, fontWeight: "800" },
   });
 }

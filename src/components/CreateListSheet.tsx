@@ -12,10 +12,12 @@ type Props = {
   initialEmoji?: string;
   mode?: "create" | "rename";
   onSave: (name: string, emoji: string) => void;
+  /** Shown only in rename mode — lets the user delete the list. */
+  onDelete?: () => void;
   onClose: () => void;
 };
 
-export function CreateListSheet({ open, initialName = "", initialEmoji = "📚", mode = "create", onSave, onClose }: Props) {
+export function CreateListSheet({ open, initialName = "", initialEmoji = "📚", mode = "create", onSave, onDelete, onClose }: Props) {
   const { t } = useI18n();
   const [name, setName] = useState(initialName);
   const [emoji, setEmoji] = useState(initialEmoji);
@@ -80,6 +82,16 @@ export function CreateListSheet({ open, initialName = "", initialEmoji = "📚",
           >
             <Text style={styles.saveBtnText}>{mode === "rename" ? t("lists.renameBtn") : t("lists.createBtn")}</Text>
           </Pressable>
+
+          {mode === "rename" && onDelete ? (
+            <Pressable
+              style={styles.deleteBtn}
+              onPress={() => { Keyboard.dismiss(); onDelete(); }}
+            >
+              <Ionicons name="trash-outline" size={15} color="#D95D47" />
+              <Text style={styles.deleteText}>{t("lists.deleteBtn")}</Text>
+            </Pressable>
+          ) : null}
 
           <Pressable style={styles.cancelBtn} onPress={handleClose}>
             <Text style={styles.cancelText}>{t("common.cancel")}</Text>
@@ -179,6 +191,23 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontFamily: fonts.body,
     fontSize: 14,
+    fontWeight: "900"
+  },
+  deleteBtn: {
+    alignItems: "center",
+    borderColor: "rgba(217,93,71,0.45)",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+    marginTop: spacing.sm,
+    paddingVertical: 12
+  },
+  deleteText: {
+    color: "#D95D47",
+    fontFamily: fonts.body,
+    fontSize: 13,
     fontWeight: "900"
   },
   cancelBtn: {

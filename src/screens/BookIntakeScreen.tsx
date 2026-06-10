@@ -43,6 +43,7 @@ import { buildUserTasteProfile, UserTasteProfile } from "../services/userTastePr
 import { BookEdition, BookWork, WorkLookupResult } from "../types/bookMetadata";
 import { BookEditionsSheet } from "../components/BookEditionsSheet";
 import { parseIsbn, formatIsbn13 } from "../utils/isbnUtils";
+import { hapticLight, hapticSuccess } from "../utils/haptics";
 
 type IntakeMode = "menu" | "isbn" | "manual" | "search" | "matches" | "review";
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -482,6 +483,8 @@ export function BookIntakeScreen() {
   // Sort order for search results
   const [sortOrder, setSortOrder] = useState<MatchSortOrder>("popular");
   const [showSortSheet, setShowSortSheet] = useState(false);
+  // Grid / list toggle for results
+  const [matchViewMode, setMatchViewMode] = useState<"list" | "grid">("list");
   const isAuthorQuery = useMemo(
     () => detectQueryIntent(matchLookupLabel) === "author",
     [matchLookupLabel]
@@ -497,6 +500,10 @@ export function BookIntakeScreen() {
   // Debounce: prevents re-processing the same barcode within 2 s
   const lastScanRef = useRef<number>(0);
   const initialSearchRequestRef = useRef<string | null>(null);
+  // Live search: debounce timer + sequence guard so a stale (slower) response
+  // can never overwrite the results of a newer query.
+  const liveSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchSeqRef = useRef(0);
   const [manual, setManual] = useState({
     title: "",
     authorName: "",
@@ -512,6 +519,8 @@ export function BookIntakeScreen() {
   useFocusEffect(
     useCallback(() => {
       return () => {
+        if (liveSearchTimerRef.current) clearTimeout(liveSearchTimerRef.current);
+        searchSeqRef.current += 1; // invalidate any in-flight lookup
         initialSearchRequestRef.current = null;
         setMode("menu");
         setScanned(false);
@@ -532,6 +541,7 @@ export function BookIntakeScreen() {
         setScanFeedback(null);
         setMatches([]);
         setMatchLookupLabel("");
+        setMatchViewMode("list");
         setLookupResult(null);
         setIsEditionsSheetVisible(false);
         setIsLoadingEditions(false);
@@ -571,6 +581,7 @@ export function BookIntakeScreen() {
 
   const confirmAndOpen = (input: NewBookInput) => {
     const book = addBook(input);
+    hapticSuccess(); // book landed in the library
     // Reset so back-press from BookDetail lands on Library, not the Add tab
     navigation.reset({
       index: 1,
@@ -712,8 +723,12 @@ export function BookIntakeScreen() {
     query: string,
     returnMode: "menu" | "isbn" | "search",
     type: "isbn" | "query" = "query",
-    forcedIntent: DiscoverSearchIntent = "auto"
+    forcedIntent: DiscoverSearchIntent = "auto",
+    /** Live (as-you-type) searches fail quietly — no modal dialogs mid-typing. */
+    silent = false
   ) => {
+    if (liveSearchTimerRef.current) clearTimeout(liveSearchTimerRef.current);
+    const seq = ++searchSeqRef.current;
     const isAuthorSearch =
       type === "query" &&
       (forcedIntent === "author" || (forcedIntent === "auto" && detectQueryIntent(query) === "author"));
@@ -723,7 +738,9 @@ export function BookIntakeScreen() {
     setSortOrder(initialSortOrder);
     setMatches([]);
     setLookupResult(null);
-    setMatchLookupLabel(query);
+    // Silent (live) searches keep whatever the user is typing in the input.
+    if (!silent) setMatchLookupLabel(query);
+    else setMatchLookupLabel((current) => (current.trim() ? current : query));
     setMatchReturnMode(returnMode);
     setMode("matches");
     setScanFeedback(null); // clear scanner badge when moving to results
@@ -733,17 +750,33 @@ export function BookIntakeScreen() {
       setTimeout(() => reject(new Error("timeout")), 15_000)
     );
 
+    // "Angels and Demons by Dan Brown" → title + author. Only applied when the
+    // author side looks like a real name (2-4 words) to avoid titles like
+    // "Stand by Me" being split incorrectly.
+    let queryTitle = query;
+    let queryAuthor: string | undefined;
+    if (type === "query") {
+      const byMatch = query.match(/^(.{2,}?)\s+by\s+(.{4,})$/i);
+      const authorTokens = byMatch?.[2].trim().split(/\s+/) ?? [];
+      if (byMatch && authorTokens.length >= 2 && authorTokens.length <= 4) {
+        queryTitle = byMatch[1].trim();
+        queryAuthor = byMatch[2].trim();
+      }
+    }
+
     try {
       const result = await Promise.race([
         type === "isbn"
           ? aggregatorLookupByIsbn(query)
           : aggregatorLookupByQuery(
-              query,
-              undefined,
+              queryTitle,
+              queryAuthor,
+              queryAuthor ? "title" :
               forcedIntent === "author" ? "author" : forcedIntent === "series" ? "title" : "auto"
             ),
         timeout
       ]);
+      if (seq !== searchSeqRef.current) return; // a newer search superseded this one
       setLookupResult(result);
       // One match card per unique BookWork (different books), using each
       // work's own author, title, and best edition — not flatEditions which
@@ -817,38 +850,55 @@ export function BookIntakeScreen() {
       );
       setMatches(rankedMatches);
     } catch (err) {
+      if (seq !== searchSeqRef.current) return;
+      if (silent) return; // live search: fail quietly, the empty state covers it
       const isTimeout = err instanceof Error && err.message === "timeout";
       openDialog(
-        isTimeout ? "Búsqueda tardó demasiado" : "Sin conexión",
+        isTimeout ? t("search.timeoutTitle") : t("search.offlineTitle"),
         isTimeout
-          ? "Las bases de datos no respondieron a tiempo. Intenta de nuevo."
+          ? t("search.timeoutBody")
           : Platform.OS === "web"
           ? "Couldn't reach book databases. In the web demo, start `npm run metadata-proxy` or try again."
-          : "No pudimos conectar con las bases de libros. Revisa tu conexión."
+          : t("search.offlineBody")
       );
     } finally {
-      setIsBusy(false);
-      setScanFeedback(null); // always clear on finish
+      if (seq === searchSeqRef.current) {
+        setIsBusy(false);
+        setScanFeedback(null); // always clear on finish
+      }
     }
+  };
+
+  /**
+   * Live search: schedule a lookup ~600 ms after the user stops typing.
+   * Minimum 3 characters; superseded automatically by any manual search.
+   */
+  const scheduleLiveSearch = (raw: string, returnMode: "menu" | "isbn" | "search") => {
+    if (liveSearchTimerRef.current) clearTimeout(liveSearchTimerRef.current);
+    const query = raw.trim();
+    if (query.length < 3) return;
+    liveSearchTimerRef.current = setTimeout(() => {
+      void lookupAndShowMatches(query, returnMode, "query", "auto", true);
+    }, 600);
   };
 
   /**
    * Stage the chosen BookMatch for review.
    */
-  const selectMatch = (match: BookMatch) => {
+  const selectMatch = async (match: BookMatch) => {
     // When the user manually picks a result from the match list they have already
     // made an informed choice — a scary "low-confidence" warning is misleading.
-    // Use a neutral prompt instead. The confidence system only makes sense for
-    // fully automatic ISBN lookups with no human review step.
     const insight = "Verify details before adding.";
-    // The draft's source must reflect how the user got here: a barcode scan
-    // ("isbn") vs. a typed search ("search"). Hardcoding "isbn" made text
-    // searches show an "ISBN scan" badge and a misleading "Scan again" button.
     const source: NewBookInput["source"] = matchReturnMode === "isbn" ? "isbn" : "search";
-    void stageBook(
-      bookMatchToNewBookInput(match, source),
-      insight
-    );
+    let input = bookMatchToNewBookInput(match, source);
+    // Spanish/translated editions often ship without a description — try the
+    // metadata enricher (other editions, work record) before staging.
+    if (!input.synopsis || input.synopsis.trim().length < 40) {
+      setIsBusy(true);
+      try { input = await enrichBookInput(input); } catch { /* keep original */ }
+      finally { setIsBusy(false); }
+    }
+    void stageBook(input, insight);
   };
 
   /**
@@ -1022,7 +1072,8 @@ export function BookIntakeScreen() {
         title: reviewBook.title.trim() || "Untitled Book",
         authorName: reviewBook.authorName.trim() || "Author to identify",
         genre: reviewBook.genre?.length ? reviewBook.genre : ["Uncategorized"],
-        pages: reviewBook.pages && reviewBook.pages > 0 ? reviewBook.pages : 320
+        // Unknown page count stays unknown — never invent a number.
+        pages: reviewBook.pages && reviewBook.pages > 0 ? reviewBook.pages : undefined
       });
     } finally {
       setTimeout(() => setIsSubmittingReview(false), 500);
@@ -1088,18 +1139,22 @@ export function BookIntakeScreen() {
         hitSlop={8}
       >
         <Ionicons name="chevron-back" size={18} color={c.tealDark} />
-        <Text style={styles.reviewBackText}>Back to results</Text>
+        <Text style={styles.reviewBackText}>{t("review.backToResults")}</Text>
       </Pressable>
       <View style={styles.reviewHeader}>
           {reviewBook.coverImageUri ? (
-            <Image source={{ uri: reviewBook.coverImageUri.replace(/zoom=1(?=&|$)/, "zoom=0") }} style={styles.reviewCover} />
+            <Image
+              source={{ uri: reviewBook.coverImageUri.replace(/zoom=1(?=&|$)/, "zoom=0") }}
+              style={styles.reviewCover}
+              resizeMode={reviewBook.format === "audiobook" ? "contain" : "cover"}
+            />
           ) : (
             <View style={styles.reviewCoverFallback}>
               <Ionicons name="book-outline" size={28} color={c.gold} />
             </View>
           )}
         <View style={styles.reviewHeaderCopy}>
-          <Text style={styles.pageEyebrow}>Review & edit</Text>
+          <Text style={styles.pageEyebrow}>{t("review.eyebrow")}</Text>
           <Text style={styles.reviewTitle} numberOfLines={3}>{reviewBook.title}</Text>
           <Text style={styles.reviewAuthor} numberOfLines={1}>{reviewBook.authorName}</Text>
           <View style={styles.reviewSourcePill}>
@@ -1136,14 +1191,14 @@ export function BookIntakeScreen() {
             : <Ionicons name="sparkles-outline" size={16} color={c.tealDark} />
           }
           <Text style={styles.fetchMetaButtonText}>
-            {isRefreshingMetadata ? "Refreshing metadata..." : "Refresh metadata"}
+            {isRefreshingMetadata ? t("review.refreshing") : t("review.refreshMetadata")}
           </Text>
         </Pressable>
 
         {/* ── Edit details (collapsed by default) ─────────────────────── */}
         <Pressable style={styles.editDetailsToggle} onPress={() => setShowEditDetails((v) => !v)}>
           <Ionicons name={showEditDetails ? "chevron-up-outline" : "create-outline"} size={15} color={c.teal} />
-          <Text style={styles.editDetailsToggleText}>{showEditDetails ? "Hide details" : "Edit details"}</Text>
+          <Text style={styles.editDetailsToggleText}>{showEditDetails ? t("review.hideDetails") : t("review.editDetails")}</Text>
         </Pressable>
 
         {showEditDetails ? (
@@ -1185,7 +1240,7 @@ export function BookIntakeScreen() {
           ) : null}
         </View>
 
-        <Text style={styles.reviewSectionTitle}>Format</Text>
+        <Text style={styles.reviewSectionTitle}>{t("review.format")}</Text>
         <View style={styles.reviewChoiceGrid}>
           {REVIEW_FORMATS.map((option) => (
             <Choice
@@ -1198,24 +1253,24 @@ export function BookIntakeScreen() {
           ))}
         </View>
 
-        <Text style={styles.reviewSectionTitle}>Shelf</Text>
+        <Text style={styles.reviewSectionTitle}>{t("review.shelf")}</Text>
         <View style={styles.reviewChoiceGrid}>
           <Choice
             active={reviewBook.ownership === "owned"}
             icon="checkmark-circle-outline"
-            label="Owned"
+            label={t("review.owned")}
             onPress={() => updateReviewBook({ ownership: "owned", wishlist: false, wantToBuy: false })}
           />
           <Choice
             active={Boolean(reviewBook.wishlist)}
             icon="bookmark-outline"
-            label="Wishlist"
+            label={t("review.wishlist")}
             onPress={() => updateReviewBook({ ownership: "not-owned", wishlist: true, wantToBuy: false })}
           />
           <Choice
             active={Boolean(reviewBook.wantToBuy)}
             icon="cart-outline"
-            label="Want to buy"
+            label={t("review.wantToBuy")}
             onPress={() => updateReviewBook({ ownership: "not-owned", wishlist: false, wantToBuy: true })}
           />
         </View>
@@ -1231,19 +1286,19 @@ export function BookIntakeScreen() {
             ) : (
               <Ionicons name="library-outline" size={18} color="#FFFFFF" />
             )}
-            <Text style={styles.primaryReviewButtonText}>{isSubmittingReview ? "Saving..." : "Add to library"}</Text>
+            <Text style={styles.primaryReviewButtonText}>{isSubmittingReview ? t("review.saving") : t("review.addToLibrary")}</Text>
           </Pressable>
           {/* Discard — clear outlined button */}
           <Pressable style={styles.discardBtn} onPress={() => setMode("menu")}>
             <Ionicons name="trash-outline" size={15} color={c.danger} />
-            <Text style={styles.discardBtnText}>Discard</Text>
+            <Text style={styles.discardBtnText}>{t("review.discard")}</Text>
           </Pressable>
 
           {/* Scan again — small text link, ISBN source only */}
           {reviewBook?.source === "isbn" ? (
             <Pressable style={styles.reviewSecondaryLink} onPress={() => { setScanned(false); setMode("isbn"); }}>
               <Ionicons name="barcode-outline" size={13} color={c.muted} />
-              <Text style={styles.reviewSecondaryLinkText}>Scan a different book</Text>
+              <Text style={styles.reviewSecondaryLinkText}>{t("review.scanDifferent")}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -1251,10 +1306,10 @@ export function BookIntakeScreen() {
         {/* ── Duplicate book dialog ────────────────────────────────────── */}
         <BooklizDialog
           open={Boolean(duplicateDialog)}
-          title="Already in your library"
-          body={`You already have "${duplicateDialog?.title ?? ""}" in this language. Add a different language edition from the language selector above.`}
-          confirmLabel="Got it"
-          cancelLabel="Add anyway"
+          title={t("review.duplicateTitle")}
+          body={t("review.duplicateBody", { title: duplicateDialog?.title ?? "" })}
+          confirmLabel={t("review.gotIt")}
+          cancelLabel={t("review.addAnyway")}
           onConfirm={() => setDuplicateDialog(null)}
           onCancel={() => {
             // User insists — add without duplicate check
@@ -1267,7 +1322,7 @@ export function BookIntakeScreen() {
                   title: reviewBook.title.trim() || "Untitled Book",
                   authorName: reviewBook.authorName.trim() || "Author to identify",
                   genre: reviewBook.genre?.length ? reviewBook.genre : ["Uncategorized"],
-                  pages: reviewBook.pages && reviewBook.pages > 0 ? reviewBook.pages : 320,
+                  pages: reviewBook.pages && reviewBook.pages > 0 ? reviewBook.pages : undefined,
                 });
               } finally {
                 setTimeout(() => setIsSubmittingReview(false), 500);
@@ -1306,6 +1361,12 @@ export function BookIntakeScreen() {
     const primaryMatch = sortedMatches[0];
     // For author queries show every result; for title/ISBN queries cap at 6 secondary cards.
     const otherMatches = sortedMatches.slice(1); // no cap
+    // Only treat this as an author search when the top result's author actually
+    // matches the query — prevents "Books by Hope Rises" on title searches.
+    const confirmedAuthorName =
+      isAuthorQuery && primaryMatch && authorMatchesQuery(primaryMatch, queryTokens)
+        ? primaryMatch.authors[0]
+        : null;
     const backLabel =
       matchReturnMode === "isbn" ? "Scanner" :
       matchReturnMode === "search" ? "Search" : "Add book";
@@ -1329,7 +1390,10 @@ export function BookIntakeScreen() {
             <TextInput
               style={styles.inlineSearchInput}
               value={matchLookupLabel}
-              onChangeText={setMatchLookupLabel}
+              onChangeText={(value) => {
+                setMatchLookupLabel(value);
+                scheduleLiveSearch(value, matchReturnMode);
+              }}
               returnKeyType="search"
               onSubmitEditing={() => {
                 if (matchLookupLabel.trim()) {
@@ -1337,7 +1401,7 @@ export function BookIntakeScreen() {
                 }
               }}
               placeholderTextColor={c.muted}
-              placeholder="Search again…"
+              placeholder={t("search.searchAgainPlaceholder")}
               selectTextOnFocus
             />
             {isBusy ? (
@@ -1364,14 +1428,14 @@ export function BookIntakeScreen() {
             onPress={() => { setScanned(false); setMode("isbn"); }}
           >
             <Ionicons name="barcode-outline" size={16} color={c.tealDark} />
-            <Text style={styles.scanAgainText}>Wrong book? Scan again</Text>
+            <Text style={styles.scanAgainText}>{t("search.wrongBookScanAgain")}</Text>
           </Pressable>
         ) : null}
 
         {isBusy ? (
           <View style={styles.busyRow}>
             <ActivityIndicator size="small" color={c.tealDark} />
-            <Text style={styles.busyText}>Checking Google Books & Open Library…</Text>
+            <Text style={styles.busyText}>{t("search.searching")}</Text>
           </View>
         ) : matches.length === 0 ? (
           <View style={styles.noMatchCard}>
@@ -1391,11 +1455,11 @@ export function BookIntakeScreen() {
               </View>
             </View>
 
-            <Text style={styles.noMatchTitle}>Sin resultados</Text>
+            <Text style={styles.noMatchTitle}>{t("search.noResultsTitle")}</Text>
             <Text style={styles.noMatchSub}>
               {matchLookupLabel
-                ? `No encontramos "${matchLookupLabel}" en nuestras fuentes`
-                : "Prueba con un título, autor diferente, o agrégalo manualmente"}
+                ? t("search.noResultsFor", { query: matchLookupLabel })
+                : t("search.noResultsHint")}
             </Text>
             <Pressable
               style={[styles.primaryButton, { alignSelf: "stretch", marginTop: spacing.sm }]}
@@ -1412,75 +1476,100 @@ export function BookIntakeScreen() {
                 }
               }}
             >
-              <Text style={styles.primaryButtonText}>Buscar de nuevo</Text>
+              <Text style={styles.primaryButtonText}>{t("search.searchAgain")}</Text>
             </Pressable>
             <Pressable style={[styles.ghostButton, { alignSelf: "stretch" }]} onPress={() => setMode("manual")}>
-              <Text style={styles.ghostButtonText}>Agregar manualmente</Text>
+              <Text style={styles.ghostButtonText}>{t("search.addManually")}</Text>
             </Pressable>
           </View>
         ) : (
           <>
             {/* Results header: count + sort button */}
             <View style={styles.resultsHeader}>
-              <Text style={styles.resultsHeaderTitle}>
-                {isAuthorQuery
-                  ? `Books by ${matchLookupLabel}`
-                  : matches.length === 1 ? "1 result" : `${matches.length} results`}
+              <Text style={styles.resultsHeaderTitle} numberOfLines={1}>
+                {confirmedAuthorName
+                  ? t("search.booksBy", { query: confirmedAuthorName })
+                  : matches.length === 1 ? t("search.resultsOne") : t("search.resultsMany", { count: matches.length })}
               </Text>
-              <Pressable style={styles.sortButton} onPress={() => setShowSortSheet(true)}>
-                <Ionicons name="funnel-outline" size={14} color={c.tealDark} />
-                <Text style={styles.sortButtonText}>
-                  {sortOrder === "relevance" ? "Best match" :
-                   sortOrder === "popular" ? "Most popular" :
-                   sortOrder === "year_desc" ? "Newest" :
-                   sortOrder === "year_asc" ? "Oldest" : "Top rated"}
-                </Text>
-              </Pressable>
+              <View style={styles.resultsHeaderActions}>
+                <Pressable
+                  style={styles.viewToggleBtn}
+                  onPress={() => setMatchViewMode((v) => (v === "list" ? "grid" : "list"))}
+                  hitSlop={6}
+                >
+                  <Ionicons
+                    name={matchViewMode === "list" ? "grid-outline" : "reorder-three-outline"}
+                    size={15}
+                    color={c.tealDark}
+                  />
+                </Pressable>
+                <Pressable style={styles.sortButton} onPress={() => setShowSortSheet(true)}>
+                  <Ionicons name="funnel-outline" size={14} color={c.tealDark} />
+                  <Text style={styles.sortButtonText}>
+                    {sortOrder === "relevance" ? t("search.sortBestMatch") :
+                     sortOrder === "popular" ? t("search.sortPopular") :
+                     sortOrder === "year_desc" ? t("search.sortNewest") :
+                     sortOrder === "year_asc" ? t("search.sortOldest") : t("search.sortTopRated")}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
 
-            {/* Primary (top) result */}
-            {primaryMatch ? (
-              <MatchCard
-                match={primaryMatch}
-                isPrimary
-                hideConfidence
-                onSelect={() => selectMatch(primaryMatch)}
-              />
+            {/* Author page shortcut — only when the query truly matches the author */}
+            {confirmedAuthorName ? (
+              <Pressable
+                style={styles.authorPageCard}
+                onPress={() => navigation.navigate("AuthorBooks", { authorName: confirmedAuthorName })}
+              >
+                <View style={styles.authorPageAvatar}>
+                  <Ionicons name="person" size={20} color={c.tealDark} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.authorPageName} numberOfLines={1}>{confirmedAuthorName}</Text>
+                  <Text style={styles.authorPageSub} numberOfLines={1}>{t("search.viewAuthorPage")}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={c.muted} />
+              </Pressable>
             ) : null}
 
-            {/* Secondary results */}
-            {otherMatches.length > 0 ? (
+            {matchViewMode === "grid" ? (
+              /* ── Grid view: 2-col covers, + to add ─────────────────────── */
+              <View style={styles.matchGrid}>
+                {sortedMatches.map((match, index) => (
+                  <MatchGridCard
+                    key={`${match.id}-${index}`}
+                    match={match}
+                    onSelect={() => void selectMatch(match)}
+                  />
+                ))}
+              </View>
+            ) : (
               <>
+                {/* Primary (top) result */}
+                {primaryMatch ? (
+                  <MatchCard
+                    match={primaryMatch}
+                    isPrimary
+                    hideConfidence
+                    onSelect={() => void selectMatch(primaryMatch)}
+                  />
+                ) : null}
+
+                {/* Secondary results */}
                 {otherMatches.map((match, index) => (
                   <MatchCard
                     key={`${match.id}-${index}`}
                     match={match}
                     hideConfidence
-                    onSelect={() => selectMatch(match)}
+                    onSelect={() => void selectMatch(match)}
                   />
                 ))}
               </>
-            ) : null}
-
-            {/* View all editions — shown when the Intelligence Engine found a work */}
-            {lookupResult?.work ? (
-              <Pressable
-                style={styles.viewEditionsBtn}
-                onPress={() => setIsEditionsSheetVisible(true)}
-              >
-                <Ionicons name="layers-outline" size={15} color={c.tealDark} />
-                <Text style={styles.viewEditionsBtnText}>
-                  View all editions
-                  {(lookupResult.work?.editions?.length ?? 0) > 0
-                    ? ` (${lookupResult.work!.editions.length})`
-                    : ""}
-                </Text>
-              </Pressable>
-            ) : null}
+            )}
 
             <Pressable style={styles.editManuallyBtn} onPress={() => setMode("manual")}>
               <Ionicons name="create-outline" size={15} color={c.muted} />
-              <Text style={styles.editManuallyText}>Not what you're looking for? Edit manually</Text>
+              <Text style={styles.editManuallyText}>{t("search.editManually")}</Text>
             </Pressable>
           </>
         )}
@@ -1503,11 +1592,11 @@ export function BookIntakeScreen() {
                   onPress={() => { setSortOrder(option); setShowSortSheet(false); }}
                 >
                   <Text style={[styles.sortOptionText, sortOrder === option && styles.sortOptionTextActive]}>
-                    {option === "relevance" ? "Best match" :
-                     option === "popular" ? "Most popular" :
-                     option === "year_desc" ? "Release date: Newest first" :
-                     option === "year_asc" ? "Release date: Oldest first" :
-                     "Top rated"}
+                    {option === "relevance" ? t("search.sortBestMatch") :
+                     option === "popular" ? t("search.sortPopular") :
+                     option === "year_desc" ? t("search.sortNewestLong") :
+                     option === "year_asc" ? t("search.sortOldestLong") :
+                     t("search.sortTopRated")}
                   </Text>
                   {sortOrder === option ? (
                     <Ionicons name="checkmark" size={16} color={c.tealDark} />
@@ -1518,30 +1607,6 @@ export function BookIntakeScreen() {
           </Pressable>
         </Modal>
 
-        <BookEditionsSheet
-          visible={isEditionsSheetVisible}
-          work={lookupResult?.work ?? null}
-          isLoadingEditions={isLoadingEditions}
-          onSelectEdition={(edition) => {
-            setIsEditionsSheetVisible(false);
-            if (lookupResult?.work) {
-              const input = workEditionToNewBookInput(
-                lookupResult.work,
-                edition,
-                edition.isbn13 ? "isbn" : "search"
-              );
-              void stageBook(
-                input,
-                `Edition confirmed: ${edition.language ?? ""}${edition.publisher ? ` · ${edition.publisher}` : ""}.`
-              );
-            }
-          }}
-          onAddManually={() => {
-            setIsEditionsSheetVisible(false);
-            setMode("manual");
-          }}
-          onClose={() => setIsEditionsSheetVisible(false)}
-        />
       </Screen>
     );
   }
@@ -1638,6 +1703,7 @@ export function BookIntakeScreen() {
             zoom={scanZoom}
             onBarcodeScanned={scanned ? undefined : (result) => {
               setScanned(true); // lock immediately — prevents re-fire while lookup runs
+              hapticLight(); // barcode caught
               setScanFeedback("Barcode found — searching…");
               handleBarcode(result);
             }}
@@ -1753,20 +1819,21 @@ export function BookIntakeScreen() {
         ) : null}
 
         <View style={styles.pageHeader}>
-          <Text style={styles.pageTitle}>Search for a book</Text>
-          <Text style={styles.pageSubtitle}>
-            Search by title, author, or series. Use Discover when you want to browse.
-          </Text>
+          <Text style={styles.pageTitle}>{t("search.title")}</Text>
+          <Text style={styles.pageSubtitle}>{t("search.subtitle")}</Text>
         </View>
 
         <View style={styles.searchRow}>
           <TextInput
-            autoFocus={hasQuery}
+            autoFocus
             placeholder="Fourth Wing, Rebecca Yarros, Red Rising..."
             placeholderTextColor={c.gray}
             style={styles.searchInput}
             value={searchQuery}
-            onChangeText={setSearchQuery}
+            onChangeText={(value) => {
+              setSearchQuery(value);
+              scheduleLiveSearch(value, "search");
+            }}
             onSubmitEditing={runSearch}
             returnKeyType="search"
           />
@@ -2250,6 +2317,34 @@ function MatchCard({
   );
 }
 
+/** Compact 2-col grid result — cover-first, with a + to add. */
+function MatchGridCard({ match, onSelect }: { match: BookMatch; onSelect: () => void }) {
+  const c = useColors();
+  const { isDark } = useTheme();
+  const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
+  const year = match.publishedDate ? match.publishedDate.slice(0, 4) : null;
+
+  return (
+    <Pressable style={styles.matchGridCard} onPress={onSelect}>
+      <View style={styles.matchGridCoverWrap}>
+        {match.coverUrl ? (
+          <Image source={{ uri: match.coverUrl }} style={styles.matchGridCover} resizeMode="cover" />
+        ) : (
+          <View style={[styles.matchGridCover, styles.matchGridCoverFallback]}>
+            <Ionicons name="book-outline" size={26} color={c.muted} />
+          </View>
+        )}
+        <View style={styles.matchGridAddBtn}>
+          <Ionicons name="add" size={16} color="#fff" />
+        </View>
+      </View>
+      <Text numberOfLines={2} style={styles.matchGridTitle}>{match.title}</Text>
+      <Text numberOfLines={1} style={styles.matchGridAuthor}>{match.authors[0] ?? ""}</Text>
+      {year ? <Text style={styles.matchGridMeta}>{year}{match.pageCount ? ` · ${match.pageCount} pp` : ""}</Text> : null}
+    </Pressable>
+  );
+}
+
 function Choice({
   active,
   icon,
@@ -2330,6 +2425,42 @@ function createStyles(c: AppColors, isDark: boolean) {
     height: 34,
     justifyContent: "center",
     width: 34
+  },
+  // Author page shortcut card (author-intent searches)
+  authorPageCard: {
+    ...shadows.card,
+    alignItems: "center",
+    backgroundColor: c.surface,
+    borderColor: c.teal + "55",
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+    padding: spacing.md
+  },
+  authorPageAvatar: {
+    alignItems: "center",
+    backgroundColor: c.teal + "1E",
+    borderColor: c.teal + "44",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  authorPageName: {
+    color: c.ink,
+    fontFamily: fonts.display,
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  authorPageSub: {
+    color: c.tealDark,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 2
   },
   pathGrid: {
     flexDirection: "row",
@@ -3403,9 +3534,95 @@ function createStyles(c: AppColors, isDark: boolean) {
   },
   resultsHeaderTitle: {
     color: c.ink,
+    flex: 1,
     fontFamily: fonts.display,
     fontSize: 20,
     fontWeight: "900",
+    paddingRight: spacing.sm,
+  },
+  resultsHeaderActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  viewToggleBtn: {
+    alignItems: "center",
+    backgroundColor: c.teal + "14",
+    borderColor: c.teal + "33",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    height: 30,
+    justifyContent: "center",
+    width: 34,
+  },
+  // Grid view for search results
+  matchGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    justifyContent: "space-between",
+  },
+  matchGridCard: {
+    marginBottom: spacing.sm,
+    width: "47.5%",
+  },
+  matchGridCoverWrap: {
+    borderRadius: radii.sm,
+    overflow: "hidden",
+    position: "relative",
+  },
+  matchGridCover: {
+    aspectRatio: 0.67,
+    backgroundColor: c.surfaceAlt,
+    borderRadius: radii.sm,
+    width: "100%",
+  },
+  matchGridCoverFallback: {
+    alignItems: "center",
+    borderColor: c.border,
+    borderWidth: 1,
+    justifyContent: "center",
+  },
+  matchGridAddBtn: {
+    alignItems: "center",
+    backgroundColor: c.teal,
+    borderColor: "rgba(255,255,255,0.75)",
+    borderRadius: 999,
+    borderWidth: 1.5,
+    bottom: 8,
+    elevation: 4,
+    height: 30,
+    justifyContent: "center",
+    position: "absolute",
+    right: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    width: 30,
+  },
+  matchGridTitle: {
+    color: c.ink,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 17,
+    marginTop: 7,
+  },
+  matchGridAuthor: {
+    color: c.muted,
+    fontFamily: fonts.body,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  matchGridMeta: {
+    color: c.muted,
+    fontFamily: fonts.body,
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 2,
+    opacity: 0.7,
   },
   sortButton: {
     alignItems: "center",

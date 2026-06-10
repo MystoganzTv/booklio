@@ -13,6 +13,7 @@ import { ReadingTimerProvider } from "./src/data/ReadingTimerContext";
 import { ThemeProvider, useTheme } from "./src/theme/ThemeContext";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { LocalizationProvider } from "./src/i18n/LocalizationContext";
+import { DialogProvider } from "./src/components/DialogProvider";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 function Root() {
@@ -41,11 +42,13 @@ export default function App() {
     <SafeAreaProvider>
       <LocalizationProvider>
         <ThemeProvider>
-          <BooklizProvider>
-            <ReadingTimerProvider>
-              <Root />
-            </ReadingTimerProvider>
-          </BooklizProvider>
+          <DialogProvider>
+            <BooklizProvider>
+              <ReadingTimerProvider>
+                <Root />
+              </ReadingTimerProvider>
+            </BooklizProvider>
+          </DialogProvider>
         </ThemeProvider>
       </LocalizationProvider>
     </SafeAreaProvider>

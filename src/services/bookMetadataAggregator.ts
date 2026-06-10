@@ -132,12 +132,12 @@ export function detectQueryIntent(query: string): "author" | "general" {
     const w = words[0]!;
     const isProperNoun = /^[A-ZÁÉÍÓÚÑÜÀÈÌÒÙÂÊÎÔÛÃÕ]/.test(w);
     const intent = isProperNoun && isNameLike(w) ? "author" : "general";
-    console.log(`[QUERY_CLASSIFIER] query="${query}" intent=${intent} (single-word)`);
+    if (__DEV__) console.log(`[QUERY_CLASSIFIER] query="${query}" intent=${intent} (single-word)`);
     return intent;
   }
 
   const intent = words.every(isNameLike) ? "author" : "general";
-  console.log(`[QUERY_CLASSIFIER] query="${query}" intent=${intent}`);
+  if (__DEV__) console.log(`[QUERY_CLASSIFIER] query="${query}" intent=${intent}`);
   return intent;
 }
 
@@ -565,7 +565,7 @@ export async function lookupByQuery(
     mode === "auto" ? (detectedIntent === "author" ? "author" : "title") :
     mode === "author" ? "author" : "title";
 
-  console.log(`[AGGREGATOR] query="${title}" detectedIntent=${detectedIntent} resolvedMode=${resolvedMode}`);
+  if (__DEV__) console.log(`[AGGREGATOR] query="${title}" detectedIntent=${detectedIntent} resolvedMode=${resolvedMode}`);
 
   // ── 2. Query language detection ───────────────────────────────────────────
   // Used to select the preferred edition language for bestEdition display.
@@ -650,7 +650,7 @@ export async function lookupByQuery(
           return fuzzyOverlapCoeff(queryAuthorTokens, aTokens, 0.75) >= 0.5;
         });
         if (!authorMatchFound) {
-          console.log(`  [FILTER-OUT layer1] "${workTitle}" — authors: ${JSON.stringify(authors)}`);
+          if (__DEV__) console.log(`  [FILTER-OUT layer1] "${workTitle}" — authors: ${JSON.stringify(authors)}`);
           return false;
         }
       } else {
@@ -660,7 +660,7 @@ export async function lookupByQuery(
           queryAuthorTokens.length > 0 &&
           fuzzyOverlapCoeff(queryAuthorTokens, titleTokens, 0.75) >= 0.5;
         if (titleMentionsAuthor) {
-          console.log(`  [FILTER-OUT empty-authors] "${workTitle}"`);
+          if (__DEV__) console.log(`  [FILTER-OUT empty-authors] "${workTitle}"`);
           return false;
         }
         return true; // empty authors, title doesn't mention author → keep
@@ -677,7 +677,7 @@ export async function lookupByQuery(
         const titleTokens = tokenize(workTitle);
         const titleMentionsQuery = fuzzyOverlapCoeff(queryAuthorTokens, titleTokens, 0.75) >= 0.35;
         if (titleMentionsQuery) {
-          console.log(`  [FILTER-OUT layer2-bio] "${workTitle}" — title contains query + ABOUT_PATTERN`);
+          if (__DEV__) console.log(`  [FILTER-OUT layer2-bio] "${workTitle}" — title contains query + ABOUT_PATTERN`);
           return false;
         }
         // Title has an "about" word but doesn't mention the author → keep
@@ -695,7 +695,7 @@ export async function lookupByQuery(
       isAuthoredBy(partialWork.authors, partialWork.title)
     );
     const totalAfter = gbPrimary.length + olPrimary.length;
-    console.log(`[AUTHOR_FILTER] before=${totalBefore} after=${totalAfter} rejected=${totalBefore - totalAfter}`);
+    if (__DEV__) console.log(`[AUTHOR_FILTER] before=${totalBefore} after=${totalAfter} rejected=${totalBefore - totalAfter}`);
   }
 
   // ── 6b. Author-mode fallback: if inauthor: returned too few results ────────
@@ -705,7 +705,7 @@ export async function lookupByQuery(
   // effective intent to "title" for the ranking step below.
   let effectiveIntent: "author" | "title" = resolvedMode;
   if (resolvedMode === "author" && gbPrimary.length < 3) {
-    console.log(`[FALLBACK] author search returned only ${gbPrimary.length} results — retrying as free-text`);
+    if (__DEV__) console.log(`[FALLBACK] author search returned only ${gbPrimary.length} results — retrying as free-text`);
     const freeTextQuery: ScoringQuery = { title };
     const [gbFallback, olFallback] = await Promise.allSettled([
       gbFetchByQuery(title, undefined, freeTextQuery, "general"),
@@ -721,7 +721,7 @@ export async function lookupByQuery(
       bestEdition: Omit<BookEdition, "score">;
     }>;
     if (gbFT.length > gbPrimary.length) {
-      console.log(`[FALLBACK] free-text returned ${gbFT.length} GB results — using those instead`);
+      if (__DEV__) console.log(`[FALLBACK] free-text returned ${gbFT.length} GB results — using those instead`);
       // Swap in free-text results
       // (olPrimary already has some results from the author search; merge below)
       gbPrimary = gbFT;
@@ -860,7 +860,7 @@ export async function lookupByQuery(
   const COLLECTION_PATTERN = /\b(box\s*set|boxed\s*set|collection|omnibus|complete\s*works?|complete\s*series|books?\s*set|bundle|anthology|collected\s*works?|volumes?\s*\d|komplett|gesammelte)\b/i;
   const candidatesFiltered = candidates.filter(({ work }) => {
     if (COLLECTION_PATTERN.test(work.title)) {
-      console.log(`  [FILTER-OUT collection] "${work.title}"`);
+      if (__DEV__) console.log(`  [FILTER-OUT collection] "${work.title}"`);
       return false;
     }
     return true;
@@ -927,6 +927,7 @@ export function workEditionToNewBookInput(
   return {
     title: edition.title ?? work.title,
     authorName: work.authors[0] ?? "Unknown Author",
+    coAuthorNames: work.authors.slice(1),
     isbn: edition.isbn13 ?? edition.isbn10,
     pages: edition.pageCount,
     genre: work.genres,

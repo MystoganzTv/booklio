@@ -12,13 +12,12 @@
  *   - All logic/state unchanged from previous version
  */
 import { Ionicons } from "@expo/vector-icons";
+import { useDialog } from "../components/DialogProvider";
 import { RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -75,6 +74,7 @@ const STATUS_OPTIONS: { value: CoreTrackingStatus; label: string }[] = [
 export function EditBookScreen() {
   const c = useColors();
   const { t } = useI18n();
+  const dialog = useDialog();
   const styles = useMemo(() => createStyles(c), [c]);
   const route = useRoute<RouteProp<RootStackParamList, "EditBook">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -92,7 +92,10 @@ export function EditBookScreen() {
   const [publishedDate,   setPublishedDate]   = useState(book?.publishedDate ?? "");
   const [publisher,       setPublisher]       = useState(book?.publisher ?? "");
   const [language,        setLanguage]        = useState(book?.language ?? "English");
-  const [isbn,            setIsbn]            = useState(book?.isbn ?? "");
+  const rawIsbn = book?.isbn ?? "";
+  const [isbn13, setIsbn13] = useState(rawIsbn.replace(/\D/g, "").length === 13 ? rawIsbn : "");
+  const [isbn10, setIsbn10] = useState(rawIsbn.replace(/\D/g, "").length === 10 ? rawIsbn : "");
+  const isbn = isbn13.trim() || isbn10.trim();
   const [format,          setFormat]          = useState<ReadingFormat>(book?.format ?? "physical");
   const [coverImageUri,   setCoverImageUri]   = useState(book?.coverImageUri ?? "");
   const [synopsis,        setSynopsis]        = useState(book?.synopsis ?? "");
@@ -111,11 +114,12 @@ export function EditBookScreen() {
   const [notes,           setNotes]           = useState(book?.userStatus.notes ?? "");
   const [favoriteQuotes,  setFavoriteQuotes]  = useState(book?.userStatus.favoriteQuotes.join("\n") ?? "");
   const [isFetching,      setIsFetching]      = useState(false);
+  const [formatOpen,      setFormatOpen]      = useState(false);
 
   // ── fetch metadata ─────────────────────────────────────────────────────────
   const fetchInfo = async () => {
     if (!canFetchMetadata({ isbn, title, authorName })) {
-      Alert.alert(t("editBook.fetchNeedClue"), t("editBook.fetchNeedClueBody"));
+      dialog.alert(t("editBook.fetchNeedClue"), t("editBook.fetchNeedClueBody"));
       return;
     }
     setIsFetching(true);
@@ -125,9 +129,9 @@ export function EditBookScreen() {
     setIsFetching(false);
 
     if (!meta) {
-      Alert.alert(
+      dialog.alert(
         t("editBook.fetchNoResult"),
-        Platform.OS === "web" ? t("editBook.fetchNoResultBodyDev") : t("editBook.fetchNoResultBody")
+        t("editBook.fetchNoResultBody")
       );
       return;
     }
@@ -140,14 +144,21 @@ export function EditBookScreen() {
     if (meta.publisher   && isBlank(publisher))                       { setPublisher(meta.publisher);           filled.push("publisher"); }
     if (meta.publishedDate && isBlank(publishedDate))                 { setPublishedDate(meta.publishedDate);   filled.push("published date"); }
     if (meta.synopsis    && meta.synopsis.length > 30 && isBlank(synopsis)) { setSynopsis(meta.synopsis);      filled.push("synopsis"); }
-    if (meta.coverImageUri && isBlank(coverImageUri))                 { setCoverImageUri(meta.coverImageUri);   filled.push("cover"); }
-    if (meta.isbn        && isBlank(isbn))                            { setIsbn(meta.isbn);                     filled.push("ISBN"); }
+    // Replace the cover when blank, or when the current one was auto-fetched
+    // (e.g. an odd audiobook-edition cover) — user photos (file://) are kept.
+    const coverIsAuto = /books\.google|googleusercontent|openlibrary|archive\.org/i.test(coverImageUri);
+    if (meta.coverImageUri && (isBlank(coverImageUri) || (coverIsAuto && meta.coverImageUri !== coverImageUri))) { setCoverImageUri(meta.coverImageUri); filled.push("cover"); }
+    if (meta.isbn && isBlank(isbn)) {
+      const clean = meta.isbn.replace(/\D/g, "");
+      if (clean.length === 13) { setIsbn13(meta.isbn); } else { setIsbn10(meta.isbn); }
+      filled.push("ISBN");
+    }
     if (meta.authorName  && isBlank(authorName))                      { setAuthorName(meta.authorName);         filled.push("author"); }
     if (meta.genre?.length && isPlaceholderGenreList(genres))         { setGenres(meta.genre);                  filled.push("genres"); }
     if (meta.tags?.length && tags.length === 0)                       { setTags(meta.tags);                     filled.push("tags"); }
     if (meta.isBestseller && !isBestseller)                           { setIsBestseller(true);                  filled.push("bestseller"); }
 
-    Alert.alert(
+    dialog.alert(
       filled.length ? t("editBook.fetchUpdated") : t("editBook.fetchAllFilled"),
       filled.length ? `Updated: ${filled.join(", ")}.` : t("editBook.fetchAllFilledBody")
     );
@@ -186,22 +197,20 @@ export function EditBookScreen() {
       notes,
       favoriteQuotes: favoriteQuotes.split("\n").map((q) => q.trim()).filter(Boolean),
     });
-    Alert.alert(t("editBook.savedTitle"), `${title || book.title} has been updated.`);
     navigation.goBack();
   };
 
   const onDelete = () => {
-    Alert.alert(
-      t("editBook.deleteTitle"),
-      `Bookliz will remove ${title || book.title} and all its data from your library.`,
-      [
-        { text: t("common.cancel"), style: "cancel" },
-        { text: t("editBook.deleteConfirm"), style: "destructive", onPress: () => {
-          deleteBook(book.id);
-          navigation.reset({ index: 0, routes: [{ name: "AppTabs" }] });
-        }},
-      ]
-    );
+    dialog.confirm({
+      title: t("editBook.deleteTitle"),
+      body: `Bookliz will remove ${title || book.title} and all its data from your library.`,
+      confirmLabel: t("editBook.deleteConfirm"),
+      destructive: true,
+      onConfirm: () => {
+        deleteBook(book.id);
+        navigation.reset({ index: 0, routes: [{ name: "AppTabs" }] });
+      },
+    });
   };
 
   return (
@@ -234,117 +243,80 @@ export function EditBookScreen() {
       </FieldCard>
 
       <FieldCard icon="layers-outline" label="Series" c={c} styles={styles}>
-        <PlainInput value={seriesName} onChangeText={setSeriesName} placeholder="Series name" styles={styles} c={c} />
-        <View style={{ height: 8 }} />
-        <PlainInput value={seriesNumber} onChangeText={setSeriesNumber} placeholder="Book number" keyboardType="number-pad" styles={styles} c={c} />
-      </FieldCard>
-
-      {/* ══ METADATA ═════════════════════════════════════════════════════════ */}
-      <FieldCard icon="pricetag-outline" label="Genres" c={c} styles={styles}>
-        <ChipEditor chips={genres} onChipsChange={setGenres} placeholder="Add genre…" styles={styles} c={c} />
-      </FieldCard>
-
-      <FieldCard icon="document-text-outline" label="Pages" c={c} styles={styles}>
-        <PlainInput value={pages} onChangeText={setPages} placeholder="Number of pages" keyboardType="number-pad" styles={styles} c={c} />
-      </FieldCard>
-
-      <FieldCard icon="calendar-outline" label="Published date" c={c} styles={styles}>
-        <PlainInput value={publishedDate} onChangeText={setPublishedDate} placeholder="YYYY-MM-DD or year" styles={styles} c={c} />
-      </FieldCard>
-
-      <FieldCard icon="business-outline" label="Publisher" c={c} styles={styles}>
-        <PlainInput value={publisher} onChangeText={setPublisher} placeholder="Publisher name" styles={styles} c={c} />
-      </FieldCard>
-
-      <FieldCard icon="language-outline" label="Language" c={c} styles={styles}>
-        <PlainInput value={language} onChangeText={setLanguage} placeholder="English" styles={styles} c={c} />
-      </FieldCard>
-
-      <FieldCard icon="barcode-outline" label="ISBN" c={c} styles={styles}>
-        <PlainInput value={isbn} onChangeText={setIsbn} placeholder="ISBN-10 or ISBN-13" keyboardType="number-pad" styles={styles} c={c} />
-      </FieldCard>
-
-      <FieldCard icon="image-outline" label="Cover image URL" c={c} styles={styles}>
-        <PlainInput value={coverImageUri} onChangeText={setCoverImageUri} placeholder="https://…" autoCapitalize="none" styles={styles} c={c} />
-      </FieldCard>
-
-      {/* ══ DESCRIPTION ══════════════════════════════════════════════════════ */}
-      <FieldCard icon="reader-outline" label="Description" c={c} styles={styles}>
-        <PlainInput value={synopsis} onChangeText={setSynopsis} placeholder="Synopsis…" multiline styles={styles} c={c} />
+        <View style={styles.seriesRow}>
+          <View style={{ flex: 1 }}>
+            <PlainInput value={seriesName} onChangeText={setSeriesName} placeholder="Series name" styles={styles} c={c} />
+          </View>
+          <View style={styles.seriesNumWrap}>
+            <PlainInput value={seriesNumber} onChangeText={setSeriesNumber} placeholder="#" keyboardType="number-pad" styles={styles} c={c} />
+          </View>
+        </View>
       </FieldCard>
 
       {/* ══ FORMAT ═══════════════════════════════════════════════════════════ */}
       <FieldCard icon="book-outline" label="Format" c={c} styles={styles}>
-        <View style={styles.pillRow}>
-          {FORMAT_OPTIONS.map((opt) => (
-            <Pressable
-              key={opt.value}
-              style={[styles.pill, format === opt.value && styles.pillActive]}
-              onPress={() => setFormat(opt.value)}
-            >
-              <Ionicons name={opt.icon} size={14} color={format === opt.value ? "#fff" : c.muted} />
-              <Text style={[styles.pillText, format === opt.value && styles.pillTextActive]}>{opt.label}</Text>
-            </Pressable>
-          ))}
-        </View>
+        {/* Trigger row */}
+        <Pressable style={styles.dropdownTrigger} onPress={() => setFormatOpen((v) => !v)}>
+          <Text style={styles.dropdownValue}>
+            {FORMAT_OPTIONS.find((o) => o.value === format)?.label ?? "Select format"}
+          </Text>
+          <Ionicons
+            name={formatOpen ? "chevron-up" : "chevron-down"}
+            size={16}
+            color={c.muted}
+          />
+        </Pressable>
+        {/* Expanded list */}
+        {formatOpen && (
+          <View style={styles.dropdownList}>
+            {FORMAT_OPTIONS.map((opt, i) => (
+              <Pressable
+                key={opt.value}
+                style={[
+                  styles.dropdownItem,
+                  i < FORMAT_OPTIONS.length - 1 && styles.dropdownItemBorder,
+                ]}
+                onPress={() => { setFormat(opt.value); setFormatOpen(false); }}
+              >
+                <Ionicons name={opt.icon} size={15} color={format === opt.value ? c.teal : c.muted} />
+                <Text style={[styles.dropdownItemText, format === opt.value && { color: c.teal, fontWeight: "900" }]}>
+                  {opt.label}
+                </Text>
+                {format === opt.value && (
+                  <Ionicons name="checkmark" size={16} color={c.teal} style={{ marginLeft: "auto" }} />
+                )}
+              </Pressable>
+            ))}
+          </View>
+        )}
       </FieldCard>
 
-      {/* ══ TAGS & FLAGS ═════════════════════════════════════════════════════ */}
-      <FieldCard icon="flag-outline" label="Tags" c={c} styles={styles}>
-        <ChipEditor chips={tags} onChipsChange={setTags} placeholder="Add tag…" styles={styles} c={c} />
-        <View style={styles.toggleRow}>
-          <ToggleChip label="Bestseller" active={isBestseller} onPress={() => setIsBestseller((v) => !v)} styles={styles} c={c} />
-          <ToggleChip label="Sequel"     active={isSequel}     onPress={() => setIsSequel((v) => !v)}     styles={styles} c={c} />
-        </View>
-      </FieldCard>
-
-      {/* ══ READING STATUS ═══════════════════════════════════════════════════ */}
-      <FieldCard icon="library-outline" label="Reading status" c={c} styles={styles}>
-        <View style={styles.pillRow}>
-          {STATUS_OPTIONS.map((opt) => (
-            <Pressable
-              key={opt.value}
-              style={[styles.pill, status === opt.value && styles.pillActive]}
-              onPress={() => setStatus(opt.value)}
-            >
-              <Text style={[styles.pillText, status === opt.value && styles.pillTextActive]}>{opt.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <View style={[styles.toggleRow, { marginTop: spacing.sm }]}>
-          <ToggleChip label="Owned"        active={ownership === "owned"} onPress={() => setOwnership(ownership === "owned" ? "not-owned" : "owned")} styles={styles} c={c} />
-          <ToggleChip label="Wishlist"     active={wishlist}   onPress={() => setWishlist((v) => !v)}   styles={styles} c={c} />
-          <ToggleChip label="Want to buy"  active={wantToBuy}  onPress={() => setWantToBuy((v) => !v)}  styles={styles} c={c} />
-        </View>
-      </FieldCard>
-
-      {/* ══ YOUR READING ═════════════════════════════════════════════════════ */}
+      {/* ══ RATING ═══════════════════════════════════════════════════════════ */}
       <FieldCard icon="star-outline" label="Your rating" c={c} styles={styles}>
         <StarRating value={rating} onChange={setRating} styles={styles} c={c} />
       </FieldCard>
 
-      <FieldCard icon="trophy-outline" label="Personal rank" c={c} styles={styles}>
-        <PlainInput value={personalRanking} onChangeText={setPersonalRanking} placeholder="#1 of all time…" keyboardType="number-pad" styles={styles} c={c} />
+      {/* ══ DETAILS ══════════════════════════════════════════════════════════ */}
+      <FieldCard icon="document-text-outline" label="Pages" c={c} styles={styles}>
+        <PlainInput value={pages} onChangeText={setPages} placeholder="Number of pages" keyboardType="number-pad" styles={styles} c={c} />
       </FieldCard>
 
-      <FieldCard icon="calendar-outline" label="Start date" c={c} styles={styles}>
-        <PlainInput value={startDate} onChangeText={setStartDate} placeholder="YYYY-MM-DD" styles={styles} c={c} />
+      <FieldCard icon="barcode-outline" label="ISBN" c={c} styles={styles}>
+        <View style={styles.isbnRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.isbnLabel}>ISBN-13</Text>
+            <PlainInput value={isbn13} onChangeText={setIsbn13} placeholder="9780000000000" keyboardType="number-pad" styles={styles} c={c} />
+          </View>
+          <View style={[styles.isbnDivider, { backgroundColor: c.border }]} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.isbnLabel}>ISBN-10</Text>
+            <PlainInput value={isbn10} onChangeText={setIsbn10} placeholder="0000000000" keyboardType="number-pad" styles={styles} c={c} />
+          </View>
+        </View>
       </FieldCard>
 
-      <FieldCard icon="checkmark-circle-outline" label="Finish date" c={c} styles={styles}>
-        <PlainInput value={finishDate} onChangeText={setFinishDate} placeholder="YYYY-MM-DD" styles={styles} c={c} />
-      </FieldCard>
-
-      <FieldCard icon="analytics-outline" label="Progress" c={c} styles={styles}>
-        <PlainInput value={progressPercent} onChangeText={setProgressPercent} placeholder="0–100" keyboardType="number-pad" styles={styles} c={c} />
-      </FieldCard>
-
-      <FieldCard icon="create-outline" label="Notes" c={c} styles={styles}>
-        <PlainInput value={notes} onChangeText={setNotes} placeholder="Personal notes…" multiline styles={styles} c={c} />
-      </FieldCard>
-
-      <FieldCard icon="chatbubble-ellipses-outline" label="Favourite quotes" c={c} styles={styles}>
-        <PlainInput value={favoriteQuotes} onChangeText={setFavoriteQuotes} placeholder="One quote per line…" multiline styles={styles} c={c} />
+      <FieldCard icon="image-outline" label="Cover image URL" c={c} styles={styles}>
+        <PlainInput value={coverImageUri} onChangeText={setCoverImageUri} placeholder="https://…" autoCapitalize="none" styles={styles} c={c} />
       </FieldCard>
 
       {/* ══ SAVE ═════════════════════════════════════════════════════════════ */}
@@ -712,8 +684,9 @@ function createStyles(c: AppColors) {
 
     // Save / delete
     saveBtn: {
+      ...shadows.card,
       alignItems: "center",
-      backgroundColor: c.navy,
+      backgroundColor: c.teal,
       borderRadius: radii.pill,
       flexDirection: "row",
       gap: spacing.sm,
@@ -745,6 +718,62 @@ function createStyles(c: AppColors) {
       paddingVertical: 12,
     },
     deleteBtnText: { color: c.coral, fontFamily: fonts.body, fontSize: 14, fontWeight: "900" },
+
+    // ISBN side-by-side
+    isbnRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
+    isbnDivider: { width: StyleSheet.hairlineWidth, alignSelf: "stretch", marginTop: 18 },
+    isbnLabel: {
+      color: c.muted,
+      fontFamily: fonts.body,
+      fontSize: 11,
+      fontWeight: "700",
+      letterSpacing: 0.5,
+      marginBottom: 2,
+      textTransform: "uppercase",
+    },
+
+    // Series inline layout
+    seriesRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
+    seriesNumWrap: { width: 56 },
+
+    // Dropdown
+    dropdownTrigger: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between",
+      paddingVertical: 4,
+    },
+    dropdownValue: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+    dropdownList: {
+      borderColor: c.border,
+      borderRadius: radii.sm,
+      borderWidth: 1,
+      marginTop: spacing.sm,
+      overflow: "hidden",
+    },
+    dropdownItem: {
+      alignItems: "center",
+      backgroundColor: c.surfaceAlt,
+      flexDirection: "row",
+      gap: 10,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 13,
+    },
+    dropdownItemBorder: {
+      borderBottomColor: c.border,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    dropdownItemText: {
+      color: c.ink,
+      fontFamily: fonts.body,
+      fontSize: 14,
+      fontWeight: "600",
+    },
 
     // Unused but kept for t() calls that might reference them
     emptyText: { color: c.muted, fontFamily: fonts.body, padding: spacing.lg },

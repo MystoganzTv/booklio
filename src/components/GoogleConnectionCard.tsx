@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useDialog } from "./DialogProvider";
 import * as AppleAuthentication from "expo-apple-authentication";
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as AuthSession from "expo-auth-session";
@@ -14,7 +15,7 @@ function getGoogleSignin() {
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Image, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
@@ -34,6 +35,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
   const c = useColors();
   const styles = useMemo(() => createStyles(c), [c]);
   const { t } = useI18n();
+  const dialog = useDialog();
   const { connectIdentityAccount, disconnectIdentityAccount, userProfile } = useBookliz();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [activeProvider, setActiveProvider] = useState<"google" | "apple" | null>(null);
@@ -73,7 +75,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
 
       const accessToken = response.authentication?.accessToken ?? response.params.access_token;
       if (!accessToken) {
-        Alert.alert(t("auth.googleFailedTitle"), t("auth.googleFailedBody"));
+        dialog.alert(t("auth.googleFailedTitle"), t("auth.googleFailedBody"));
         return;
       }
 
@@ -117,7 +119,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
         });
 
       } catch {
-        Alert.alert(t("auth.googleFailedTitle"), t("auth.googleFailedBody"));
+        dialog.alert(t("auth.googleFailedTitle"), t("auth.googleFailedBody"));
       } finally {
         setActiveProvider(null);
       }
@@ -138,7 +140,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
     }
 
     if (isExpoGo) {
-      Alert.alert(
+      dialog.alert(
         t("auth.devBuildTitle"),
         t("auth.devBuildBody")
       );
@@ -147,7 +149,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
 
     // Guard: detect unconfigured placeholder client IDs before hitting the native SDK
     if (Platform.OS === "ios" && (!config.iosClientId || config.iosClientId.includes("TU_"))) {
-      Alert.alert(
+      dialog.alert(
         "Google Sign-In not set up",
         "Add your iOS Client ID from Google Cloud Console to app.json → extra → googleAuth → iosClientId, then rebuild."
       );
@@ -198,7 +200,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
 
     } catch (error) {
       console.error("Bookliz native Google sign-in failed", error);
-      Alert.alert(t("auth.googleFailedTitle"), t("auth.googleFailedBody"));
+      dialog.alert(t("auth.googleFailedTitle"), t("auth.googleFailedBody"));
     } finally {
       setActiveProvider(null);
     }
@@ -206,7 +208,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
 
   const handleAppleSignIn = async () => {
     if (!isAppleAvailable) {
-      Alert.alert(t("auth.appleUnavailableTitle"), t("auth.appleUnavailableBody"));
+      dialog.alert(t("auth.appleUnavailableTitle"), t("auth.appleUnavailableBody"));
       return;
     }
 
@@ -249,7 +251,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
         return;
       }
       console.error("Bookliz Apple sign-in failed", error);
-      Alert.alert(t("auth.appleUnavailableTitle"), t("auth.appleFailedBody"));
+      dialog.alert(t("auth.appleUnavailableTitle"), t("auth.appleFailedBody"));
     } finally {
       setActiveProvider(null);
     }
@@ -260,7 +262,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
     try {
       await connectIdentityAccount(DEV_MOCK_USER);
     } catch {
-      Alert.alert("Dev mock login failed", "Could not connect mock account.");
+      dialog.alert("Dev mock login failed", "Could not connect mock account.");
     } finally {
       setActiveProvider(null);
     }

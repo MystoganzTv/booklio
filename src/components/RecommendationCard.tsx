@@ -30,10 +30,7 @@ export function RecommendationCard({
         style={compact ? styles.coverCompact : styles.cover}
       />
       <View style={styles.copy}>
-        <View style={styles.topline}>
-          <Text style={styles.reason}>{formatReason(recommendation.reason)}</Text>
-          <Text style={styles.confidence}>{recommendation.confidence}%</Text>
-        </View>
+        <Text style={styles.reason}>{formatReason(recommendation.reason)}</Text>
         <Text numberOfLines={2} style={styles.title}>{book.title}</Text>
         <Text numberOfLines={1} style={styles.author}>By {authorName}</Text>
         <Text numberOfLines={compact ? 2 : 3} style={styles.note}>{recommendation.note}</Text>
@@ -85,11 +82,6 @@ function createStyles(c: AppColors) {
     copy: {
       flex: 1,
       marginTop: spacing.sm
-    },
-    topline: {
-      alignItems: "center",
-      flexDirection: "row",
-      justifyContent: "space-between"
     },
     reason: {
       color: c.gold,

@@ -1,8 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useDialog } from "../components/DialogProvider";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { useMemo, useState } from "react";
 import {
-  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -39,6 +39,7 @@ function StarRow({ value, onChange }: { value: number; onChange: (v: number) => 
 export function WriteReviewScreen() {
   const c = useColors();
   const { t } = useI18n();
+  const dialog = useDialog();
   const styles = useMemo(() => createStyles(c), [c]);
   const route = useRoute<RouteP>();
   const navigation = useNavigation();
@@ -76,21 +77,16 @@ export function WriteReviewScreen() {
 
   const handleDelete = () => {
     if (!existing) return;
-    Alert.alert(
-      t("writeReview.deleteTitle"),
-      t("writeReview.deleteBody"),
-      [
-        { text: t("common.cancel"), style: "cancel" },
-        {
-          text: t("writeReview.deleteConfirm"),
-          style: "destructive",
-          onPress: () => {
-            deleteReview(existing.id);
-            navigation.goBack();
-          }
-        }
-      ]
-    );
+    dialog.confirm({
+      title: t("writeReview.deleteTitle"),
+      body: t("writeReview.deleteBody"),
+      confirmLabel: t("writeReview.deleteConfirm"),
+      destructive: true,
+      onConfirm: () => {
+        deleteReview(existing.id);
+        navigation.goBack();
+      },
+    });
   };
 
   return (

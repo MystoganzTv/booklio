@@ -4,9 +4,10 @@
  * Shows all books by an author:
  *   • "In your library" horizontal strip (books already added)
  *   • Full catalog from Google Books via inauthor: query — paginated
+ *   • Grid / list toggle
  *
- * Tapping a catalog book navigates to BookIntake with ISBN/title pre-filled.
- * Tapping a library book navigates to BookDetail.
+ * Tapping a catalog book → BookIntake (initialBookSelection pre-fills review).
+ * Tapping a library book → BookDetail.
  */
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -35,15 +36,20 @@ const PAGE_SIZE = 40;
 const COLLECTION_PATTERN = /\b(box\s*set|boxed\s*set|collection|omnibus|complete\s*works?|complete\s*series|books?\s*set|bundle|anthology|collected\s*works?)\b/i;
 const LOW_SIGNAL_PATTERN  = /\b(workbook|summary|study guide|companion|analysis|unauthorized)\b/i;
 
+type ViewMode = "grid" | "list";
+
 export function AuthorBooksScreen() {
   const route       = useRoute<RouteProp<RootStackParamList, "AuthorBooks">>();
   const navigation  = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const c           = useColors();
   const insets      = useSafeAreaInsets();
   const styles      = useMemo(() => createStyles(c), [c]);
-  const { books }   = useBookliz();
+  const { books, getAuthor } = useBookliz();
 
   const { authorId, authorName } = route.params;
+
+  // ── View mode ──────────────────────────────────────────────────────────────
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
 
   // ── Catalog state ──────────────────────────────────────────────────────────
   const [catalogBooks, setCatalogBooks]   = useState<GenreBookResult[]>([]);
@@ -54,10 +60,15 @@ export function AuthorBooksScreen() {
   const startIndexRef                     = useRef(0);
 
   // ── Library section ────────────────────────────────────────────────────────
-  const libraryBooks = useMemo(
-    () => books.filter((b) => b.authorId === authorId),
-    [books, authorId]
-  );
+  // Match by id when we have one (library author), by name otherwise (catalog
+  // author reached from search/discover).
+  const libraryBooks = useMemo(() => {
+    const wanted = authorName.trim().toLowerCase();
+    return books.filter((b) =>
+      (authorId && b.authorId === authorId) ||
+      (getAuthor(b.authorId)?.name ?? "").trim().toLowerCase() === wanted
+    );
+  }, [books, authorId, authorName, getAuthor]);
   const libraryIsbnSet = useMemo(
     () => new Set(books.map((b) => b.isbn).filter(Boolean) as string[]),
     [books]
@@ -75,8 +86,6 @@ export function AuthorBooksScreen() {
     }
 
     try {
-      // Use inauthor: to get books BY this author — same qualifier the search
-      // engine uses in author mode.
       const query = `inauthor:"${authorName}"`;
       const { books: fetched, totalItems: total } = await fetchByKeyword(
         query,
@@ -84,15 +93,11 @@ export function AuthorBooksScreen() {
         PAGE_SIZE
       );
 
-      // Quality filter — same approach as GenreBrowseScreen
       const highSignal = fetched.filter((b) => isHighSignalCatalogBook(b));
       const withCover  = fetched.filter((b) => !!b.coverUrl && !COLLECTION_PATTERN.test(b.title));
       let filtered     = highSignal.length >= 4 ? highSignal : withCover.length > 0 ? withCover : fetched;
-
-      // Remove study guides, summaries, unauthorized bios
       filtered = filtered.filter((b) => !LOW_SIGNAL_PATTERN.test(b.title));
 
-      // Sort: library-owned first, then by rating count descending
       filtered.sort((a, b) => {
         const aLib = a.isbn13 && libraryIsbnSet.has(a.isbn13) ? 1 : 0;
         const bLib = b.isbn13 && libraryIsbnSet.has(b.isbn13) ? 1 : 0;
@@ -133,26 +138,12 @@ export function AuthorBooksScreen() {
       navigation.navigate("BookDetail", { bookId: libBook.id });
       return;
     }
-    // Pre-fill BookIntake with as much metadata as we have
-    navigation.navigate("BookIntake", {
-      autoRun: true,
-      initialMode: "search",
-      ...(book.isbn13
-        ? { initialQuery: book.isbn13, initialSearchIntent: "auto" }
-        : { initialQuery: book.title, initialSearchIntent: "auto",
-            initialBookSelection: {
-              title: book.title,
-              authorName: book.authors[0] ?? authorName,
-              isbn: book.isbn13,
-              pages: book.pageCount,
-              coverImageUri: book.coverUrl,
-              publishedDate: book.publishedYear ? String(book.publishedYear) : undefined,
-            } as any }),
-    });
+    // Rich preview first — the user decides there whether to add it.
+    navigation.navigate("BookPreview", { book });
   }
 
-  // ── Catalog card ───────────────────────────────────────────────────────────
-  function renderCatalogCard({ item }: { item: GenreBookResult }) {
+  // ── Grid card ──────────────────────────────────────────────────────────────
+  function renderGridCard({ item }: { item: GenreBookResult }) {
     const inLibrary  = isInLibrary(item);
     const fullStars  = item.averageRating ? Math.round(item.averageRating) : 0;
     const ratingCount = item.ratingsCount
@@ -162,12 +153,12 @@ export function AuthorBooksScreen() {
       : null;
 
     return (
-      <Pressable style={styles.bookCard} onPress={() => handleCatalogPress(item)}>
+      <Pressable style={styles.gridCard} onPress={() => handleCatalogPress(item)}>
         <View style={styles.coverWrap}>
           {item.coverUrl ? (
-            <Image source={{ uri: item.coverUrl }} style={styles.cover} resizeMode="cover" />
+            <Image source={{ uri: item.coverUrl }} style={styles.gridCover} resizeMode="cover" />
           ) : (
-            <View style={[styles.cover, styles.coverPlaceholder]}>
+            <View style={[styles.gridCover, styles.coverPlaceholder]}>
               <Ionicons name="book-outline" size={28} color={c.border} />
             </View>
           )}
@@ -177,22 +168,14 @@ export function AuthorBooksScreen() {
             </View>
           )}
         </View>
-
-        <Text numberOfLines={2} style={styles.bookTitle}>{item.title}</Text>
-
+        <Text numberOfLines={2} style={styles.gridTitle}>{item.title}</Text>
         {fullStars > 0 ? (
           <View style={styles.ratingRow}>
             {[1,2,3,4,5].map((i) => (
-              <Ionicons
-                key={i}
-                name={i <= fullStars ? "star" : "star-outline"}
-                size={10}
-                color={i <= fullStars ? "#F5A623" : c.muted}
-              />
+              <Ionicons key={i} name={i <= fullStars ? "star" : "star-outline"} size={10}
+                color={i <= fullStars ? "#F5A623" : c.muted} />
             ))}
-            {ratingCount ? (
-              <Text style={styles.ratingCount}>{ratingCount}</Text>
-            ) : null}
+            {ratingCount ? <Text style={styles.ratingCount}>{ratingCount}</Text> : null}
           </View>
         ) : item.publishedYear ? (
           <Text style={styles.bookYear}>{item.publishedYear}</Text>
@@ -201,12 +184,62 @@ export function AuthorBooksScreen() {
     );
   }
 
+  // ── List row ───────────────────────────────────────────────────────────────
+  function renderListRow({ item }: { item: GenreBookResult }) {
+    const inLibrary  = isInLibrary(item);
+    const fullStars  = item.averageRating ? Math.round(item.averageRating) : 0;
+    const ratingCount = item.ratingsCount
+      ? item.ratingsCount >= 1000
+        ? `${(item.ratingsCount / 1000).toFixed(1)}k`
+        : String(item.ratingsCount)
+      : null;
+
+    return (
+      <Pressable style={styles.listRow} onPress={() => handleCatalogPress(item)}>
+        <View style={styles.listCoverWrap}>
+          {item.coverUrl ? (
+            <Image source={{ uri: item.coverUrl }} style={styles.listCover} resizeMode="cover" />
+          ) : (
+            <View style={[styles.listCover, styles.coverPlaceholder]}>
+              <Ionicons name="book-outline" size={20} color={c.border} />
+            </View>
+          )}
+          {inLibrary && (
+            <View style={[styles.libraryBadge, { backgroundColor: c.teal }]}>
+              <Ionicons name="checkmark" size={10} color="#fff" />
+            </View>
+          )}
+        </View>
+        <View style={styles.listInfo}>
+          <Text numberOfLines={2} style={styles.listTitle}>{item.title}</Text>
+          {item.authors[0] ? (
+            <Text numberOfLines={1} style={styles.listAuthor}>{item.authors[0]}</Text>
+          ) : null}
+          {item.publishedYear ? (
+            <Text style={styles.listYear}>{item.publishedYear}</Text>
+          ) : null}
+          {fullStars > 0 ? (
+            <View style={[styles.ratingRow, { marginTop: 4 }]}>
+              {[1,2,3,4,5].map((i) => (
+                <Ionicons key={i} name={i <= fullStars ? "star" : "star-outline"} size={10}
+                  color={i <= fullStars ? "#F5A623" : c.muted} />
+              ))}
+              {ratingCount ? <Text style={styles.ratingCount}>{ratingCount}</Text> : null}
+            </View>
+          ) : null}
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={c.muted} />
+      </Pressable>
+    );
+  }
+
+  const isGrid  = viewMode === "grid";
   const hasMore = catalogBooks.length < totalItems;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <View style={[styles.root, { backgroundColor: c.bg }]}>
-      {/* Custom back header — this screen uses headerShown: false */}
+      {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color={c.ink} />
@@ -215,6 +248,18 @@ export function AuthorBooksScreen() {
           <Text style={styles.eyebrow}>Author</Text>
           <Text numberOfLines={1} style={styles.heading}>{authorName}</Text>
         </View>
+        {/* Grid / list toggle */}
+        <Pressable
+          onPress={() => setViewMode(isGrid ? "list" : "grid")}
+          hitSlop={12}
+          style={styles.toggleBtn}
+        >
+          <Ionicons
+            name={isGrid ? "list-outline" : "grid-outline"}
+            size={22}
+            color={c.ink}
+          />
+        </Pressable>
       </View>
 
       {loading ? (
@@ -224,15 +269,17 @@ export function AuthorBooksScreen() {
         </View>
       ) : (
         <FlatList
+          key={viewMode}   // force re-mount when switching modes (numColumns change)
           data={catalogBooks}
           keyExtractor={(item) => item.id}
-          numColumns={2}
-          columnWrapperStyle={styles.columnWrapper}
+          numColumns={isGrid ? 2 : 1}
+          columnWrapperStyle={isGrid ? styles.columnWrapper : undefined}
           contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 24 }]}
           showsVerticalScrollIndicator={false}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.4}
-          renderItem={renderCatalogCard}
+          renderItem={isGrid ? renderGridCard : renderListRow}
+          ItemSeparatorComponent={isGrid ? undefined : () => <View style={styles.separator} />}
           ListHeaderComponent={
             <>
               {/* Library strip */}
@@ -305,9 +352,7 @@ export function AuthorBooksScreen() {
               <View style={styles.emptyState}>
                 <Ionicons name="search-outline" size={40} color={c.border} />
                 <Text style={styles.emptyTitle}>No results</Text>
-                <Text style={styles.emptySub}>
-                  Couldn't find catalog books for this author.
-                </Text>
+                <Text style={styles.emptySub}>Couldn't find catalog books for this author.</Text>
               </View>
             )
           }
@@ -332,6 +377,7 @@ function createStyles(c: AppColors) {
       paddingHorizontal: spacing.md,
     },
     backBtn: { padding: 4 },
+    toggleBtn: { padding: 4 },
     headerText: { flex: 1 },
     eyebrow: {
       color: c.tealDark,
@@ -356,6 +402,7 @@ function createStyles(c: AppColors) {
     // List
     listContent: { paddingBottom: 40 },
     columnWrapper: { gap: 0 },
+    separator: { backgroundColor: c.border, height: StyleSheet.hairlineWidth },
 
     // Sections
     section: { paddingTop: spacing.md, marginBottom: spacing.sm },
@@ -383,38 +430,38 @@ function createStyles(c: AppColors) {
     libraryCoverWrap: { position: "relative", marginBottom: 6 },
     libraryCover: { width: 96, height: 140, borderRadius: radii.sm },
     libraryBadgeLarge: {
-      alignItems: "center",
-      bottom: 6,
-      borderRadius: 10,
-      height: 20,
-      justifyContent: "center",
-      position: "absolute",
-      right: 6,
-      width: 20,
+      alignItems: "center", bottom: 6, borderRadius: 10, height: 20,
+      justifyContent: "center", position: "absolute", right: 6, width: 20,
     },
-    libraryTitle: { fontFamily: fonts.body, fontSize: 11, fontWeight: "800", lineHeight: 15, color: c.ink },
+    libraryTitle: { color: c.ink, fontFamily: fonts.body, fontSize: 11, fontWeight: "800", lineHeight: 15 },
 
-    // Catalog grid
-    bookCard: {
-      paddingBottom: spacing.md,
-      paddingLeft: spacing.md,
-      paddingRight: spacing.sm,
-      width: "50%",
-    },
+    // Grid cards
+    gridCard: { paddingBottom: spacing.md, paddingLeft: spacing.md, paddingRight: spacing.sm, width: "50%" },
     coverWrap: { marginBottom: 7, position: "relative" },
-    cover: { aspectRatio: 0.67, borderRadius: radii.sm, width: "100%" },
+    gridCover: { aspectRatio: 0.67, borderRadius: radii.sm, width: "100%" },
     coverPlaceholder: { alignItems: "center", backgroundColor: c.surfaceAlt, justifyContent: "center" },
     libraryBadge: {
-      alignItems: "center",
-      borderRadius: 8,
-      height: 16,
-      justifyContent: "center",
-      position: "absolute",
-      right: 6,
-      top: 6,
-      width: 16,
+      alignItems: "center", borderRadius: 8, height: 16, justifyContent: "center",
+      position: "absolute", right: 6, top: 6, width: 16,
     },
-    bookTitle: { color: c.ink, fontFamily: fonts.body, fontSize: 13, fontWeight: "800", lineHeight: 18, paddingHorizontal: 2 },
+    gridTitle: { color: c.ink, fontFamily: fonts.body, fontSize: 13, fontWeight: "800", lineHeight: 18, paddingHorizontal: 2 },
+
+    // List rows
+    listRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 12,
+    },
+    listCoverWrap: { position: "relative" },
+    listCover: { borderRadius: radii.sm, height: 72, width: 48 },
+    listInfo: { flex: 1, gap: 2 },
+    listTitle: { color: c.ink, fontFamily: fonts.body, fontSize: 15, fontWeight: "700", lineHeight: 20 },
+    listAuthor: { color: c.muted, fontFamily: fonts.body, fontSize: 12 },
+    listYear: { color: c.muted, fontFamily: fonts.body, fontSize: 12 },
+
+    // Shared
     ratingRow: { alignItems: "center", flexDirection: "row", gap: 2, marginTop: 3, paddingHorizontal: 2 },
     ratingCount: { color: c.muted, fontFamily: fonts.body, fontSize: 10, marginLeft: 2 },
     bookYear: { color: c.muted, fontFamily: fonts.body, fontSize: 11, marginTop: 3, paddingHorizontal: 2 },
@@ -422,18 +469,14 @@ function createStyles(c: AppColors) {
     // Footer
     footer: { alignItems: "center", paddingVertical: 16 },
     loadMoreBtn: {
-      alignItems: "center",
-      borderRadius: radii.pill,
-      borderWidth: 1,
-      marginHorizontal: spacing.lg,
-      marginVertical: spacing.md,
-      paddingVertical: 10,
+      alignItems: "center", borderRadius: radii.pill, borderWidth: 1,
+      marginHorizontal: spacing.lg, marginVertical: spacing.md, paddingVertical: 10,
     },
     loadMoreText: { fontFamily: fonts.body, fontSize: 14, fontWeight: "700" },
 
     // Empty / error
     emptyState: { alignItems: "center", gap: 12, paddingTop: 60 },
     emptyTitle: { color: c.ink, fontFamily: fonts.display, fontSize: 18, fontWeight: "900" },
-    emptySub: { color: c.muted, fontFamily: fonts.body, fontSize: 14, textAlign: "center", paddingHorizontal: 32 },
+    emptySub: { color: c.muted, fontFamily: fonts.body, fontSize: 14, paddingHorizontal: 32, textAlign: "center" },
   });
 }
