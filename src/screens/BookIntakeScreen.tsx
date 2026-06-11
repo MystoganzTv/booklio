@@ -6,6 +6,7 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { BooklizDialog } from "../components/BooklizDialog";
+import { ScalePressable } from "../components/ScalePressable";
 import { Screen } from "../components/Screen";
 import { useBookliz } from "../data/BooklizContext";
 import { useI18n } from "../i18n/LocalizationContext";
@@ -23,10 +24,6 @@ import {
   fetchBookMetadataByEditionKey,
   fetchBookMetadataByIsbn,
   fetchEditionOptionsByWorkKey,
-  metadataToBookInput,
-  OPEN_LIBRARY_PAGE_SIZE,
-  searchBookMetadata,
-  SearchMode,
   summarizeMetadataChanges
 } from "../utils/bookMetadata";
 import {
@@ -36,12 +33,9 @@ import {
 import {
   lookupByIsbn as aggregatorLookupByIsbn,
   lookupByQuery as aggregatorLookupByQuery,
-  workEditionToNewBookInput,
   detectQueryIntent,
 } from "../services/bookMetadataAggregator";
 import { buildUserTasteProfile, UserTasteProfile } from "../services/userTasteProfile";
-import { BookEdition, BookWork, WorkLookupResult } from "../types/bookMetadata";
-import { BookEditionsSheet } from "../components/BookEditionsSheet";
 import { parseIsbn, formatIsbn13 } from "../utils/isbnUtils";
 import { hapticLight, hapticSuccess } from "../utils/haptics";
 
@@ -52,94 +46,6 @@ type BookIntakeRouteProp = RouteProp<RootStackParamList, "BookIntake">;
 type MatchSortOrder = "relevance" | "popular" | "rating" | "year_desc" | "year_asc";
 
 const booklizLogo = require("../../assets/brand/bookliz-logo.png");
-
-const mockIsbnCatalog: Record<string, Omit<NewBookInput, "source">> = {
-  "9780441172719": {
-    title: "Dune",
-    authorName: "Frank Herbert",
-    isbn: "9780441172719",
-    pages: 896,
-    genre: ["Science Fiction", "Saga"],
-    publisher: "Ace",
-    publishedDate: "1965-08-01",
-    language: "English",
-    synopsis: "Paul Atreides enters the desert politics, ecology, prophecy, and danger of Arrakis."
-  },
-  "9780451524935": {
-    title: "1984",
-    authorName: "George Orwell",
-    isbn: "9780451524935",
-    pages: 328,
-    genre: ["Dystopian", "Classic"],
-    publisher: "Signet Classics",
-    publishedDate: "1949-06-08",
-    language: "English",
-    synopsis: "A chilling portrait of surveillance, language control, and resistance under Big Brother."
-  },
-  "9780735211292": {
-    title: "Atomic Habits",
-    authorName: "James Clear",
-    isbn: "9780735211292",
-    pages: 320,
-    genre: ["Personal Growth", "Nonfiction"],
-    publisher: "Avery",
-    publishedDate: "2018-10-16",
-    language: "English",
-    synopsis: "A practical system for building better habits through small, repeatable improvements."
-  },
-  "9780547928227": {
-    title: "The Hobbit",
-    authorName: "J. R. R. Tolkien",
-    isbn: "9780547928227",
-    pages: 300,
-    genre: ["Fantasy", "Adventure"],
-    publisher: "Mariner Books",
-    publishedDate: "1937-09-21",
-    language: "English",
-    synopsis: "Bilbo Baggins leaves the Shire for dragons, dwarves, riddles, and a very consequential ring."
-  },
-  "9780756404741": {
-    title: "The Name of the Wind",
-    authorName: "Patrick Rothfuss",
-    isbn: "9780756404741",
-    pages: 662,
-    genre: ["Fantasy", "Saga"],
-    publisher: "DAW Books",
-    publishedDate: "2007-03-27",
-    language: "English",
-    synopsis: "Kvothe recounts the first day of his life story: music, magic, reputation, and loss."
-  },
-  "9780590353427": {
-    title: "Harry Potter and the Sorcerer's Stone",
-    authorName: "J. K. Rowling",
-    isbn: "9780590353427",
-    pages: 309,
-    genre: ["Fantasy", "Young Adult"],
-    publisher: "Scholastic",
-    publishedDate: "1998-09-01",
-    language: "English",
-    synopsis: "A boy discovers a hidden magical world and begins his first year at Hogwarts."
-  },
-  "9780143127741": {
-    title: "Sapiens",
-    authorName: "Yuval Noah Harari",
-    isbn: "9780143127741",
-    pages: 464,
-    genre: ["History", "Nonfiction"],
-    publisher: "Harper",
-    publishedDate: "2015-02-10",
-    language: "English",
-    synopsis: "A sweeping history of humankind, from cognitive revolution to modern civilization."
-  }
-};
-
-const featuredExamples = [
-  "9780441172719",
-  "9780451524935",
-  "9780735211292",
-  "9780547928227",
-  "9780756404741"
-];
 
 const COMMON_LANGUAGES = [
   "English", "Spanish", "French", "German", "Italian",
@@ -454,10 +360,6 @@ export function BookIntakeScreen() {
   const [isBusy, setIsBusy] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchMode, setSearchMode] = useState<SearchMode>("general");
-  const [searchResults, setSearchResults] = useState<NewBookInput[]>([]);
-  const [searchTotal, setSearchTotal] = useState(0);
-  const [searchOffset, setSearchOffset] = useState(0);
   const [reviewBook, setReviewBook] = useState<NewBookInput | null>(null);
   const [reviewInsight, setReviewInsight] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ title: string; body: string } | null>(null);
@@ -489,9 +391,6 @@ export function BookIntakeScreen() {
     () => detectQueryIntent(matchLookupLabel) === "author",
     [matchLookupLabel]
   );
-  // Book Intelligence Engine — work result + editions sheet
-  const [lookupResult, setLookupResult] = useState<WorkLookupResult | null>(null);
-  const [isEditionsSheetVisible, setIsEditionsSheetVisible] = useState(false);
   const [isLoadingEditions, setIsLoadingEditions] = useState(false);
   // Review-screen edition picker (paperback / hardcover / translations…)
   const [showEditionModal, setShowEditionModal] = useState(false);
@@ -528,9 +427,6 @@ export function BookIntakeScreen() {
         setIsBusy(false);
         setIsLoadingMore(false);
         setSearchQuery("");
-        setSearchResults([]);
-        setSearchTotal(0);
-        setSearchOffset(0);
         setReviewBook(null);
         setReviewInsight(null);
         setIsAnalyzingPhoto(false);
@@ -542,8 +438,6 @@ export function BookIntakeScreen() {
         setMatches([]);
         setMatchLookupLabel("");
         setMatchViewMode("list");
-        setLookupResult(null);
-        setIsEditionsSheetVisible(false);
         setIsLoadingEditions(false);
         setManual({ title: "", authorName: "", isbn: "", pages: "", genre: "", publisher: "" });
       };
@@ -604,34 +498,6 @@ export function BookIntakeScreen() {
     });
   };
 
-  const addFromIsbn = async (isbn: string) => {
-    const clean = isbn.replace(/[^0-9X]/gi, "");
-    setIsBusy(true);
-    let found: NewBookInput | undefined;
-    try {
-      const metadata = await fetchBookMetadataByIsbn(clean);
-      found = metadata ? metadataToBookInput(metadata, "isbn", { isbn: metadata.isbn ?? clean }) : undefined;
-    } catch {
-      found = undefined;
-    } finally {
-      setIsBusy(false);
-    }
-
-    const fallback = mockIsbnCatalog[clean];
-    stageBook({
-      ...(found ?? fallback ?? {
-        title: `ISBN Book ${clean}`,
-        authorName: "Author to identify",
-        isbn: clean,
-        pages: 320,
-        genre: ["Uncategorized"],
-        publisher: "Publisher pending confirmation",
-        synopsis: "ISBN captured. Ready to be completed from a live metadata provider."
-      }),
-      source: "isbn"
-    }, found ? "Bookliz matched this ISBN with live metadata." : "Bookliz captured the ISBN. Review and complete any missing details.");
-  };
-
   const runSearch = async () => {
     if (!searchQuery.trim()) return;
     await lookupAndShowMatches(searchQuery.trim(), "search", "query");
@@ -665,32 +531,6 @@ export function BookIntakeScreen() {
       void lookupAndShowMatches(initialQuery, "search", "query", request.initialSearchIntent ?? "auto");
     }
   }, [route.params]);
-
-  const loadMoreResults = async () => {
-    if (isLoadingMore) return;
-    const nextOffset = searchOffset + OPEN_LIBRARY_PAGE_SIZE;
-    setIsLoadingMore(true);
-    try {
-      const { results } = await searchBookMetadata(searchQuery.trim(), searchMode, nextOffset);
-      setSearchResults((prev) => [...prev, ...results]);
-      setSearchOffset(nextOffset);
-    } catch {
-      // silent — keep existing results
-    } finally {
-      setIsLoadingMore(false);
-    }
-  };
-
-  const selectSearchResult = async (book: NewBookInput) => {
-    setIsBusy(true);
-    try {
-      await stageBook(await enrichBookInput(book));
-    } catch {
-      await stageBook(book);
-    } finally {
-      setIsBusy(false);
-    }
-  };
 
   const takeCoverPhoto = async () => {
     const result = await ImagePicker.launchCameraAsync({
@@ -737,7 +577,6 @@ export function BookIntakeScreen() {
 
     setSortOrder(initialSortOrder);
     setMatches([]);
-    setLookupResult(null);
     // Silent (live) searches keep whatever the user is typing in the input.
     if (!silent) setMatchLookupLabel(query);
     else setMatchLookupLabel((current) => (current.trim() ? current : query));
@@ -777,7 +616,6 @@ export function BookIntakeScreen() {
         timeout
       ]);
       if (seq !== searchSeqRef.current) return; // a newer search superseded this one
-      setLookupResult(result);
       // One match card per unique BookWork (different books), using each
       // work's own author, title, and best edition — not flatEditions which
       // mixes all editions from all books with the wrong author.
@@ -1466,7 +1304,6 @@ export function BookIntakeScreen() {
               onPress={() => {
                 setMatches([]);
                 setMatchLookupLabel("");
-                setLookupResult(null);
                 if (matchReturnMode === "isbn") {
                   setIsbnInputMode("camera");
                   setScanned(false);
@@ -1846,17 +1683,15 @@ export function BookIntakeScreen() {
           <View style={styles.searchHelperCard}>
             <Ionicons name="search-outline" size={18} color={c.tealDark} />
             <View style={styles.searchHelperCopy}>
-              <Text style={styles.searchHelperTitle}>Add Book is now the direct path</Text>
-              <Text style={styles.searchHelperText}>
-                Search for the exact book you want to add. For moods, genres, and trends, use Discover.
-              </Text>
+              <Text style={styles.searchHelperTitle}>{t("search.helperTitle")}</Text>
+              <Text style={styles.searchHelperText}>{t("search.helperBody")}</Text>
               <Text style={styles.searchHelperExamples}>
-                Try: <Text style={styles.searchHelperExamplesStrong}>Fourth Wing</Text>, <Text style={styles.searchHelperExamplesStrong}>Rebecca Yarros</Text>, <Text style={styles.searchHelperExamplesStrong}>Red Rising</Text>
+                {t("search.helperTry")} <Text style={styles.searchHelperExamplesStrong}>Fourth Wing</Text>, <Text style={styles.searchHelperExamplesStrong}>Rebecca Yarros</Text>, <Text style={styles.searchHelperExamplesStrong}>Red Rising</Text>
               </Text>
             </View>
           </View>
         ) : (
-          <Text style={styles.resultsHint}>We&apos;ll detect whether you&apos;re searching by title, author, or series.</Text>
+          <Text style={styles.resultsHint}>{t("search.detectHint")}</Text>
         )}
       </Screen>
     );
@@ -1994,53 +1829,6 @@ function Field({
         value={value}
         onChangeText={onChangeText}
       />
-    </View>
-  );
-}
-
-// LanguagePicker kept for backwards compat (used in manual entry elsewhere if needed)
-function LanguagePicker({ selected, onSelect }: { selected: string; onSelect: (lang: string) => void | Promise<void> }) {
-  const c = useColors();
-  const { isDark } = useTheme();
-  const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
-  const [custom, setCustom] = useState("");
-  const [showCustom, setShowCustom] = useState(!COMMON_LANGUAGES.includes(selected));
-
-  return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>Language</Text>
-      <View style={styles.languageGrid}>
-        {COMMON_LANGUAGES.map((lang) => {
-          const active = !showCustom && selected === lang;
-          return (
-            <Pressable
-              key={lang}
-              style={[styles.languageChip, active && styles.languageChipActive]}
-              onPress={() => { void onSelect(lang); setShowCustom(false); }}
-            >
-              <Text style={[styles.languageChipText, active && styles.languageChipTextActive]}>
-                {lang}
-              </Text>
-            </Pressable>
-          );
-        })}
-        <Pressable
-          style={[styles.languageChip, showCustom && styles.languageChipActive]}
-          onPress={() => setShowCustom(true)}
-        >
-          <Text style={[styles.languageChipText, showCustom && styles.languageChipTextActive]}>Other…</Text>
-        </Pressable>
-      </View>
-      {showCustom && (
-        <TextInput
-          autoFocus
-          placeholder="Type language…"
-          placeholderTextColor={c.gray}
-          style={[styles.input, { marginTop: spacing.sm }]}
-          value={custom}
-          onChangeText={(v) => { setCustom(v); void onSelect(v); }}
-        />
-      )}
     </View>
   );
 }
@@ -2325,7 +2113,7 @@ function MatchGridCard({ match, onSelect }: { match: BookMatch; onSelect: () => 
   const year = match.publishedDate ? match.publishedDate.slice(0, 4) : null;
 
   return (
-    <Pressable style={styles.matchGridCard} onPress={onSelect}>
+    <ScalePressable style={styles.matchGridCard} onPress={onSelect} pressScale={0.95}>
       <View style={styles.matchGridCoverWrap}>
         {match.coverUrl ? (
           <Image source={{ uri: match.coverUrl }} style={styles.matchGridCover} resizeMode="cover" />
@@ -2341,7 +2129,7 @@ function MatchGridCard({ match, onSelect }: { match: BookMatch; onSelect: () => 
       <Text numberOfLines={2} style={styles.matchGridTitle}>{match.title}</Text>
       <Text numberOfLines={1} style={styles.matchGridAuthor}>{match.authors[0] ?? ""}</Text>
       {year ? <Text style={styles.matchGridMeta}>{year}{match.pageCount ? ` · ${match.pageCount} pp` : ""}</Text> : null}
-    </Pressable>
+    </ScalePressable>
   );
 }
 

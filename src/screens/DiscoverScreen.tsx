@@ -27,6 +27,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { CatalogBookCard } from "../components/CatalogBookCard";
+import { ScalePressable } from "../components/ScalePressable";
 import { Screen } from "../components/Screen";
 import { Skeleton } from "../components/Skeleton";
 import { useBookliz } from "../data/BooklizContext";
@@ -39,8 +40,10 @@ import {
   PersonalizedRecommendationSection,
 } from "../services/recommendationEngine";
 import { buildUserTasteProfile } from "../services/userTasteProfile";
+import { HOURS, readCache, writeCache } from "../utils/discoverCache";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
+import { useI18n } from "../i18n/LocalizationContext";
 
 // ─── Moods ────────────────────────────────────────────────────────────────────
 
@@ -256,6 +259,7 @@ function selectBestCuratedMatch(
 
 export function DiscoverScreen() {
   const c = useColors();
+  const { t } = useI18n();
   const navigation = useNavigation<NavigationProp<RootStackParamList & MainTabParamList>>();
   const styles = useMemo(() => createStyles(c), [c]);
   const { authors, books, readingSessions, userProfile } = useBookliz();
@@ -281,31 +285,44 @@ export function DiscoverScreen() {
     let cancelled = false;
     setTrendingNetworkError(false);
 
-    Promise.all(
-      CURATED_TRENDING_TITLES.map(async (seed) => {
-        // Use structured operators so Google Books finds the exact book, not anything
-        // that mentions the title words in a description or publisher field.
-        const query = seed.author
-          ? `intitle:"${seed.title}" inauthor:"${seed.author}"`
-          : `intitle:"${seed.title}"`;
-        const { books } = await fetchByKeyword(query, 0, 8);
-        return selectBestCuratedMatch(books, seed);
-      })
-    )
-      .then((books) => {
+    // Rotation-aware cache key: a new day-of-year = new curated set = new key.
+    const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86_400_000);
+    const cacheKey = `trending-${dayOfYear}`;
+
+    const load = async () => {
+      const cached = await readCache<GenreBookResult[]>(cacheKey, 24 * HOURS);
+      if (cached?.length && !cancelled) {
+        setTrending(cached);
+        setLoadingTrending(false);
+        return;
+      }
+
+      try {
+        const books = await Promise.all(
+          CURATED_TRENDING_TITLES.map(async (seed) => {
+            // Structured operators so Google Books finds the exact book.
+            const query = seed.author
+              ? `intitle:"${seed.title}" inauthor:"${seed.author}"`
+              : `intitle:"${seed.title}"`;
+            const { books: results } = await fetchByKeyword(query, 0, 8);
+            return selectBestCuratedMatch(results, seed);
+          })
+        );
         if (cancelled) return;
-        setTrending(books.filter((book): book is GenreBookResult => Boolean(book)));
-      })
-      .catch(() => {
+        const found = books.filter((book): book is GenreBookResult => Boolean(book));
+        setTrending(found);
+        if (found.length) void writeCache(cacheKey, found);
+      } catch {
         if (!cancelled) {
           setTrending([]);
           setTrendingNetworkError(true);
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoadingTrending(false);
-      });
+      }
+    };
 
+    void load();
     return () => {
       cancelled = true;
     };
@@ -323,26 +340,38 @@ export function DiscoverScreen() {
 
     setLoadingPersonalized(true);
 
-    buildPersonalizedRecommendationSections(tasteProfile, libraryIndex, {
-      specs: recommendationSpecs,
-      fetchLimit: 40,
-      booksPerSection: 6,
-      minBooksPerSection: 2,
-    })
-      .then((sections) => {
+    // Cache keyed by the spec set: taste changes → new specs → new key.
+    const cacheKey = `personalized-${recommendationSpecs.map((spec) => spec.id).join("_")}`;
+
+    const load = async () => {
+      const cached = await readCache<PersonalizedRecommendationSection[]>(cacheKey, 12 * HOURS);
+      if (cached?.length && !cancelled) {
+        setPersonalizedSections(cached);
+        setLoadingPersonalized(false);
+        return;
+      }
+
+      try {
+        const sections = await buildPersonalizedRecommendationSections(tasteProfile, libraryIndex, {
+          specs: recommendationSpecs,
+          fetchLimit: 40,
+          booksPerSection: 6,
+          minBooksPerSection: 2,
+        });
         if (cancelled) return;
         setPersonalizedSections(sections);
-      })
-      .catch(() => {
+        if (sections.length) void writeCache(cacheKey, sections);
+      } catch {
         if (!cancelled) {
           setPersonalizedSections([]);
           setPersonalizedNetworkError(true);
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoadingPersonalized(false);
-      });
+      }
+    };
 
+    void load();
     return () => {
       cancelled = true;
     };
@@ -387,7 +416,7 @@ export function DiscoverScreen() {
       <Pressable style={styles.searchRow} onPress={() => openUnifiedSearch()}>
         <Ionicons name="search-outline" size={18} color={c.muted} style={styles.searchIcon} />
         <Text style={[styles.searchPlaceholder, { color: c.muted }]}>
-          Search books, authors, series...
+          {t("discover.searchPlaceholder")}
         </Text>
       </Pressable>
 
@@ -409,8 +438,8 @@ export function DiscoverScreen() {
       ) : personalizedSections.length > 0 ? (
         <>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Picked for you</Text>
-            <Text style={styles.sectionSubtitle}>Based on your library, habits, and favorite genres.</Text>
+            <Text style={styles.sectionTitle}>{t("discover.pickedForYou")}</Text>
+            <Text style={styles.sectionSubtitle}>{t("discover.pickedForYouSub")}</Text>
           </View>
           {personalizedSections.map((section) => (
             <View key={section.id} style={styles.personalizedBlock}>
@@ -424,7 +453,7 @@ export function DiscoverScreen() {
                   section.title,
                   section.focusGenre ?? section.focusAuthor ?? section.focusSeries
                 )}>
-                  <Text style={styles.personalizedAction}>See more</Text>
+                  <Text style={styles.personalizedAction}>{t("discover.seeMore")}</Text>
                 </Pressable>
               </View>
               <ScrollView
@@ -453,29 +482,29 @@ export function DiscoverScreen() {
       ) : personalizedNetworkError ? (
         <View style={styles.personalizedEmpty}>
           <Ionicons name="wifi-outline" size={24} color={c.muted} />
-          <Text style={styles.personalizedEmptyTitle}>Connection lost</Text>
+          <Text style={styles.personalizedEmptyTitle}>{t("discover.connectionLost")}</Text>
           <Text style={styles.personalizedEmptyBody}>
-            Please check your internet and try again.
+            {t("discover.connectionLostBody")}
           </Text>
         </View>
       ) : (
         // Empty state: not enough signal yet — show quietly, no CTA
         <View style={styles.personalizedEmpty}>
           <Ionicons name="book-outline" size={24} color={c.muted} />
-          <Text style={styles.personalizedEmptyTitle}>Your picks will appear here</Text>
+          <Text style={styles.personalizedEmptyTitle}>{t("discover.picksEmptyTitle")}</Text>
           <Text style={styles.personalizedEmptyBody}>
-            Start reading and rating books — we'll tailor this section to your taste.
+            {t("discover.picksEmptyBody")}
           </Text>
         </View>
       )}
 
       {/* ── Browse by mood ─────────────────────────────────────────────────── */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Browse by mood</Text>
+        <Text style={styles.sectionTitle}>{t("discover.byMood")}</Text>
       </View>
       <View style={styles.moodGrid}>
         {MOODS.map((mood) => (
-          <Pressable
+          <ScalePressable
             key={mood.id}
             style={styles.moodCard}
             onPress={() => goToCatalog(mood.catalogQuery, mood.label)}
@@ -489,17 +518,17 @@ export function DiscoverScreen() {
               <View style={[styles.moodTintOverlay, { backgroundColor: mood.tint }]} />
             </View>
             <Text style={styles.moodCardLabel}>{mood.label}</Text>
-          </Pressable>
+          </ScalePressable>
         ))}
       </View>
 
       {/* ── Browse by genre ────────────────────────────────────────────────── */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Browse by genre</Text>
+        <Text style={styles.sectionTitle}>{t("discover.byGenre")}</Text>
       </View>
       <View style={styles.genreGrid}>
         {CATALOG_GENRES.map((g) => (
-          <Pressable
+          <ScalePressable
             key={g.label}
             style={styles.genreCard}
             onPress={() => goToGenre(g)}
@@ -510,14 +539,14 @@ export function DiscoverScreen() {
               resizeMode="cover"
             />
             <Text style={styles.genreCardLabel}>{g.label}</Text>
-          </Pressable>
+          </ScalePressable>
         ))}
       </View>
 
       {/* ── Trending now ───────────────────────────────────────────────────── */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Trending on #BookTok</Text>
-        <Text style={styles.sectionSubtitle}>Fresh picks readers can&apos;t stop sharing.</Text>
+        <Text style={styles.sectionTitle}>{t("discover.trendingTitle")}</Text>
+        <Text style={styles.sectionSubtitle}>{t("discover.trendingSub")}</Text>
       </View>
       {loadingTrending ? (
         // Skeleton mirrors the real mosaic layout — zero layout shift on load
@@ -538,7 +567,7 @@ export function DiscoverScreen() {
       ) : trendingShowcase.length === 0 ? (
         <View style={styles.trendingEmpty}>
           <Ionicons name="wifi-outline" size={24} color={c.muted} />
-          <Text style={styles.trendingEmptyText}>Couldn't load trending books. Check your connection.</Text>
+          <Text style={styles.trendingEmptyText}>{t("discover.trendingError")}</Text>
         </View>
       ) : (
         <View style={styles.trendingSection}>
@@ -599,13 +628,13 @@ export function DiscoverScreen() {
               ) : null}
             </View>
           </View>
-          <Text style={styles.trendingCaption}>Tap any book to open it</Text>
+          <Text style={styles.trendingCaption}>{t("discover.trendingCaption")}</Text>
         </View>
       )}
 
       {/* ── Popular searches ───────────────────────────────────────────────── */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Popular searches</Text>
+        <Text style={styles.sectionTitle}>{t("discover.popularSearches")}</Text>
       </View>
       <ScrollView
         horizontal
@@ -639,7 +668,7 @@ function TrendingTile({
   onPress: (book: GenreBookResult) => void;
 }) {
   return (
-    <Pressable style={style} onPress={() => onPress(book)}>
+    <ScalePressable style={style} onPress={() => onPress(book)} pressScale={0.94}>
       {book.coverUrl ? (
         <Image
           source={{ uri: book.coverUrl }}
@@ -651,7 +680,7 @@ function TrendingTile({
           <Ionicons name="book-outline" size={24} color="#91A0B8" />
         </View>
       )}
-    </Pressable>
+    </ScalePressable>
   );
 }
 

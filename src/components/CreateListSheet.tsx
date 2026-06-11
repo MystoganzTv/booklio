@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useI18n } from "../i18n/LocalizationContext";
-import { colors, fonts, radii, spacing } from "../theme/theme";
+import { AppColors, fonts, radii, spacing } from "../theme/theme";
+import { useColors } from "../theme/ThemeContext";
 
 const EMOJI_PICKS = ["📚", "⭐", "🌙", "🔥", "💎", "🧠", "🌿", "🎯", "✨", "🗺️", "🏔️", "❤️"];
 
@@ -19,6 +20,8 @@ type Props = {
 
 export function CreateListSheet({ open, initialName = "", initialEmoji = "📚", mode = "create", onSave, onDelete, onClose }: Props) {
   const { t } = useI18n();
+  const c = useColors();
+  const styles = useMemo(() => createStyles(c), [c]);
   const [name, setName] = useState(initialName);
   const [emoji, setEmoji] = useState(initialEmoji);
   const inputRef = useRef<TextInput>(null);
@@ -66,7 +69,7 @@ export function CreateListSheet({ open, initialName = "", initialEmoji = "📚",
               ref={inputRef}
               style={styles.input}
               placeholder="List name"
-              placeholderTextColor={colors.muted}
+              placeholderTextColor={c.muted}
               value={name}
               onChangeText={setName}
               maxLength={40}
@@ -102,7 +105,8 @@ export function CreateListSheet({ open, initialName = "", initialEmoji = "📚",
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(c: AppColors) {
+  return StyleSheet.create({
   overlay: {
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.55)",
@@ -110,7 +114,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end"
   },
   sheet: {
-    backgroundColor: colors.cream,
+    backgroundColor: c.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingBottom: 44,
@@ -120,14 +124,14 @@ const styles = StyleSheet.create({
   },
   handle: {
     alignSelf: "center",
-    backgroundColor: colors.border,
+    backgroundColor: c.border,
     borderRadius: radii.pill,
     height: 4,
     marginBottom: spacing.lg,
     width: 40
   },
   title: {
-    color: colors.navy,
+    color: c.ink,
     fontFamily: fonts.display,
     fontSize: 22,
     fontWeight: "900",
@@ -141,8 +145,8 @@ const styles = StyleSheet.create({
   },
   emojiChip: {
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surfaceAlt,
+    borderColor: c.border,
     borderRadius: radii.md,
     borderWidth: 2,
     height: 44,
@@ -150,16 +154,16 @@ const styles = StyleSheet.create({
     width: 44
   },
   emojiChipActive: {
-    borderColor: colors.teal,
-    backgroundColor: colors.teal + "18"
+    borderColor: c.teal,
+    backgroundColor: c.teal + "18"
   },
   emojiText: {
     fontSize: 22
   },
   inputWrap: {
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: c.surfaceAlt,
+    borderColor: c.border,
     borderRadius: radii.md,
     borderWidth: 1,
     flexDirection: "row",
@@ -172,7 +176,7 @@ const styles = StyleSheet.create({
     fontSize: 22
   },
   input: {
-    color: colors.navy,
+    color: c.ink,
     flex: 1,
     fontFamily: fonts.body,
     fontSize: 16,
@@ -180,7 +184,7 @@ const styles = StyleSheet.create({
   },
   saveBtn: {
     alignItems: "center",
-    backgroundColor: colors.navy,
+    backgroundColor: c.teal,
     borderRadius: radii.pill,
     paddingVertical: 15
   },
@@ -216,9 +220,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10
   },
   cancelText: {
-    color: colors.muted,
+    color: c.muted,
     fontFamily: fonts.body,
     fontSize: 13,
     fontWeight: "900"
   }
 });
+}

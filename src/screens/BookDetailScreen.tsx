@@ -9,6 +9,7 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   ImageBackground,
   Linking,
   Modal,
@@ -20,6 +21,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BookCover } from "../components/BookCover";
+import { ScalePressable } from "../components/ScalePressable";
 import { RecommendationCard } from "../components/RecommendationCard";
 import { BookStatusSheet } from "../components/BookStatusSheet";
 import { BookListSheet } from "../components/BookListSheet";
@@ -64,6 +66,8 @@ export function BookDetailScreen() {
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [isFetchingSynopsis, setIsFetchingSynopsis] = useState(false);
   const [synopsisFetchFailed, setSynopsisFetchFailed] = useState(false);
+  // Parallax: hero drifts at ~45% scroll speed and zooms slightly on pull-down
+  const scrollY = useState(() => new Animated.Value(0))[0];
 
   if (!book) {
     return (
@@ -169,12 +173,36 @@ export function BookDetailScreen() {
 
   return (
     <View style={styles.root}>
-      <ScrollView
+      <Animated.ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: true }
+        )}
+        scrollEventThrottle={16}
       >
         {/* ── HERO ─────────────────────────────────────────────────────────── */}
+        <Animated.View
+          style={{
+            transform: [
+              {
+                translateY: scrollY.interpolate({
+                  inputRange: [-1, 0, 1],
+                  outputRange: [-0.55, 0, 0.45], // pull-down stretch, scroll-up drift
+                }),
+              },
+              {
+                scale: scrollY.interpolate({
+                  inputRange: [-300, 0],
+                  outputRange: [1.25, 1],
+                  extrapolateRight: "clamp",
+                }),
+              },
+            ],
+          }}
+        >
         {book.coverImageUri ? (
           <ImageBackground
             source={{ uri: book.coverImageUri.replace(/zoom=1(?=&|$)/, "zoom=0") }}
@@ -194,16 +222,18 @@ export function BookDetailScreen() {
             {HeroInner}
           </LinearGradient>
         )}
+        </Animated.View>
 
         {/* ── ACTION ROW ───────────────────────────────────────────────────── */}
-        <View style={styles.actionRow}>
-          <Pressable
+        <View style={[styles.actionRow, { zIndex: 2 }]}>
+          <ScalePressable
+            pressScale={0.97}
             style={[styles.primaryBtn, { backgroundColor: c.teal }]}
             onPress={() => { hapticMedium(); primaryAction.onPress(); }}
           >
             <Ionicons name={primaryAction.icon} size={16} color="#fff" />
             <Text style={styles.primaryBtnText}>{primaryAction.label}</Text>
-          </Pressable>
+          </ScalePressable>
           <Pressable style={styles.iconBtn} onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}>
             <Ionicons name={review ? "star" : "star-outline"} size={20} color={review ? c.gold : c.ink} />
           </Pressable>
@@ -304,6 +334,7 @@ export function BookDetailScreen() {
                       isbn: book.isbn || undefined,
                       title: book.title,
                       authorName: author?.name,
+                      language: book.language || undefined, // synopsis in the book's language
                     });
                     if (meta?.synopsis && !isPlaceholderText(meta.synopsis)) {
                       updateBookSynopsis(book.id, meta.synopsis);
@@ -496,7 +527,7 @@ export function BookDetailScreen() {
             </View>
           </View>
         ) : null}
-      </ScrollView>
+      </Animated.ScrollView>
 
       <BookStatusSheet
         open={statusSheetOpen}

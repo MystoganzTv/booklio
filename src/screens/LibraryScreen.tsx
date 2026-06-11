@@ -20,15 +20,16 @@ import { useColors, useTheme } from "../theme/ThemeContext";
 import { formatStatusLabel } from "../utils/statusLabels";
 import { normalizeBookGenres } from "../utils/genres";
 import { CreateListSheet } from "../components/CreateListSheet";
+import { ScalePressable } from "../components/ScalePressable";
 
 type ViewMode = "grid" | "list";
 type LibraryFilter = "all" | "reading" | "read" | "wishlist";
 
-const SIMPLE_FILTERS: { key: LibraryFilter; label: string }[] = [
-  { key: "all",      label: "All" },
-  { key: "reading",  label: "In progress" },
-  { key: "read",     label: "Finished" },
-  { key: "wishlist", label: "Wish list" },
+const SIMPLE_FILTERS: { key: LibraryFilter; labelKey: string }[] = [
+  { key: "all",      labelKey: "library.filterAll" },
+  { key: "reading",  labelKey: "library.filterInProgress" },
+  { key: "read",     labelKey: "library.filterFinished" },
+  { key: "wishlist", labelKey: "library.filterWishlist" },
 ];
 
 export function LibraryScreen() {
@@ -242,7 +243,7 @@ export function LibraryScreen() {
             style={[styles.listPill, !listFilter && styles.listPillActive]}
             onPress={() => setListFilter(null)}
           >
-            <Text style={[styles.listPillText, !listFilter && styles.listPillTextActive]}>All</Text>
+            <Text style={[styles.listPillText, !listFilter && styles.listPillTextActive]}>{t("library.filterAll")}</Text>
           </Pressable>
           {userLists.map((list) => {
             const active = listFilter === list.id;
@@ -310,7 +311,7 @@ export function LibraryScreen() {
             onPress={() => setFilter(item.key)}
           >
             <Text style={[styles.simpleTabText, filter === item.key && styles.simpleTabTextActive]}>
-              {item.label}
+              {t(item.labelKey)}
             </Text>
           </Pressable>
         ))}
@@ -585,7 +586,7 @@ function GridBookTile({
   );
 
   return (
-    <Pressable style={styles.bookTile} onPress={onPress}>
+    <ScalePressable style={styles.bookTile} onPress={onPress} pressScale={0.95}>
       <View style={styles.tileCoverContainer}>
         {coverEl}
         <FormatBadge format={book.format} size={13} style={styles.tileFormatBadge} />
@@ -600,7 +601,7 @@ function GridBookTile({
           Book {book.seriesNumber} · {book.seriesName}
         </Text>
       ) : null}
-    </Pressable>
+    </ScalePressable>
   );
 }
 

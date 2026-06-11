@@ -510,6 +510,10 @@ export async function resolveBookMetadata(input: {
   title?: string;
   authorName?: string;
   workKey?: string;
+  /** Preferred edition language (e.g. "Spanish"). When the resolved edition is
+   * in a different language, we look for a matching-language edition of the
+   * same work and prefer its metadata (title, synopsis, ISBN, cover). */
+  language?: string;
 }): Promise<BookMetadata | undefined> {
   const cleanIsbn = normalizeIsbn(input.isbn);
   const isbnMeta = cleanIsbn.length >= 10 ? await fetchBookMetadataByIsbn(cleanIsbn) : undefined;
@@ -518,8 +522,31 @@ export async function resolveBookMetadata(input: {
   const searchMeta = resolvedTitle ? await fetchBookMetadataByTitleAuthor(resolvedTitle, resolvedAuthor) : undefined;
   const workMeta = await fetchWorkMetadata(input.workKey ?? isbnMeta?.workKey ?? searchMeta?.workKey);
 
-  return mergeBookMetadata(mergeBookMetadata(isbnMeta, searchMeta), workMeta)
+  let merged = mergeBookMetadata(mergeBookMetadata(isbnMeta, searchMeta), workMeta)
     ?? mergeBookMetadata(mergeBookMetadata(searchMeta, workMeta), isbnMeta);
+
+  // Language preference: swap to a matching-language edition when available.
+  const wantedLang = input.language?.trim().toLowerCase();
+  const mergedLang = merged?.language?.trim().toLowerCase();
+  if (merged && wantedLang && mergedLang && wantedLang !== mergedLang && merged.workKey) {
+    try {
+      const options = await fetchEditionOptionsByWorkKey(merged.workKey, 30);
+      const match = options.find((o) => o.language?.toLowerCase() === wantedLang);
+      if (match) {
+        const detailed = match.isbn
+          ? await fetchBookMetadataByIsbn(match.isbn)
+          : await fetchBookMetadataByEditionKey(match.editionKey);
+        if (detailed) {
+          // Author is work-level; keep it from the original resolution.
+          merged = mergeBookMetadata({ ...detailed, authorName: merged.authorName ?? detailed.authorName }, merged);
+        }
+      }
+    } catch {
+      // keep the language-mismatched result rather than failing entirely
+    }
+  }
+
+  return merged;
 }
 
 export async function enrichBookInput(input: NewBookInput): Promise<NewBookInput> {

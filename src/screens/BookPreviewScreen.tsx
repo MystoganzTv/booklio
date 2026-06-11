@@ -23,6 +23,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ScalePressable } from "../components/ScalePressable";
 import { useBookliz } from "../data/BooklizContext";
 import { hapticMedium } from "../utils/haptics";
 import { useI18n } from "../i18n/LocalizationContext";
@@ -211,18 +212,19 @@ export function BookPreviewScreen() {
       {/* ── Sticky CTA ──────────────────────────────────────────────────────── */}
       <View style={[styles.ctaBar, { paddingBottom: insets.bottom + 12 }]}>
         {libraryBook ? (
-          <Pressable
+          <ScalePressable
+            pressScale={0.97}
             style={[styles.ctaBtn, { backgroundColor: c.navy }]}
             onPress={() => navigation.navigate("BookDetail", { bookId: libraryBook.id })}
           >
             <Ionicons name="library-outline" size={18} color="#fff" />
             <Text style={styles.ctaText}>{t("bookPreview.openInLibrary")}</Text>
-          </Pressable>
+          </ScalePressable>
         ) : (
-          <Pressable style={[styles.ctaBtn, { backgroundColor: c.teal }]} onPress={handleAdd}>
+          <ScalePressable pressScale={0.97} style={[styles.ctaBtn, { backgroundColor: c.teal }]} onPress={handleAdd}>
             <Ionicons name="add-circle-outline" size={19} color="#fff" />
             <Text style={styles.ctaText}>{t("bookPreview.addToLibrary")}</Text>
-          </Pressable>
+          </ScalePressable>
         )}
       </View>
     </View>

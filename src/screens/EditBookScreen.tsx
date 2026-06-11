@@ -59,14 +59,14 @@ const FORMAT_OPTIONS: { value: ReadingFormat; label: string; icon: keyof typeof 
   { value: "manga",                label: "Manga",                 icon: "language-outline" },
 ];
 
-const STATUS_OPTIONS: { value: CoreTrackingStatus; label: string }[] = [
-  { value: "reading",          label: "Reading" },
-  { value: "read",             label: "Read" },
-  { value: "want-to-read",     label: "Want to read" },
-  { value: "wishlist",         label: "Wishlist" },
-  { value: "want-to-buy",      label: "Want to buy" },
-  { value: "dnf",              label: "Did not finish" },
-  { value: "upcoming-release", label: "Upcoming" },
+const STATUS_OPTIONS: { value: CoreTrackingStatus; labelKey: string }[] = [
+  { value: "reading",          labelKey: "editBook.statusReading" },
+  { value: "read",             labelKey: "editBook.statusRead" },
+  { value: "want-to-read",     labelKey: "editBook.statusWant" },
+  { value: "wishlist",         labelKey: "editBook.statusWishlist" },
+  { value: "want-to-buy",      labelKey: "editBook.statusBuy" },
+  { value: "dnf",              labelKey: "editBook.statusDnf" },
+  { value: "upcoming-release", labelKey: "editBook.statusUpcoming" },
 ];
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ export function EditBookScreen() {
     }
     setIsFetching(true);
     let meta;
-    try { meta = await resolveBookMetadata({ isbn, title: title || book?.title, authorName }); }
+    try { meta = await resolveBookMetadata({ isbn, title: title || book?.title, authorName, language }); }
     catch (err) { console.warn("[Fetch Info]", err); }
     setIsFetching(false);
 
@@ -138,12 +138,19 @@ export function EditBookScreen() {
 
     const filled: string[] = [];
     const isBlank = (v: string) => isPlaceholderText(v) || v === "0" || v === "";
+    // The user asked for a different language than the book currently has and
+    // we found a matching-language edition: prefer that edition's title/synopsis.
+    const langSwitched = Boolean(
+      meta.language && language &&
+      meta.language.trim().toLowerCase() === language.trim().toLowerCase() &&
+      (book?.language ?? "").trim().toLowerCase() !== language.trim().toLowerCase()
+    );
 
-    if (meta.title       && isBlank(title))                           { setTitle(meta.title);                  filled.push("title"); }
+    if (meta.title       && (isBlank(title) || (langSwitched && meta.title !== title))) { setTitle(meta.title); filled.push("title"); }
     if (meta.pages       && meta.pages > 0 && isBlank(pages))        { setPages(String(meta.pages));           filled.push("pages"); }
     if (meta.publisher   && isBlank(publisher))                       { setPublisher(meta.publisher);           filled.push("publisher"); }
     if (meta.publishedDate && isBlank(publishedDate))                 { setPublishedDate(meta.publishedDate);   filled.push("published date"); }
-    if (meta.synopsis    && meta.synopsis.length > 30 && isBlank(synopsis)) { setSynopsis(meta.synopsis);      filled.push("synopsis"); }
+    if (meta.synopsis && meta.synopsis.length > 30 && (isBlank(synopsis) || (langSwitched && meta.synopsis !== synopsis))) { setSynopsis(meta.synopsis); filled.push("synopsis"); }
     // Replace the cover when blank, or when the current one was auto-fetched
     // (e.g. an odd audiobook-edition cover) — user photos (file://) are kept.
     const coverIsAuto = /books\.google|googleusercontent|openlibrary|archive\.org/i.test(coverImageUri);
@@ -234,15 +241,15 @@ export function EditBookScreen() {
       </Pressable>
 
       {/* ══ BOOK INFO ════════════════════════════════════════════════════════ */}
-      <FieldCard icon="text-outline" label="Title" c={c} styles={styles}>
+      <FieldCard icon="text-outline" label={t("editBook.labelTitle")} c={c} styles={styles}>
         <PlainInput value={title} onChangeText={setTitle} placeholder="Book title" styles={styles} c={c} />
       </FieldCard>
 
-      <FieldCard icon="person-outline" label="Author" c={c} styles={styles}>
+      <FieldCard icon="person-outline" label={t("editBook.labelAuthor")} c={c} styles={styles}>
         <PlainInput value={authorName} onChangeText={setAuthorName} placeholder="Author name" styles={styles} c={c} />
       </FieldCard>
 
-      <FieldCard icon="layers-outline" label="Series" c={c} styles={styles}>
+      <FieldCard icon="layers-outline" label={t("editBook.labelSeries")} c={c} styles={styles}>
         <View style={styles.seriesRow}>
           <View style={{ flex: 1 }}>
             <PlainInput value={seriesName} onChangeText={setSeriesName} placeholder="Series name" styles={styles} c={c} />
@@ -254,7 +261,7 @@ export function EditBookScreen() {
       </FieldCard>
 
       {/* ══ FORMAT ═══════════════════════════════════════════════════════════ */}
-      <FieldCard icon="book-outline" label="Format" c={c} styles={styles}>
+      <FieldCard icon="book-outline" label={t("editBook.labelFormat")} c={c} styles={styles}>
         {/* Trigger row */}
         <Pressable style={styles.dropdownTrigger} onPress={() => setFormatOpen((v) => !v)}>
           <Text style={styles.dropdownValue}>
@@ -292,16 +299,16 @@ export function EditBookScreen() {
       </FieldCard>
 
       {/* ══ RATING ═══════════════════════════════════════════════════════════ */}
-      <FieldCard icon="star-outline" label="Your rating" c={c} styles={styles}>
+      <FieldCard icon="star-outline" label={t("editBook.labelRating")} c={c} styles={styles}>
         <StarRating value={rating} onChange={setRating} styles={styles} c={c} />
       </FieldCard>
 
       {/* ══ DETAILS ══════════════════════════════════════════════════════════ */}
-      <FieldCard icon="document-text-outline" label="Pages" c={c} styles={styles}>
+      <FieldCard icon="document-text-outline" label={t("editBook.labelPages")} c={c} styles={styles}>
         <PlainInput value={pages} onChangeText={setPages} placeholder="Number of pages" keyboardType="number-pad" styles={styles} c={c} />
       </FieldCard>
 
-      <FieldCard icon="barcode-outline" label="ISBN" c={c} styles={styles}>
+      <FieldCard icon="barcode-outline" label={t("editBook.labelIsbn")} c={c} styles={styles}>
         <View style={styles.isbnRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.isbnLabel}>ISBN-13</Text>
@@ -315,7 +322,26 @@ export function EditBookScreen() {
         </View>
       </FieldCard>
 
-      <FieldCard icon="image-outline" label="Cover image URL" c={c} styles={styles}>
+      <FieldCard icon="language-outline" label={t("editBook.labelLanguage")} c={c} styles={styles}>
+        <View style={styles.langChipRow}>
+          {["English", "Spanish", "French", "German", "Italian", "Portuguese"].map((lang) => {
+            const active = language.trim().toLowerCase() === lang.toLowerCase();
+            return (
+              <Pressable
+                key={lang}
+                style={[styles.toggleChip, active && styles.toggleChipActive]}
+                onPress={() => setLanguage(lang)}
+              >
+                <Text style={[styles.toggleChipText, active && styles.toggleChipTextActive]}>{lang}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <PlainInput value={language} onChangeText={setLanguage} placeholder="Language" styles={styles} c={c} />
+        <Text style={styles.langHint}>{t("editBook.langHint")}</Text>
+      </FieldCard>
+
+      <FieldCard icon="image-outline" label={t("editBook.labelCover")} c={c} styles={styles}>
         <PlainInput value={coverImageUri} onChangeText={setCoverImageUri} placeholder="https://…" autoCapitalize="none" styles={styles} c={c} />
       </FieldCard>
 
@@ -640,6 +666,17 @@ function createStyles(c: AppColors) {
       fontFamily: fonts.body,
       fontSize: 12,
       fontWeight: "900",
+    },
+
+    // Language picker
+    langChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 },
+    langHint: {
+      color: c.muted,
+      fontFamily: fonts.bodyRegular,
+      fontSize: 12,
+      lineHeight: 17,
+      marginTop: 8,
+      opacity: 0.85,
     },
 
     // Toggle chip

@@ -31,6 +31,7 @@ import { isHighSignalCatalogBook } from "../services/recommendationEngine";
 import { Book } from "../types/models";
 import { AppColors, fonts, radii, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
+import { useI18n } from "../i18n/LocalizationContext";
 
 const PAGE_SIZE = 40;
 const COLLECTION_PATTERN = /\b(box\s*set|boxed\s*set|collection|omnibus|complete\s*works?|complete\s*series|books?\s*set|bundle|anthology|collected\s*works?)\b/i;
@@ -42,6 +43,7 @@ export function AuthorBooksScreen() {
   const route       = useRoute<RouteProp<RootStackParamList, "AuthorBooks">>();
   const navigation  = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const c           = useColors();
+  const { t }       = useI18n();
   const insets      = useSafeAreaInsets();
   const styles      = useMemo(() => createStyles(c), [c]);
   const { books, getAuthor } = useBookliz();
@@ -245,7 +247,7 @@ export function AuthorBooksScreen() {
           <Ionicons name="chevron-back" size={24} color={c.ink} />
         </Pressable>
         <View style={styles.headerText}>
-          <Text style={styles.eyebrow}>Author</Text>
+          <Text style={styles.eyebrow}>{t("catalog.authorEyebrow")}</Text>
           <Text numberOfLines={1} style={styles.heading}>{authorName}</Text>
         </View>
         {/* Grid / list toggle */}
@@ -285,7 +287,7 @@ export function AuthorBooksScreen() {
               {/* Library strip */}
               {libraryBooks.length > 0 && (
                 <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>In your library</Text>
+                  <Text style={styles.sectionTitle}>{t("catalog.inYourLibrary")}</Text>
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
@@ -318,7 +320,7 @@ export function AuthorBooksScreen() {
 
               {/* Catalog header */}
               <View style={styles.catalogHeader}>
-                <Text style={styles.sectionTitle}>All books</Text>
+                <Text style={styles.sectionTitle}>{t("catalog.allBooks")}</Text>
                 {totalItems > 0 && (
                   <Text style={styles.totalCount}>
                     {totalItems > 500 ? "500+" : totalItems.toLocaleString()}
@@ -337,7 +339,7 @@ export function AuthorBooksScreen() {
                 style={[styles.loadMoreBtn, { borderColor: c.border }]}
                 onPress={handleLoadMore}
               >
-                <Text style={[styles.loadMoreText, { color: c.teal }]}>Load more</Text>
+                <Text style={[styles.loadMoreText, { color: c.teal }]}>{t("catalog.loadMore")}</Text>
               </Pressable>
             ) : null
           }
@@ -345,14 +347,14 @@ export function AuthorBooksScreen() {
             networkError ? (
               <View style={styles.emptyState}>
                 <Ionicons name="wifi-outline" size={40} color={c.border} />
-                <Text style={styles.emptyTitle}>Connection lost</Text>
-                <Text style={styles.emptySub}>Check your internet and try again.</Text>
+                <Text style={styles.emptyTitle}>{t("catalog.connectionLost")}</Text>
+                <Text style={styles.emptySub}>{t("catalog.connectionLostBody")}</Text>
               </View>
             ) : (
               <View style={styles.emptyState}>
                 <Ionicons name="search-outline" size={40} color={c.border} />
-                <Text style={styles.emptyTitle}>No results</Text>
-                <Text style={styles.emptySub}>Couldn't find catalog books for this author.</Text>
+                <Text style={styles.emptyTitle}>{t("catalog.noResults")}</Text>
+                <Text style={styles.emptySub}>{t("catalog.noResultsAuthor")}</Text>
               </View>
             )
           }

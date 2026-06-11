@@ -114,7 +114,7 @@ function createStyles(c: AppColors) {
       paddingVertical: 15,
     },
     buttonConfirm: {
-      backgroundColor: c.navy,
+      backgroundColor: c.teal, // navy was invisible on dark surfaces
     },
     buttonCancel: {
       backgroundColor: c.surfaceAlt,
@@ -127,7 +127,7 @@ function createStyles(c: AppColors) {
       borderWidth: 1,
     },
     buttonText: {
-      color: c.surface,
+      color: "#FFFFFF",
       fontFamily: fonts.body,
       fontSize: 14,
       fontWeight: "900",

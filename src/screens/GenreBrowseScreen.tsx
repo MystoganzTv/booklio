@@ -29,6 +29,7 @@ import { fetchByGenre, fetchByKeyword, GenreBookResult } from "../services/googl
 import { isHighSignalCatalogBook } from "../services/recommendationEngine";
 import { AppColors, fonts, radii, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
+import { useI18n } from "../i18n/LocalizationContext";
 import { Book } from "../types/models";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -129,6 +130,7 @@ export function GenreBrowseScreen() {
   const { params } = useRoute<RouteProps>();
   const navigation = useNavigation<NavProps>();
   const c = useColors();
+  const { t } = useI18n();
   const { books } = useBookliz();
   const styles = useMemo(() => createStyles(c), [c]);
 
@@ -353,7 +355,7 @@ export function GenreBrowseScreen() {
               {!isKeywordMode && libraryBooks.length > 0 && (
                 <View style={styles.section}>
                   <Text style={[styles.sectionTitle, { color: c.ink }]}>
-                    In your library
+                    {t("catalog.inYourLibrary")}
                   </Text>
                   <ScrollView
                     horizontal
@@ -394,11 +396,11 @@ export function GenreBrowseScreen() {
               {/* Catalog header */}
               <View style={styles.catalogHeader}>
                 <Text style={[styles.sectionTitle, { color: c.ink }]}>
-                  All titles
+                  {t("catalog.allTitles")}
                 </Text>
                 {totalItems > 0 && (
                   <Text style={[styles.totalCount, { color: c.muted }]}>
-                    {totalItems > 500 ? "500+" : totalItems.toLocaleString()} books
+                    {t("catalog.booksCount", { count: totalItems > 500 ? "500+" : totalItems.toLocaleString() })}
                   </Text>
                 )}
               </View>
@@ -414,7 +416,7 @@ export function GenreBrowseScreen() {
                 style={[styles.loadMoreBtn, { borderColor: c.border }]}
                 onPress={handleLoadMore}
               >
-                <Text style={[styles.loadMoreText, { color: c.teal }]}>Load more</Text>
+                <Text style={[styles.loadMoreText, { color: c.teal }]}>{t("catalog.loadMore")}</Text>
               </Pressable>
             ) : null
           }
@@ -423,17 +425,17 @@ export function GenreBrowseScreen() {
               networkError ? (
                 <View style={styles.emptyState}>
                   <Ionicons name="wifi-outline" size={40} color={c.border} />
-                  <Text style={[styles.emptyTitle, { color: c.ink }]}>Connection lost</Text>
+                  <Text style={[styles.emptyTitle, { color: c.ink }]}>{t("catalog.connectionLost")}</Text>
                   <Text style={[styles.emptySub, { color: c.muted }]}>
-                    Please check your internet and try again.
+                    {t("catalog.connectionLostBody")}
                   </Text>
                 </View>
               ) : (
                 <View style={styles.emptyState}>
                   <Ionicons name="search-outline" size={40} color={c.border} />
-                  <Text style={[styles.emptyTitle, { color: c.ink }]}>No results</Text>
+                  <Text style={[styles.emptyTitle, { color: c.ink }]}>{t("catalog.noResults")}</Text>
                   <Text style={[styles.emptySub, { color: c.muted }]}>
-                    Try a different genre or check your connection.
+                    {t("catalog.noResultsGenre")}
                   </Text>
                 </View>
               )

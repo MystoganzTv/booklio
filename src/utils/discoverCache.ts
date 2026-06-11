@@ -1,0 +1,38 @@
+/**
+ * discoverCache — tiny AsyncStorage cache for Discover's network sections.
+ *
+ * Cold-opening Discover used to refetch everything (6+ requests before pixels).
+ * Now cached results render instantly and refresh only after their TTL expires.
+ * Cache keys include a version so shape changes never break old payloads.
+ */
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const VERSION = "v1";
+
+type CacheEnvelope<T> = {
+  savedAt: number;
+  data: T;
+};
+
+export async function readCache<T>(key: string, ttlMs: number): Promise<T | null> {
+  try {
+    const raw = await AsyncStorage.getItem(`@bookliz/cache/${VERSION}/${key}`);
+    if (!raw) return null;
+    const envelope = JSON.parse(raw) as CacheEnvelope<T>;
+    if (!envelope?.savedAt || Date.now() - envelope.savedAt > ttlMs) return null;
+    return envelope.data;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeCache<T>(key: string, data: T): Promise<void> {
+  try {
+    const envelope: CacheEnvelope<T> = { savedAt: Date.now(), data };
+    await AsyncStorage.setItem(`@bookliz/cache/${VERSION}/${key}`, JSON.stringify(envelope));
+  } catch {
+    // cache writes are best-effort
+  }
+}
+
+export const HOURS = 60 * 60 * 1000;
