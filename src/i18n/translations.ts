@@ -326,6 +326,15 @@ export const translations: Record<AppLocale, TranslationTree> = {
       connectionLost: "Connection lost",
       connectionLostBody: "Check your internet and try again.",
     },
+    identity: {
+      topGenres: "Into {a}, {b} and {c}",
+      topAuthor: "A {author} devotee",
+      "format.audio": "Audiobook-first reader",
+      "format.digital": "Reads mostly digital",
+      "pace.short": "Short, frequent reading sessions",
+      "pace.medium": "Steady reading sessions",
+      "pace.long": "Long, immersive reading sessions",
+    },
     legal: {
       privacyTitle: "Privacy Policy",
       termsTitle: "Terms of Use",
@@ -1058,6 +1067,15 @@ export const translations: Record<AppLocale, TranslationTree> = {
       noResultsAuthor: "No encontramos libros de catálogo para este autor.",
       connectionLost: "Sin conexión",
       connectionLostBody: "Revisa tu internet e intenta de nuevo.",
+    },
+    identity: {
+      topGenres: "Te van {a}, {b} y {c}",
+      topAuthor: "Devoto de {author}",
+      "format.audio": "Lector de audiolibros",
+      "format.digital": "Lee sobre todo en digital",
+      "pace.short": "Sesiones cortas y frecuentes",
+      "pace.medium": "Sesiones de lectura constantes",
+      "pace.long": "Sesiones largas e inmersivas",
     },
     legal: {
       privacyTitle: "Política de privacidad",

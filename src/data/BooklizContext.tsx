@@ -29,6 +29,7 @@ import { buildInitials, clearPersistedConnectedAccount, ConnectedAccount, persis
 import { buildBookSpecificRecommendations, buildGlobalRecommendations } from "../utils/recommendationEngine";
 import { supabase } from "../lib/supabase";
 import { normalizeBookGenres } from "../utils/genres";
+import { computeReadingIdentity, loadStoredIdentity, ReadingIdentity, storeIdentity } from "../utils/readingIdentity";
 
 type MonthBucket = {
   label: string;
@@ -128,6 +129,8 @@ type BooklizContextValue = {
   overallStats: OverallStats;
   seriesJustCompleted: { seriesId: string; seriesName: string } | null;
   clearSeriesCompletion: () => void;
+  /** Phase 1 — on-device reader profile. Null until first computation. */
+  readingIdentity: ReadingIdentity | null;
 };
 
 const BooklizContext = createContext<BooklizContextValue | null>(null);
@@ -678,6 +681,7 @@ export function BooklizProvider({ children }: PropsWithChildren) {
   const [onboardingComplete, setOnboardingComplete] = useState(false);
   const [repositoryStatus, setRepositoryStatus] = useState<RepositoryStatus>(repositoryRef.current.getStatus());
   const [seriesJustCompleted, setSeriesJustCompleted] = useState<{ seriesId: string; seriesName: string } | null>(null);
+  const [readingIdentity, setReadingIdentity] = useState<ReadingIdentity | null>(null);
   const resolvedProfile = useMemo(
     () => enrichProfileAchievements(profile, books, readingSessions, reviews),
     [books, profile, readingSessions, reviews]
@@ -691,6 +695,33 @@ export function BooklizProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     latestStateRef.current = { authors, books, readingSessions, reviews, userLists, userProfile: resolvedProfile };
   }, [authors, books, readingSessions, reviews, userLists, resolvedProfile]);
+
+  // ── Reading identity (Phase 1, BOOKLIZ_PLATFORM_ROADMAP.md) ────────────────
+  // Local-first: load the cached identity instantly on mount…
+  useEffect(() => {
+    let mounted = true;
+    void loadStoredIdentity().then((cached) => {
+      if (mounted && cached) setReadingIdentity(cached);
+    });
+    return () => { mounted = false; };
+  }, []);
+
+  // …then recompute (debounced 5s) whenever the underlying data changes.
+  // Pure on-device reduction — no network, works fully offline.
+  useEffect(() => {
+    if (!hydrated) return; // don't compute over seed data before hydration
+    const timer = setTimeout(() => {
+      try {
+        const identity = computeReadingIdentity({ authors, books, readingSessions, reviews });
+        setReadingIdentity(identity);
+        void storeIdentity(identity);
+        if (__DEV__) console.log("[IDENTITY]", JSON.stringify(identity, null, 2));
+      } catch {
+        // identity is a derived nicety — never let it break the app
+      }
+    }, 5_000);
+    return () => clearTimeout(timer);
+  }, [hydrated, authors, books, readingSessions, reviews]);
 
   useEffect(() => {
     let mounted = true;
@@ -1475,9 +1506,10 @@ export function BooklizProvider({ children }: PropsWithChildren) {
       getRecommendationsForBook,
       overallStats: buildOverallStats(books, readingSessions, authors),
       seriesJustCompleted,
-      clearSeriesCompletion: () => setSeriesJustCompleted(null)
+      clearSeriesCompletion: () => setSeriesJustCompleted(null),
+      readingIdentity
     };
-  }, [authors, books, onboardingComplete, readingSessions, repositoryStatus, resolvedProfile, reviews, seriesJustCompleted, userLists]);
+  }, [authors, books, onboardingComplete, readingSessions, readingIdentity, repositoryStatus, resolvedProfile, reviews, seriesJustCompleted, userLists]);
 
   if (!hydrated) return null;
 
