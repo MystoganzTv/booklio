@@ -416,6 +416,8 @@ type BookRow = {
   work_key?: string | null;
   edition_key?: string | null;
   language_code?: string | null;
+  co_author_names?: string[] | null;
+  co_author_ids?: string[] | null;
   user_status: Book["userStatus"];
 };
 
@@ -518,6 +520,8 @@ function mapBookToRow(userId: string, book: Book) {
     work_key: book.workKey,
     edition_key: book.editionKey,
     language_code: book.languageCode,
+    co_author_names: book.coAuthorNames ?? null,
+    co_author_ids: book.coAuthorIds ?? null,
     user_status: book.userStatus
   };
 }
@@ -549,6 +553,8 @@ function mapBookRowToBook(row: BookRow): Book {
     workKey: row.work_key ?? undefined,
     editionKey: row.edition_key ?? undefined,
     languageCode: row.language_code ?? undefined,
+    coAuthorNames: row.co_author_names ?? undefined,
+    coAuthorIds: row.co_author_ids ?? undefined,
     userStatus: row.user_status
   };
 }
