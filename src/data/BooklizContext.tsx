@@ -29,6 +29,7 @@ import { buildInitials, clearPersistedConnectedAccount, ConnectedAccount, persis
 import { buildBookSpecificRecommendations, buildGlobalRecommendations } from "../utils/recommendationEngine";
 import { supabase } from "../lib/supabase";
 import { normalizeBookGenres } from "../utils/genres";
+import { inferSeriesData } from "../utils/knownWorks";
 import { computeReadingIdentity, loadStoredIdentity, ReadingIdentity, storeIdentity } from "../utils/readingIdentity";
 
 type MonthBucket = {
@@ -1099,6 +1100,8 @@ export function BooklizProvider({ children }: PropsWithChildren) {
           ...existingBook,
           title: input.title.trim() || existingBook.title,
           authorId,
+          seriesName: input.seriesName ?? existingBook.seriesName,
+          seriesNumber: input.seriesNumber ?? existingBook.seriesNumber,
           coAuthorNames: coAuthorNames.length ? coAuthorNames : existingBook.coAuthorNames,
           coAuthorIds: coAuthorIds.length ? coAuthorIds : existingBook.coAuthorIds,
           synopsis: input.synopsis?.trim() || existingBook.synopsis,
@@ -1130,10 +1133,20 @@ export function BooklizProvider({ children }: PropsWithChildren) {
         return mergedBook;
       }
 
+      // Series: persist what the source provided; otherwise consult the curated
+      // catalog (structural data only — never fabricated).
+      const inferredSeries = !input.seriesName
+        ? inferSeriesData(input.title, authorName)
+        : null;
+      const seriesName = input.seriesName ?? inferredSeries?.seriesName;
+      const seriesNumber = input.seriesNumber ?? inferredSeries?.seriesOrder;
+
       const book: Book = {
         id: `b-${slugify(input.title || "captured-book")}-${Date.now()}`,
         title: input.title.trim() || "Untitled Book",
         authorId,
+        seriesName,
+        seriesNumber,
         coAuthorNames: coAuthorNames.length ? coAuthorNames : undefined,
         coAuthorIds: coAuthorIds.length ? coAuthorIds : undefined,
         synopsis: input.synopsis ?? "", // "" = unknown, UI offers "Find synopsis"

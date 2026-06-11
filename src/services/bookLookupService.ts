@@ -618,6 +618,8 @@ export function bookMatchToNewBookInput(
     title: match.title,
     authorName: match.authors[0] ?? "Unknown Author",
     coAuthorNames: match.authors.slice(1),
+    seriesName: match.seriesName,
+    seriesNumber: match.seriesOrder,
     isbn: match.isbn13 ?? match.isbn10,
     pages: match.pageCount,
     genre: match.genres,

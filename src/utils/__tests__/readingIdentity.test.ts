@@ -136,6 +136,41 @@ describe("computeReadingIdentity", () => {
     expect(again).toEqual(identity);
   });
 
+  it("canonicalizes accented Spanish genres before scoring", () => {
+    const data = fixtures();
+    data.books.push(
+      book({ id: "b5", authorId: "a-yarros", genre: ["Fantasia", "Ficcion"],
+        userStatus: { status: "read", rating: 5, finishDate: daysAgo(5) } as Book["userStatus"], language: "Spanish" })
+    );
+    // simulate the accented forms exactly as Google Books returns them
+    data.books[data.books.length - 1]!.genre = ["Fantas\u00eda", "Ficci\u00f3n"];
+    const out = computeReadingIdentity(data, NOW);
+    expect(out.genres[0]?.name).toBe("Fantasy");
+    expect(out.genres.map((g) => g.name.toLowerCase())).not.toContain("ficci\u00f3n");
+    expect(out.genres.map((g) => g.name.toLowerCase())).not.toContain("fiction");
+  });
+
+  it("normalizes 'Body, Mind & Spirit' to Spirituality", () => {
+    const data = fixtures();
+    data.books.push(
+      book({ id: "b6", authorId: "a-tolle", genre: ["Body, Mind & Spirit"],
+        userStatus: { status: "read", rating: 5, finishDate: daysAgo(4) } as Book["userStatus"] })
+    );
+    const out = computeReadingIdentity(data, NOW);
+    expect(out.genres.some((g) => g.name === "Spirituality")).toBe(true);
+    expect(out.genres.some((g) => /body/i.test(g.name))).toBe(false);
+  });
+
+  it("series appear when seriesName metadata exists — and are never fabricated", () => {
+    const withSeries = computeReadingIdentity(fixtures(), NOW);
+    expect(withSeries.series.length).toBeGreaterThan(0);
+
+    const data = fixtures();
+    for (const b of data.books) { delete (b as Partial<Book>).seriesName; delete (b as Partial<Book>).seriesNumber; }
+    const without = computeReadingIdentity(data, NOW);
+    expect(without.series).toHaveLength(0); // no metadata -> no invented series
+  });
+
   it("handles an empty library without fabricating taste", () => {
     const empty = computeReadingIdentity({ authors: [], books: [], readingSessions: [], reviews: [] }, NOW);
     expect(empty.genres).toHaveLength(0);

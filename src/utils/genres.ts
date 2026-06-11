@@ -20,21 +20,22 @@ const NOISE_PATTERNS = [
 // nothing more specific matched.
 
 const GENRE_RULES: Array<{ label: string; patterns: RegExp[] }> = [
-  { label: "Fantasy",          patterns: [/\bfantasy\b/i, /\bmagic\b/i, /\bdragons?\b/i, /epic fantasy/i, /sword and sorcery/i] },
-  { label: "Science Fiction",  patterns: [/science fiction/i, /\bsci[- ]?fi\b/i, /space opera/i, /\bdystopi/i, /\bcyberpunk\b/i] },
-  { label: "Mystery",          patterns: [/\bmystery\b/i, /\bdetective\b/i, /crime fiction/i, /whodunit/i, /\bnoir\b/i] },
-  { label: "Thriller",         patterns: [/\bthriller\b/i, /\bsuspense\b/i, /\bespionage\b/i, /\bspy\b/i, /\bconspiracy\b/i] },
-  { label: "Horror",           patterns: [/\bhorror\b/i, /ghost stories/i, /supernatural fiction/i, /\bocult\b/i] },
-  { label: "Romance",          patterns: [/\bromance\b/i, /love stories/i, /romantic fiction/i] },
+  { label: "Fantasy",          patterns: [/\bfantasy\b/i, /\bfantas[íi]a\b/i, /\bmagic\b/i, /\bmagia\b/i, /\bdragons?\b/i, /\bdragones\b/i, /epic fantasy/i, /sword and sorcery/i, /romantasy/i] },
+  { label: "Science Fiction",  patterns: [/science fiction/i, /ciencia ficci[óo]n/i, /\bsci[- ]?fi\b/i, /space opera/i, /\bdystopi/i, /\bdistop/i, /\bcyberpunk\b/i] },
+  { label: "Mystery",          patterns: [/\bmystery\b/i, /\bmisterio\b/i, /\bdetective\b/i, /\bpolic[íi]ac[ao]\b/i, /crime fiction/i, /novela negra/i, /whodunit/i, /\bnoir\b/i] },
+  { label: "Thriller",         patterns: [/\bthriller\b/i, /\bsuspenses?\b/i, /\bsuspensos?\b/i, /\bespionage\b/i, /\bespionaje\b/i, /\bspy\b/i, /\bconspiracy\b/i] },
+  { label: "Horror",           patterns: [/\bhorror\b/i, /\bterror\b/i, /ghost stories/i, /supernatural fiction/i, /\bocult\b/i] },
+  { label: "Romance",          patterns: [/\bromance\b/i, /\brom[áa]ntic[ao]s?\b/i, /love stories/i, /romantic fiction/i] },
   { label: "Historical Fiction",patterns: [/historical fiction/i, /history, fiction/i, /war stories/i, /\bhistorical\b/i] },
   { label: "Adventure",        patterns: [/\badventure\b/i, /\bquests?\b/i, /\bsurvival\b/i, /action/i] },
   { label: "Young Adult",      patterns: [/young adult/i, /\bya\b/i, /\bteen\b/i, /coming[- ]of[- ]age/i] },
   { label: "Children's",       patterns: [/\bjuvenile\b/i, /\bchildren\b/i, /picture books?/i, /middle grade/i] },
-  { label: "Biography",        patterns: [/\bbiograph/i, /\bmemoir\b/i, /\bautobiograph/i] },
+  { label: "Biography",        patterns: [/\bbiograph/i, /\bbiograf[íi]a/i, /\bmemoir\b/i, /\bmemorias\b/i, /\bautobiograph/i, /\bautobiograf/i] },
   { label: "History",          patterns: [/\bhistory\b/i, /\bcivilization\b/i, /\bworld war\b/i] },
   { label: "Nonfiction",       patterns: [/non[- ]?fiction/i, /\bessay\b/i] },
-  { label: "Personal Growth",  patterns: [/self[- ]help/i, /personal growth/i, /\bhabits\b/i, /\bsuccess\b/i] },
-  { label: "Poetry",           patterns: [/\bpoetry\b/i, /\bpoems?\b/i, /\bverse\b/i] },
+  { label: "Personal Growth",  patterns: [/self[- ]help/i, /\bautoayuda\b/i, /\bsuperaci[óo]n\b/i, /personal growth/i, /\bhabits\b/i, /\bsuccess\b/i] },
+  { label: "Spirituality",     patterns: [/body,? mind (and|&) spirit/i, /\bspiritualit/i, /\bespiritualidad\b/i, /\bmindfulness\b/i, /\bmeditation\b/i, /\bmeditaci[óo]n\b/i] },
+  { label: "Poetry",           patterns: [/\bpoetry\b/i, /\bpoes[íi]a\b/i, /\bpoems?\b/i, /\bverse\b/i] },
   { label: "Comics",           patterns: [/\bcomics?\b/i, /graphic novels?/i, /\bmanga\b/i] },
   // "Literary Fiction" is a catch-all — only used if nothing more specific matched
   { label: "Literary Fiction", patterns: [/\bliterary\b/i, /\bliterature\b/i, /american literature/i] },
@@ -45,6 +46,15 @@ const GENRE_RULES: Array<{ label: string; patterns: RegExp[] }> = [
 // something better from the description/title before falling back to it.
 // These labels are valid in combination but weak when alone.
 const GENERIC_SOLE_GENRES = new Set(["Literary Fiction", "Nonfiction", "Uncategorized"]);
+
+// Raw category strings that are pure noise as taste signals — excluded before
+// the title-case fallback. Compared accent-stripped + lowercased.
+const stripAccents = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+const GENERIC_RAW_EXCLUDE = new Set([
+  "fiction", "ficcion", "ficciones", "general", "juvenile fiction",
+  "young adult", "young adult fiction", "literary collections",
+  "literatura", "novela", "novelas", "no ficcion", "antologias", "anthologies",
+]);
 
 // ─── Description-based keyword inference ─────────────────────────────────────
 // Scans raw description text for strong genre signals. Used as a fallback when
@@ -109,6 +119,10 @@ export function normalizeBookGenres(
       collected.push(...matched);
       continue;
     }
+
+    // Generic catch-all categories must never pass through as raw "genres" —
+    // they say nothing about taste (Fiction / Ficción / General / etc.).
+    if (GENERIC_RAW_EXCLUDE.has(stripAccents(cleaned.toLowerCase()))) continue;
 
     // Keep short, plain strings that don't match any rule as-is
     if (cleaned.includes(":")) continue;

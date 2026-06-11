@@ -237,6 +237,8 @@ export interface NewBookInput {
   authorName: string;
   /** Additional authors beyond the primary one. */
   coAuthorNames?: string[];
+  seriesName?: string;
+  seriesNumber?: number;
   isbn?: string;
   pages?: number;
   genre?: string[];

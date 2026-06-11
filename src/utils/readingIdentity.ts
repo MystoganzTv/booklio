@@ -18,6 +18,7 @@
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Author, Book, ReadingSession, Review } from "../types/models";
+import { normalizeBookGenres } from "./genres";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -68,14 +69,28 @@ const HALF_LIFE_DAYS = 90;
 const MIN_DECAY = 0.15;          // old loves never fully vanish
 const UNKNOWN_RECENCY = 0.6;     // books without any date: neutral-ish
 
-/** Genres too broad to describe taste — mirrors recommendationEngine. */
+/** Genres too broad to describe taste — compared accent-stripped + lowercased. */
 const GENERIC_GENRES = new Set([
-  "fiction", "nonfiction", "non-fiction", "general", "uncategorized",
-  "books", "literature", "adult", "juvenile fiction",
+  "fiction", "ficcion", "ficciones", "nonfiction", "non-fiction", "no ficcion",
+  "general", "uncategorized", "books", "literature", "literatura", "adult",
+  "juvenile fiction", "young adult", "young adult fiction",
+  "literary collections", "novela", "novelas",
 ]);
 
+const stripAccents = (value: string) =>
+  value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+/**
+ * Canonical taste genres for a book:
+ * 1. normalizeBookGenres maps raw API categories (incl. Spanish + accents +
+ *    "Body, Mind & Spirit" -> Spirituality) — this also canonicalizes legacy
+ *    library books stored before the rules existed.
+ * 2. Generic catch-alls are then excluded — they say nothing about taste.
+ */
 const specificGenres = (genres: string[]) =>
-  genres.map((g) => g.trim()).filter((g) => g && !GENERIC_GENRES.has(g.toLowerCase()));
+  normalizeBookGenres(genres)
+    .map((g) => g.trim())
+    .filter((g) => g && !GENERIC_GENRES.has(stripAccents(g.toLowerCase())));
 
 export const formatFamilyOf = (format?: string): "print" | "digital" | "audio" => {
   if (format === "audiobook") return "audio";
