@@ -26,6 +26,7 @@ import { RecommendationCard } from "../components/RecommendationCard";
 import { BookStatusSheet } from "../components/BookStatusSheet";
 import { BookListSheet } from "../components/BookListSheet";
 import { SessionRow } from "../components/SessionRow";
+import { useDialog } from "../components/DialogProvider";
 import { useBookliz } from "../data/BooklizContext";
 import { useReadingTimer } from "../data/ReadingTimerContext";
 import { RootStackParamList } from "../navigation/types";
@@ -34,6 +35,7 @@ import { useTheme } from "../theme/ThemeContext";
 import { useI18n } from "../i18n/LocalizationContext";
 import { hapticLight, hapticMedium } from "../utils/haptics";
 import { isPlaceholderText, resolveBookMetadata } from "../utils/bookMetadata";
+import { isSameLanguage } from "../utils/languageUtils";
 import { formatStatusLabel } from "../utils/statusLabels";
 
 function cleanGenres(raw: string[]): string[] {
@@ -54,9 +56,10 @@ export function BookDetailScreen() {
   const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
 
   const {
-    getAuthor, getBook, getBookStats,
+    deleteBook, getAuthor, getBook, getBookStats,
     getRecommendationsForBook, updateBookStatus, updateBookSynopsis, getReviewForBook,
   } = useBookliz();
+  const dialog = useDialog();
 
   const { isRunning, bookId: timerBookId, start: startTimer, stop: stopTimer } = useReadingTimer();
   const book = getBook(route.params.bookId);
@@ -301,7 +304,7 @@ export function BookDetailScreen() {
         <View style={[styles.collectorRow, { marginTop: spacing.sm }]}>
           <CollectorChip icon="trophy-outline" label={t("bookDetail.rank")} value={book.userStatus.personalRanking ? `#${book.userStatus.personalRanking}` : "—"} styles={styles} c={c} />
           <CollectorChip icon="chatbubble-ellipses-outline" label={t("bookDetail.quotes")} value={String(book.userStatus.favoriteQuotes.length)} styles={styles} c={c} />
-          <CollectorChip icon="pricetag-outline" label={t("bookDetail.labelFormat")} value={book.format} styles={styles} c={c} />
+          <CollectorChip icon="pricetag-outline" label={t("bookDetail.labelFormat")} value={book.format.charAt(0).toUpperCase() + book.format.slice(1).replace(/-/g, " ")} styles={styles} c={c} />
           {book.pages ? <CollectorChip icon="document-text-outline" label={t("bookDetail.labelPages")} value={String(book.pages)} styles={styles} c={c} /> : null}
         </View>
 
@@ -336,7 +339,10 @@ export function BookDetailScreen() {
                       authorName: author?.name,
                       language: book.language || undefined, // synopsis in the book's language
                     });
-                    if (meta?.synopsis && !isPlaceholderText(meta.synopsis)) {
+                    // STRICT: only accept a synopsis in the book's own language.
+                    const langOk = !book.language ||
+                      Boolean(meta?.language && isSameLanguage(meta.language, book.language));
+                    if (meta?.synopsis && !isPlaceholderText(meta.synopsis) && langOk) {
                       updateBookSynopsis(book.id, meta.synopsis);
                     } else {
                       setSynopsisFetchFailed(true);
@@ -450,7 +456,7 @@ export function BookDetailScreen() {
         ) : null}
 
         {/* ── NOTES ────────────────────────────────────────────────────────── */}
-        {book.userStatus.notes ? (
+        {book.userStatus.notes && !/^Added through the .* flow\.$/.test(book.userStatus.notes.trim()) ? (
           <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
             <View style={styles.sectionBlockHeader}>
               <Text style={styles.sectionTitle}>{t("bookDetail.yourNotes")}</Text>
@@ -490,7 +496,7 @@ export function BookDetailScreen() {
             { label: t("bookDetail.labelPublisher"), value: book.publisher || null },
             { label: t("bookDetail.labelPublished"), value: book.publishedDate ? book.publishedDate.slice(0, 4) : null },
             { label: t("bookDetail.labelLanguage"),  value: book.language || null },
-            { label: t("bookDetail.labelFormat"),    value: book.format || null },
+            { label: t("bookDetail.labelFormat"),    value: book.format ? book.format.charAt(0).toUpperCase() + book.format.slice(1).replace(/-/g, " ") : null },
             { label: t("bookDetail.labelPages"),     value: book.pages ? String(book.pages) : null },
             { label: t("bookDetail.labelIsbn"),      value: book.isbn || null },
           ].filter((r): r is { label: string; value: string } => Boolean(r.value));
@@ -564,6 +570,26 @@ export function BookDetailScreen() {
             ) : null}
             <MoreAction icon="create-outline" label={t("bookDetail.moreEditBook")} styles={styles} c={c}
               onPress={() => { setMoreSheetOpen(false); navigation.navigate("EditBook", { bookId: book.id }); }} />
+            <View style={styles.moreDivider} />
+            <Pressable
+              style={styles.moreRow}
+              onPress={() => {
+                setMoreSheetOpen(false);
+                dialog.confirm({
+                  title: book.title,
+                  body: t("bookDetail.removeConfirmBody"),
+                  confirmLabel: t("common.delete"),
+                  destructive: true,
+                  onConfirm: () => {
+                    deleteBook(book.id);
+                    navigation.goBack();
+                  },
+                });
+              }}
+            >
+              <Ionicons name="trash-outline" size={20} color={c.danger} />
+              <Text style={[styles.moreRowText, { color: c.danger }]}>{t("bookDetail.moreRemove")}</Text>
+            </Pressable>
           </Pressable>
         </Pressable>
       </Modal>
@@ -828,5 +854,6 @@ function createStyles(c: AppColors, isDark: boolean) {
       paddingHorizontal: spacing.xs, paddingVertical: 14,
     },
     moreRowText: { color: c.ink, flex: 1, fontFamily: fonts.body, fontSize: 15, fontWeight: "800" },
+    moreDivider: { backgroundColor: c.border, height: StyleSheet.hairlineWidth, marginVertical: 4 },
   });
 }

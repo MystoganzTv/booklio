@@ -300,8 +300,20 @@ function bySeriesOrder(a: Book, b: Book) {
   return (a.seriesNumber ?? a.sagaOrder ?? 999) - (b.seriesNumber ?? b.sagaOrder ?? 999);
 }
 
+// Genres too broad to mean anything for similarity — "Fiction" matches half
+// the library and produces nonsense "Same genre" recommendations.
+const GENERIC_GENRES = new Set([
+  "fiction", "nonfiction", "non-fiction", "general", "uncategorized",
+  "books", "literature", "adult", "juvenile fiction",
+]);
+
+const specificGenres = (book: Book) =>
+  book.genre.filter((genre) => !GENERIC_GENRES.has(genre.trim().toLowerCase()));
+
 function sharesGenre(a: Book, b: Book) {
-  return a.genre.some((genre) => b.genre.includes(genre));
+  // Only specific genres count — "Fiction"/"General" overlap is noise.
+  const bSpecific = specificGenres(b);
+  return specificGenres(a).some((genre) => bSpecific.includes(genre));
 }
 
 function sharedGenreCount(a: Book, b: Book) {
@@ -309,7 +321,8 @@ function sharedGenreCount(a: Book, b: Book) {
 }
 
 function getSharedGenres(a: Book, b: Book) {
-  return a.genre.filter((genre) => b.genre.includes(genre));
+  const bSpecific = specificGenres(b);
+  return specificGenres(a).filter((genre) => bSpecific.includes(genre));
 }
 
 function normalizeTitle(title: string): string {

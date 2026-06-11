@@ -18,6 +18,8 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -39,6 +41,9 @@ import {
   resolveBookMetadata,
 } from "../utils/bookMetadata";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
+import { findEditionsInLanguage } from "../utils/metadataResolver";
+import { isSameLanguage } from "../utils/languageUtils";
+import { GenreBookResult } from "../services/googleBooksProvider";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -115,6 +120,63 @@ export function EditBookScreen() {
   const [favoriteQuotes,  setFavoriteQuotes]  = useState(book?.userStatus.favoriteQuotes.join("\n") ?? "");
   const [isFetching,      setIsFetching]      = useState(false);
   const [formatOpen,      setFormatOpen]      = useState(false);
+  // Language → edition picker sheet
+  const [editionSheet, setEditionSheet] = useState<{ language: string; loading: boolean; candidates: GenreBookResult[] } | null>(null);
+
+  // ── language → edition picker ──────────────────────────────────────────────
+  // Changing the language means changing EDITION (different ISBN, title,
+  // cover, synopsis). Instead of a blind fetch against the old ISBN, we list
+  // the catalog editions in that language and let the user pick one.
+  const handleLanguagePick = async (lang: string) => {
+    if (language.trim().toLowerCase() === lang.trim().toLowerCase()) {
+      setLanguage(lang);
+      return;
+    }
+    setEditionSheet({ language: lang, loading: true, candidates: [] });
+    try {
+      const candidates = await findEditionsInLanguage(title || book?.title || "", authorName, lang);
+      setEditionSheet((current) =>
+        current?.language === lang ? { language: lang, loading: false, candidates } : current
+      );
+    } catch {
+      setEditionSheet((current) =>
+        current?.language === lang ? { language: lang, loading: false, candidates: [] } : current
+      );
+    }
+  };
+
+  const applyEditionCandidate = (candidate: GenreBookResult, lang: string) => {
+    setEditionSheet(null);
+    const effectiveLang = candidate.language ?? lang;
+    setLanguage(effectiveLang);
+    setTitle(candidate.title);
+    if (candidate.coverUrl) setCoverImageUri(candidate.coverUrl);
+    if (candidate.isbn13) { setIsbn13(candidate.isbn13); setIsbn10(""); }
+    if (candidate.pageCount && candidate.pageCount > 0) setPages(String(candidate.pageCount));
+    if (candidate.publisher) setPublisher(candidate.publisher);
+    if (candidate.publishedYear) setPublishedDate(String(candidate.publishedYear));
+
+    if ((candidate.description?.trim().length ?? 0) > 40) {
+      setSynopsis(candidate.description!);
+    } else {
+      // Never keep the previous edition's synopsis (wrong language). Clear it
+      // and backfill in this edition's language in the background.
+      setSynopsis("");
+      void resolveBookMetadata({
+        isbn: candidate.isbn13,
+        title: candidate.title,
+        authorName,
+        language: effectiveLang,
+      }).then((meta) => {
+        const found = meta?.synopsis?.trim();
+        const langOk = (meta?.language ?? "").trim().toLowerCase() === effectiveLang.trim().toLowerCase();
+        if (found && found.length > 40 && langOk) {
+          // Only fill if the user hasn't typed something meanwhile.
+          setSynopsis((current) => (current.trim() ? current : found));
+        }
+      }).catch(() => {});
+    }
+  };
 
   // ── fetch metadata ─────────────────────────────────────────────────────────
   const fetchInfo = async () => {
@@ -138,24 +200,25 @@ export function EditBookScreen() {
 
     const filled: string[] = [];
     const isBlank = (v: string) => isPlaceholderText(v) || v === "0" || v === "";
-    // The user asked for a different language than the book currently has and
-    // we found a matching-language edition: prefer that edition's title/synopsis.
-    const langSwitched = Boolean(
-      meta.language && language &&
-      meta.language.trim().toLowerCase() === language.trim().toLowerCase() &&
-      (book?.language ?? "").trim().toLowerCase() !== language.trim().toLowerCase()
-    );
+    // STRICT LANGUAGE LOCK: language-locked fields are only accepted when the
+    // fetched metadata is in the book's selected language. The resolver already
+    // enforces this; this gate is the second line of defense.
+    // FILL-BLANKS ONLY: fetch never overwrites user-entered values — explicit
+    // edition switches go through the language chips / edition picker instead.
+    const langOk = !language.trim() ||
+      Boolean(meta.language && isSameLanguage(meta.language, language));
 
-    if (meta.title       && (isBlank(title) || (langSwitched && meta.title !== title))) { setTitle(meta.title); filled.push("title"); }
-    if (meta.pages       && meta.pages > 0 && isBlank(pages))        { setPages(String(meta.pages));           filled.push("pages"); }
-    if (meta.publisher   && isBlank(publisher))                       { setPublisher(meta.publisher);           filled.push("publisher"); }
-    if (meta.publishedDate && isBlank(publishedDate))                 { setPublishedDate(meta.publishedDate);   filled.push("published date"); }
-    if (meta.synopsis && meta.synopsis.length > 30 && (isBlank(synopsis) || (langSwitched && meta.synopsis !== synopsis))) { setSynopsis(meta.synopsis); filled.push("synopsis"); }
+    if (langOk && meta.title       && isBlank(title))                 { setTitle(meta.title);                  filled.push("title"); }
+    if (langOk && meta.pages       && meta.pages > 0 && isBlank(pages)) { setPages(String(meta.pages));        filled.push("pages"); }
+    if (langOk && meta.publisher   && isBlank(publisher))             { setPublisher(meta.publisher);          filled.push("publisher"); }
+    if (langOk && meta.publishedDate && isBlank(publishedDate))       { setPublishedDate(meta.publishedDate);  filled.push("published date"); }
+    if (langOk && meta.synopsis && meta.synopsis.length > 30 && isBlank(synopsis)) { setSynopsis(meta.synopsis); filled.push("synopsis"); }
     // Replace the cover when blank, or when the current one was auto-fetched
     // (e.g. an odd audiobook-edition cover) — user photos (file://) are kept.
+    // Language-locked like every other edition field.
     const coverIsAuto = /books\.google|googleusercontent|openlibrary|archive\.org/i.test(coverImageUri);
-    if (meta.coverImageUri && (isBlank(coverImageUri) || (coverIsAuto && meta.coverImageUri !== coverImageUri))) { setCoverImageUri(meta.coverImageUri); filled.push("cover"); }
-    if (meta.isbn && isBlank(isbn)) {
+    if (langOk && meta.coverImageUri && (isBlank(coverImageUri) || (coverIsAuto && meta.coverImageUri !== coverImageUri))) { setCoverImageUri(meta.coverImageUri); filled.push("cover"); }
+    if (langOk && meta.isbn && isBlank(isbn)) {
       const clean = meta.isbn.replace(/\D/g, "");
       if (clean.length === 13) { setIsbn13(meta.isbn); } else { setIsbn10(meta.isbn); }
       filled.push("ISBN");
@@ -164,6 +227,16 @@ export function EditBookScreen() {
     if (meta.genre?.length && isPlaceholderGenreList(genres))         { setGenres(meta.genre);                  filled.push("genres"); }
     if (meta.tags?.length && tags.length === 0)                       { setTags(meta.tags);                     filled.push("tags"); }
     if (meta.isBestseller && !isBestseller)                           { setIsBestseller(true);                  filled.push("bestseller"); }
+
+    // The user asked for a language we couldn't find an edition for —
+    // say so instead of the misleading "all fields filled".
+    if (!filled.length && !langOk && language.trim()) {
+      dialog.alert(
+        t("editBook.langNotFoundTitle"),
+        t("editBook.langNotFoundBody", { language })
+      );
+      return;
+    }
 
     dialog.alert(
       filled.length ? t("editBook.fetchUpdated") : t("editBook.fetchAllFilled"),
@@ -330,7 +403,7 @@ export function EditBookScreen() {
               <Pressable
                 key={lang}
                 style={[styles.toggleChip, active && styles.toggleChipActive]}
-                onPress={() => setLanguage(lang)}
+                onPress={() => void handleLanguagePick(lang)}
               >
                 <Text style={[styles.toggleChipText, active && styles.toggleChipTextActive]}>{lang}</Text>
               </Pressable>
@@ -340,6 +413,63 @@ export function EditBookScreen() {
         <PlainInput value={language} onChangeText={setLanguage} placeholder="Language" styles={styles} c={c} />
         <Text style={styles.langHint}>{t("editBook.langHint")}</Text>
       </FieldCard>
+
+      {/* ── Edition picker: editions available in the chosen language ──────── */}
+      <Modal
+        visible={Boolean(editionSheet)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEditionSheet(null)}
+      >
+        <Pressable style={styles.editionOverlay} onPress={() => setEditionSheet(null)}>
+          <Pressable style={styles.editionSheet} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.editionHandle} />
+            <Text style={styles.editionSheetTitle}>
+              {t("editBook.editionSheetTitle", { language: editionSheet?.language ?? "" })}
+            </Text>
+            {editionSheet?.loading ? (
+              <View style={styles.editionLoading}>
+                <ActivityIndicator size="small" color={c.teal} />
+                <Text style={styles.editionLoadingText}>
+                  {t("editBook.editionSheetLoading", { language: editionSheet.language })}
+                </Text>
+              </View>
+            ) : editionSheet && editionSheet.candidates.length === 0 ? (
+              <Text style={styles.editionEmpty}>
+                {t("editBook.editionSheetEmpty", { language: editionSheet.language })}
+              </Text>
+            ) : (
+              <ScrollView style={styles.editionList} showsVerticalScrollIndicator={false}>
+                {editionSheet?.candidates.map((candidate) => (
+                  <Pressable
+                    key={candidate.id}
+                    style={styles.editionRow}
+                    onPress={() => applyEditionCandidate(candidate, editionSheet.language)}
+                  >
+                    {candidate.coverUrl ? (
+                      <Image source={{ uri: candidate.coverUrl }} style={styles.editionCover} resizeMode="cover" />
+                    ) : (
+                      <View style={[styles.editionCover, styles.editionCoverFallback]}>
+                        <Ionicons name="book-outline" size={18} color={c.muted} />
+                      </View>
+                    )}
+                    <View style={styles.editionInfo}>
+                      <Text style={styles.editionTitle} numberOfLines={2}>{candidate.title}</Text>
+                      <Text style={styles.editionSub} numberOfLines={1}>
+                        {[candidate.publishedYear, candidate.publisher, candidate.isbn13].filter(Boolean).join(" · ")}
+                      </Text>
+                      {(candidate.description?.trim().length ?? 0) > 40 ? (
+                        <Text style={styles.editionHasSynopsis}>{t("editBook.editionHasSynopsis")}</Text>
+                      ) : null}
+                    </View>
+                    <Ionicons name="chevron-forward" size={15} color={c.muted} />
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <FieldCard icon="image-outline" label={t("editBook.labelCover")} c={c} styles={styles}>
         <PlainInput value={coverImageUri} onChangeText={setCoverImageUri} placeholder="https://…" autoCapitalize="none" styles={styles} c={c} />
@@ -501,11 +631,9 @@ function StarRating({
           />
         </Pressable>
       ))}
-      {value > 0 ? (
-        <Text style={styles.ratingLabel}>{value} / 5</Text>
-      ) : (
+      {value === 0 ? (
         <Text style={[styles.ratingLabel, { color: c.muted }]}>Tap to rate</Text>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -678,6 +806,40 @@ function createStyles(c: AppColors) {
       marginTop: 8,
       opacity: 0.85,
     },
+
+    // Edition picker sheet
+    editionOverlay: { backgroundColor: "rgba(0,0,0,0.5)", flex: 1, justifyContent: "flex-end" },
+    editionSheet: {
+      backgroundColor: c.surface,
+      borderTopLeftRadius: 22,
+      borderTopRightRadius: 22,
+      maxHeight: "75%",
+      paddingBottom: 34,
+      paddingHorizontal: spacing.lg,
+      paddingTop: 10,
+    },
+    editionHandle: {
+      alignSelf: "center", backgroundColor: c.border, borderRadius: 2,
+      height: 4, marginBottom: spacing.md, width: 40,
+    },
+    editionSheetTitle: {
+      color: c.ink, fontFamily: fonts.display, fontSize: 20,
+      fontWeight: "900", marginBottom: spacing.md,
+    },
+    editionLoading: { alignItems: "center", flexDirection: "row", gap: spacing.sm, paddingVertical: spacing.lg },
+    editionLoadingText: { color: c.muted, fontFamily: fonts.body, fontSize: 13, fontWeight: "700" },
+    editionEmpty: { color: c.muted, fontFamily: fonts.bodyRegular, fontSize: 14, lineHeight: 21, paddingVertical: spacing.md },
+    editionList: { maxHeight: 440 },
+    editionRow: {
+      alignItems: "center", borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth,
+      flexDirection: "row", gap: spacing.sm, paddingVertical: 10,
+    },
+    editionCover: { backgroundColor: c.surfaceAlt, borderRadius: 6, height: 66, width: 44 },
+    editionCoverFallback: { alignItems: "center", borderColor: c.border, borderWidth: 1, justifyContent: "center" },
+    editionInfo: { flex: 1 },
+    editionTitle: { color: c.ink, fontFamily: fonts.body, fontSize: 14, fontWeight: "800", lineHeight: 18 },
+    editionSub: { color: c.muted, fontFamily: fonts.body, fontSize: 11, fontWeight: "700", marginTop: 3 },
+    editionHasSynopsis: { color: c.tealDark, fontFamily: fonts.body, fontSize: 10, fontWeight: "800", marginTop: 3 },
 
     // Toggle chip
     toggleRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },

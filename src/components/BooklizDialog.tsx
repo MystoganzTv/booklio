@@ -51,7 +51,7 @@ export function BooklizDialog({
               </Pressable>
             </View>
           ) : (
-            <Pressable style={[styles.button, styles.buttonConfirm]} onPress={onConfirm}>
+            <Pressable style={[styles.button, styles.buttonSingle, styles.buttonConfirm]} onPress={onConfirm}>
               <Text style={styles.buttonText}>{confirmLabel}</Text>
             </Pressable>
           )}
@@ -110,8 +110,15 @@ function createStyles(c: AppColors) {
     button: {
       alignItems: "center",
       borderRadius: radii.pill,
-      flex: 1,
+      flex: 1, // shared width inside the two-button row
+      justifyContent: "center",
       paddingVertical: 15,
+    },
+    buttonSingle: {
+      // Standalone button in a column: flex 1 collapses its height and clips
+      // the label — neutralize it and add the row's usual top spacing.
+      flex: 0,
+      marginTop: spacing.lg,
     },
     buttonConfirm: {
       backgroundColor: c.teal, // navy was invisible on dark surfaces

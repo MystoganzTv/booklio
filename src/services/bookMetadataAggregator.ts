@@ -41,6 +41,7 @@ import {
   inferSeriesData,
   getOriginalTitle,
 } from "../utils/knownWorks";
+import { canUseFieldForLanguage } from "../utils/metadataMergePolicy";
 import {
   fetchByIsbn as gbFetchByIsbn,
   fetchWorksByQuery as gbFetchByQuery,
@@ -149,6 +150,11 @@ function editionKey(e: BookEdition): string {
 }
 
 /** Merge two editions: keep higher score, steal cover from the other */
+/** The language a work presents as (its best/first edition). */
+function workLanguageOf(work: { bestEdition?: BookEdition; editions: BookEdition[] }): string | undefined {
+  return work.bestEdition?.language ?? work.editions[0]?.language;
+}
+
 function mergeEditions(a: BookEdition, b: BookEdition): BookEdition {
   const winner = a.score >= b.score ? a : b;
   const loser = a.score >= b.score ? b : a;
@@ -321,7 +327,8 @@ function enrichWorkFromCatalog(work: BookWork): BookWork {
     };
   }
 
-  // Try by best edition ISBN
+  // Try by best edition ISBN — STRUCTURAL data only (series). knownWorks must
+  // never fabricate visible metadata like descriptions (merge policy rule 2).
   const isbn = work.bestEdition?.isbn13 ?? work.bestEdition?.isbn10;
   if (isbn) {
     const byIsbn = knownLookupByIsbn(isbn);
@@ -330,11 +337,6 @@ function enrichWorkFromCatalog(work: BookWork): BookWork {
         ...work,
         seriesName: byIsbn.seriesName,
         seriesOrder: byIsbn.seriesOrder,
-        // Also store original title via description tag if it was translated
-        description: work.description ??
-          (byIsbn.originalTitle !== work.title
-            ? `Originally published as: ${byIsbn.originalTitle}`
-            : undefined),
       };
     }
   }
@@ -598,11 +600,28 @@ export async function lookupByQuery(
     gbFetchByQuery(title, author, scoringQuery, gbMode),           // [0] GB primary
     olFetchByQuery(title, author, scoringQuery, olMode),           // [1] OL primary
   ];
+  let extraIdx = -1;
   if (extraTitle) {
     const extraQuery: ScoringQuery = { title: extraTitle, author };
+    extraIdx = tasks.length;
     tasks.push(
-      gbFetchByQuery(extraTitle, author, extraQuery, gbMode),      // [2] GB translation
-      olFetchByQuery(extraTitle, author, extraQuery, olMode),      // [3] OL translation
+      gbFetchByQuery(extraTitle, author, extraQuery, gbMode),      // GB translation
+      olFetchByQuery(extraTitle, author, extraQuery, olMode),      // OL translation
+    );
+  }
+  // Hedge: the classifier guesses "author" for any two name-like words, which
+  // misfires on titles like "Amanecer rojo" or "Memory Man". When the intent
+  // was auto-detected (not forced by the caller), run the general free-text
+  // search in parallel — if the author search comes back thin, we already have
+  // the title results with zero extra latency.
+  let hedgeIdx = -1;
+  const hedged = resolvedMode === "author" && mode === "auto";
+  if (hedged) {
+    const freeTextQuery: ScoringQuery = { title };
+    hedgeIdx = tasks.length;
+    tasks.push(
+      gbFetchByQuery(title, undefined, freeTextQuery, "general"),  // GB hedge
+      olFetchByQuery(title, undefined, freeTextQuery, "general"),  // OL hedge
     );
   }
 
@@ -611,10 +630,13 @@ export async function lookupByQuery(
   type GBItem = { work: Omit<BookWork, "score"|"confidence"|"bestEdition"|"editions">; edition: BookEdition; gbRank: number };
   type OLItem = { partialWork: Omit<BookWork, "score"|"confidence"|"bestEdition"|"editions">; bestEdition: Omit<BookEdition, "score"> };
 
+  const at = (idx: number) => (idx >= 0 && settled[idx]?.status === "fulfilled" ? (settled[idx] as PromiseFulfilledResult<unknown>).value : []);
   let gbPrimary   = (settled[0]?.status === "fulfilled" ? settled[0].value : []) as GBItem[];
   let olPrimary   = (settled[1]?.status === "fulfilled" ? settled[1].value : []) as OLItem[];
-  const gbExtra     = extraTitle ? (settled[2]?.status === "fulfilled" ? settled[2].value : []) as GBItem[] : [] as GBItem[];
-  const olExtra     = extraTitle ? (settled[3]?.status === "fulfilled" ? settled[3].value : []) as OLItem[] : [] as OLItem[];
+  const gbExtra   = at(extraIdx) as GBItem[];
+  const olExtra   = at(extraIdx === -1 ? -1 : extraIdx + 1) as OLItem[];
+  const gbHedge   = at(hedgeIdx) as GBItem[];
+  const olHedge   = at(hedgeIdx === -1 ? -1 : hedgeIdx + 1) as OLItem[];
 
   // ── 6a. Author-query result filtering ─────────────────────────────────────
   // Google Books' inauthor: qualifier is fuzzy — it can return biographies and
@@ -705,25 +727,22 @@ export async function lookupByQuery(
   // effective intent to "title" for the ranking step below.
   let effectiveIntent: "author" | "title" = resolvedMode;
   if (resolvedMode === "author" && gbPrimary.length < 3) {
-    if (__DEV__) console.log(`[FALLBACK] author search returned only ${gbPrimary.length} results — retrying as free-text`);
-    const freeTextQuery: ScoringQuery = { title };
-    const [gbFallback, olFallback] = await Promise.allSettled([
-      gbFetchByQuery(title, undefined, freeTextQuery, "general"),
-      olFetchByQuery(title, undefined, freeTextQuery, "general"),
-    ]);
-    const gbFT = (gbFallback.status === "fulfilled" ? gbFallback.value : []) as Array<{
-      work: Omit<BookWork, "score"|"confidence"|"bestEdition"|"editions">;
-      edition: BookEdition;
-      gbRank: number;
-    }>;
-    const olFT = (olFallback.status === "fulfilled" ? olFallback.value : []) as Array<{
-      partialWork: Omit<BookWork, "score"|"confidence"|"bestEdition"|"editions">;
-      bestEdition: Omit<BookEdition, "score">;
-    }>;
+    // Prefer the parallel hedge (already fetched, zero extra latency). Only
+    // when the caller forced author mode (no hedge) do we fetch sequentially.
+    let gbFT = gbHedge;
+    let olFT = olHedge;
+    if (!hedged) {
+      if (__DEV__) console.log(`[FALLBACK] author search returned only ${gbPrimary.length} results — retrying as free-text`);
+      const freeTextQuery: ScoringQuery = { title };
+      const [gbFallback, olFallback] = await Promise.allSettled([
+        gbFetchByQuery(title, undefined, freeTextQuery, "general"),
+        olFetchByQuery(title, undefined, freeTextQuery, "general"),
+      ]);
+      gbFT = (gbFallback.status === "fulfilled" ? gbFallback.value : []) as GBItem[];
+      olFT = (olFallback.status === "fulfilled" ? olFallback.value : []) as OLItem[];
+    }
     if (gbFT.length > gbPrimary.length) {
       if (__DEV__) console.log(`[FALLBACK] free-text returned ${gbFT.length} GB results — using those instead`);
-      // Swap in free-text results
-      // (olPrimary already has some results from the author search; merge below)
       gbPrimary = gbFT;
       for (const { partialWork, bestEdition } of olFT) {
         olPrimary.push({ partialWork, bestEdition });
@@ -761,7 +780,12 @@ export async function lookupByQuery(
         ...c,
         work: {
           ...c.work,
-          description: c.work.description ?? partialWork.description,
+          // OL work descriptions are (in practice) English — only merge into
+          // works whose own language allows it. No cross-language synopsis mix.
+          description: c.work.description ??
+            (canUseFieldForLanguage("description", "English", workLanguageOf(c.work))
+              ? partialWork.description
+              : undefined),
           genres: c.work.genres.length ? c.work.genres : (partialWork.genres ?? []),
           workKey: c.work.workKey ?? partialWork.workKey,
           editionCount: c.work.editionCount ?? partialWork.editionCount,
@@ -796,7 +820,12 @@ export async function lookupByQuery(
         gbRank: Math.min(c.gbRank, gbRank),
         work: {
           ...c.work,
-          description: c.work.description ?? partialWork.description,
+          // A merged GB volume may be a different-language edition of the same
+          // work — its description must not cross the language boundary.
+          description: c.work.description ??
+            (canUseFieldForLanguage("description", edition.language, workLanguageOf(c.work))
+              ? partialWork.description
+              : undefined),
           genres: c.work.genres.length ? c.work.genres : (partialWork.genres ?? []),
           workKey: c.work.workKey ?? partialWork.workKey,
           googleBooksId: c.work.googleBooksId ?? partialWork.googleBooksId,

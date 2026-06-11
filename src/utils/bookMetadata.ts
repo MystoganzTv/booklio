@@ -505,48 +505,26 @@ export async function fetchEditionOptionsByWorkKey(workKey?: string, limit = 6):
   }
 }
 
+/**
+ * Resolve the best available metadata for a book.
+ *
+ * Delegates to utils/metadataResolver — parallel fan-out (Google Books +
+ * Open Library + knownWorks), field-level scoring, language preference,
+ * and a 7-day cache. Kept here so existing callers don't change.
+ */
 export async function resolveBookMetadata(input: {
   isbn?: string;
   title?: string;
   authorName?: string;
   workKey?: string;
-  /** Preferred edition language (e.g. "Spanish"). When the resolved edition is
-   * in a different language, we look for a matching-language edition of the
-   * same work and prefer its metadata (title, synopsis, ISBN, cover). */
+  /** Preferred edition language (e.g. "Spanish"). */
   language?: string;
 }): Promise<BookMetadata | undefined> {
-  const cleanIsbn = normalizeIsbn(input.isbn);
-  const isbnMeta = cleanIsbn.length >= 10 ? await fetchBookMetadataByIsbn(cleanIsbn) : undefined;
-  const resolvedTitle = input.title?.trim() || isbnMeta?.title || "";
-  const resolvedAuthor = input.authorName?.trim() || isbnMeta?.authorName || "";
-  const searchMeta = resolvedTitle ? await fetchBookMetadataByTitleAuthor(resolvedTitle, resolvedAuthor) : undefined;
-  const workMeta = await fetchWorkMetadata(input.workKey ?? isbnMeta?.workKey ?? searchMeta?.workKey);
-
-  let merged = mergeBookMetadata(mergeBookMetadata(isbnMeta, searchMeta), workMeta)
-    ?? mergeBookMetadata(mergeBookMetadata(searchMeta, workMeta), isbnMeta);
-
-  // Language preference: swap to a matching-language edition when available.
-  const wantedLang = input.language?.trim().toLowerCase();
-  const mergedLang = merged?.language?.trim().toLowerCase();
-  if (merged && wantedLang && mergedLang && wantedLang !== mergedLang && merged.workKey) {
-    try {
-      const options = await fetchEditionOptionsByWorkKey(merged.workKey, 30);
-      const match = options.find((o) => o.language?.toLowerCase() === wantedLang);
-      if (match) {
-        const detailed = match.isbn
-          ? await fetchBookMetadataByIsbn(match.isbn)
-          : await fetchBookMetadataByEditionKey(match.editionKey);
-        if (detailed) {
-          // Author is work-level; keep it from the original resolution.
-          merged = mergeBookMetadata({ ...detailed, authorName: merged.authorName ?? detailed.authorName }, merged);
-        }
-      }
-    } catch {
-      // keep the language-mismatched result rather than failing entirely
-    }
-  }
-
-  return merged;
+  // Lazy require: metadataResolver imports helpers from this module, so a
+  // top-level import would create a require cycle.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { resolveMetadata } = require("./metadataResolver") as typeof import("./metadataResolver");
+  return resolveMetadata(input);
 }
 
 export async function enrichBookInput(input: NewBookInput): Promise<NewBookInput> {
@@ -554,7 +532,10 @@ export async function enrichBookInput(input: NewBookInput): Promise<NewBookInput
     isbn: input.isbn,
     title: input.title,
     authorName: input.authorName,
-    workKey: input.workKey
+    workKey: input.workKey,
+    // Keep enrichment in the edition's own language — without this, Spanish
+    // editions were silently backfilled with English synopses at add time.
+    language: input.language,
   });
 
   return metadata ? applyMetadataToBookInput(input, metadata) : input;

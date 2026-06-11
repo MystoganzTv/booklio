@@ -8,7 +8,7 @@ import { useLayoutEffect, useMemo } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useI18n } from "../i18n/LocalizationContext";
 import { RootStackParamList } from "../navigation/types";
-import { AppColors, fonts, radii, spacing } from "../theme/theme";
+import { AppColors, fonts, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
 
 type LegalRoute = RouteProp<RootStackParamList, "Legal">;
@@ -91,7 +91,8 @@ export function LegalScreen() {
   const sections = isPrivacy ? PRIVACY_SECTIONS : TERMS_SECTIONS;
 
   useLayoutEffect(() => {
-    navigation.setOptions({ title });
+    // Body carries the big title — keep the nav bar minimal
+    navigation.setOptions({ title: "" });
   }, [navigation, title]);
 
   return (
@@ -102,13 +103,18 @@ export function LegalScreen() {
     >
       <Text style={styles.pageTitle}>{title}</Text>
       <Text style={styles.updated}>{t("legal.lastUpdated", { date: LAST_UPDATED })}</Text>
+      <View style={styles.titleRule} />
 
-      {sections.map((section) => (
-        <View key={section.heading} style={styles.sectionCard}>
+      {/* Document style — continuous prose, no boxed cards */}
+      {sections.map((section, index) => (
+        <View key={section.heading} style={index > 0 ? styles.section : undefined}>
           <Text style={styles.sectionHeading}>{section.heading}</Text>
           <Text style={styles.sectionBody}>{section.body}</Text>
         </View>
       ))}
+
+      <View style={styles.footerRule} />
+      <Text style={styles.footerNote}>Bookliz · support@bookliz.app</Text>
     </ScrollView>
   );
 }
@@ -120,7 +126,7 @@ function createStyles(c: AppColors) {
     pageTitle: {
       color: c.ink,
       fontFamily: fonts.display,
-      fontSize: 26,
+      fontSize: 28,
       fontWeight: "900",
     },
     updated: {
@@ -128,29 +134,43 @@ function createStyles(c: AppColors) {
       fontFamily: fonts.body,
       fontSize: 12,
       fontWeight: "700",
-      marginBottom: spacing.lg,
-      marginTop: 4,
+      marginTop: 6,
     },
-    sectionCard: {
-      backgroundColor: c.surface,
-      borderColor: c.border,
-      borderRadius: radii.sm,
-      borderWidth: 1,
-      marginBottom: spacing.sm,
-      padding: spacing.md,
+    titleRule: {
+      backgroundColor: c.border,
+      height: 1,
+      marginBottom: spacing.lg,
+      marginTop: spacing.md,
+    },
+    section: {
+      marginTop: spacing.lg,
     },
     sectionHeading: {
       color: c.ink,
-      fontFamily: fonts.body,
-      fontSize: 15,
-      fontWeight: "900",
+      fontFamily: fonts.display,
+      fontSize: 17,
+      fontWeight: "800",
       marginBottom: 6,
     },
     sectionBody: {
       color: c.muted,
       fontFamily: fonts.bodyRegular,
-      fontSize: 14,
-      lineHeight: 21,
+      fontSize: 15,
+      lineHeight: 24,
+    },
+    footerRule: {
+      backgroundColor: c.border,
+      height: 1,
+      marginBottom: spacing.md,
+      marginTop: spacing.xl,
+    },
+    footerNote: {
+      color: c.muted,
+      fontFamily: fonts.body,
+      fontSize: 12,
+      fontWeight: "700",
+      opacity: 0.7,
+      textAlign: "center",
     },
   });
 }

@@ -645,6 +645,22 @@ export function lookupByTitle(title: string): KnownWorkMetadata | null {
 }
 
 /**
+ * All known title variants (original + translations) for a title we recognize.
+ * Returns [] when the title isn't in the catalog.
+ */
+export function getTitleVariants(title: string): string[] {
+  const wanted = normalizeForLookup(title);
+  for (const series of KNOWN_SERIES) {
+    for (const book of series.books) {
+      if (book.titles.some((t) => normalizeForLookup(t) === wanted)) {
+        return [...book.titles];
+      }
+    }
+  }
+  return [];
+}
+
+/**
  * Find series data for a known author (normalized, partial match allowed).
  */
 export function lookupSeriesByAuthor(author: string): KnownSeries[] {

@@ -1112,7 +1112,7 @@ export function BooklizProvider({ children }: PropsWithChildren) {
             wantToBuy: input.wantToBuy ?? false,
             readCount: 0,
             progressPercent: 0,
-            notes: `Added through the ${input.source} flow.`,
+            notes: "", // no auto-generated notes — the Notes section stays clean
             favoriteQuotes: []
         }
       };

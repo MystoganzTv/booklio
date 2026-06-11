@@ -37,6 +37,8 @@ import {
 } from "../services/bookMetadataAggregator";
 import { buildUserTasteProfile, UserTasteProfile } from "../services/userTasteProfile";
 import { parseIsbn, formatIsbn13 } from "../utils/isbnUtils";
+import { resolveBookMetadata } from "../utils/bookMetadata";
+import { isSameLanguage } from "../utils/languageUtils";
 import { hapticLight, hapticSuccess } from "../utils/haptics";
 
 type IntakeMode = "menu" | "isbn" | "manual" | "search" | "matches" | "review";
@@ -800,68 +802,49 @@ export function BookIntakeScreen() {
   const selectReviewLanguage = async (language: string) => {
     if (!reviewBook) return;
 
-    // No-op when the language didn't actually change: refetching the "same"
-    // edition can replace good data with a worse-quality edition record
-    // (typo'd titles, placeholder authors) for no benefit.
+    // No-op when the language didn't actually change.
     if (normalizeSearchText(language) === normalizeSearchText(reviewBook.language ?? "English")) {
       return;
     }
 
-    const draftWithLanguage = { ...reviewBook, language };
-    setReviewBook(draftWithLanguage);
-
-    if (!reviewBook.workKey) {
-      setReviewInsight(`Language changed to ${language}. ISBN and publisher stay as-is until a matching edition is found.`);
-      return;
-    }
-
+    // STRICT LANGUAGE POLICY (shared with EditBook/BookDetail via the unified
+    // resolver): switching language = switching edition. All language-locked
+    // fields (title, ISBN, synopsis, cover, publisher, dates, pages) come from
+    // the found edition together, or nothing changes at all. Never mix.
     setIsRefreshingMetadata(true);
     try {
-      const options = await fetchEditionOptionsByWorkKey(reviewBook.workKey, 30);
-      const exactMatch = options.find((option) => option.language?.toLowerCase() === language.toLowerCase());
+      const meta = await resolveBookMetadata({
+        isbn: reviewBook.isbn,
+        title: reviewBook.title,
+        authorName: reviewBook.authorName,
+        workKey: reviewBook.workKey,
+        language,
+      });
 
-      if (!exactMatch) {
-        setReviewInsight(`Language changed to ${language}. Bookliz could not find a matching edition, so ISBN and publisher were kept from the current version.`);
-        return;
+      const langOk = Boolean(meta?.title && meta.language && isSameLanguage(meta.language, language));
+      if (meta && langOk) {
+        setReviewBook((current) => current ? {
+          ...current,
+          language: meta.language ?? language,
+          title: meta.title ?? current.title,
+          // Locked fields switch with the edition — empty stays empty rather
+          // than keeping a value from the previous language.
+          isbn: meta.isbn,
+          pages: meta.pages,
+          publisher: meta.publisher,
+          publishedDate: meta.publishedDate,
+          synopsis: meta.synopsis,
+          coverImageUri: meta.coverImageUri,
+          editionKey: meta.editionKey,
+          // Structural fields persist
+          workKey: meta.workKey ?? current.workKey,
+        } : current);
+        setReviewInsight(`Switched to the ${language} edition.`);
+      } else {
+        setReviewInsight(`No ${language} edition found in the catalogs — current details were kept.`);
       }
-
-      let nextDraft = applyEditionOptionToBookInput(draftWithLanguage, exactMatch);
-      const detailedMetadata = exactMatch.isbn
-        ? await fetchBookMetadataByIsbn(exactMatch.isbn)
-        : await fetchBookMetadataByEditionKey(exactMatch.editionKey);
-
-      if (detailedMetadata) {
-        nextDraft = {
-          ...nextDraft,
-          title: detailedMetadata.title ?? nextDraft.title,
-          // Author is a work-level fact — it never changes across editions or
-          // translations. Keep the author from the original selection; edition
-          // records (especially Open Library's) sometimes carry placeholder
-          // values like "TBD" that would otherwise clobber a correct name.
-          authorName: nextDraft.authorName,
-          isbn: detailedMetadata.isbn ?? nextDraft.isbn,
-          pages: detailedMetadata.pages ?? nextDraft.pages,
-          genre: detailedMetadata.genre?.length ? detailedMetadata.genre : nextDraft.genre,
-          publisher: detailedMetadata.publisher ?? nextDraft.publisher,
-          publishedDate: detailedMetadata.publishedDate ?? nextDraft.publishedDate,
-          language: detailedMetadata.language ?? language,
-          synopsis: detailedMetadata.synopsis ?? nextDraft.synopsis,
-          coverImageUri: detailedMetadata.coverImageUri ?? nextDraft.coverImageUri,
-          format: detailedMetadata.format ?? nextDraft.format,
-          workKey: detailedMetadata.workKey ?? nextDraft.workKey,
-          editionKey: detailedMetadata.editionKey ?? nextDraft.editionKey,
-          editionCount: detailedMetadata.editionCount ?? nextDraft.editionCount,
-          isBestseller: detailedMetadata.isBestseller ?? nextDraft.isBestseller,
-          tags: detailedMetadata.tags?.length
-            ? Array.from(new Set([...(nextDraft.tags ?? []), ...detailedMetadata.tags]))
-            : nextDraft.tags
-        };
-      }
-
-      setReviewBook(nextDraft);
-      setReviewInsight(`Matched a ${language} edition. ISBN, publisher, and edition details were updated where Open Library had them.`);
     } catch {
-      setReviewInsight(`Language changed to ${language}. Bookliz could not refresh the edition metadata right now.`);
+      setReviewInsight(`Couldn't check ${language} editions right now. Current details were kept.`);
     } finally {
       setIsRefreshingMetadata(false);
     }

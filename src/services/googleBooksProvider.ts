@@ -257,6 +257,7 @@ export interface GenreBookResult {
   description?: string;
   genres: string[];
   language?: string;
+  publisher?: string;
   googleBooksId: string;
   averageRating?: number;
   ratingsCount?: number;
@@ -275,7 +276,10 @@ export async function fetchByGenre(
     const subject = GENRE_TO_SUBJECT[genre] ?? encodeURIComponent(genre.toLowerCase());
     const url = `${GB_BASE}?q=subject:${subject}&startIndex=${startIndex}&maxResults=${maxResults}&orderBy=relevance&printType=books${apiKey()}`;
     const res = await fetch(url);
-    if (!res.ok) return { books: [], totalItems: 0 };
+    if (!res.ok) {
+      if (__DEV__) console.log("[GB] keyword HTTP " + res.status + (res.status === 429 ? " - QUOTA/RATE LIMITED" : ""));
+      return { books: [], totalItems: 0 };
+    }
     const data = (await res.json()) as GBResponse;
 
     const books: GenreBookResult[] = (data.items ?? [])
@@ -297,6 +301,7 @@ export async function fetchByGenre(
           description: info.description,
           genres: normalizeBookGenres(info.categories),
           language: lang?.name,
+          publisher: info.publisher,
           googleBooksId: vol.id,
           averageRating: info.averageRating,
           ratingsCount: info.ratingsCount,
@@ -316,18 +321,27 @@ export async function fetchByGenre(
 export async function fetchByKeyword(
   query: string,
   startIndex = 0,
-  maxResults = 40
+  maxResults = 40,
+  /** ISO 639-1 code (e.g. "fr") — restricts results to that language. */
+  langRestrict?: string,
+  /** Set false for metadata lookups where a missing thumbnail shouldn't disqualify. */
+  requireCover = true
 ): Promise<{ books: GenreBookResult[]; totalItems: number }> {
   try {
-    const url = `${GB_BASE}?q=${encodeURIComponent(query)}&startIndex=${startIndex}&maxResults=${maxResults}&orderBy=relevance&printType=books${apiKey()}`;
+    const langParam = langRestrict ? `&langRestrict=${encodeURIComponent(langRestrict)}` : "";
+    const url = `${GB_BASE}?q=${encodeURIComponent(query)}&startIndex=${startIndex}&maxResults=${maxResults}&orderBy=relevance&printType=books${langParam}${apiKey()}`;
     const res = await fetch(url);
-    if (!res.ok) return { books: [], totalItems: 0 };
+    if (!res.ok) {
+      if (__DEV__) console.log("[GB] keyword HTTP " + res.status + (res.status === 429 ? " - QUOTA/RATE LIMITED" : ""));
+      return { books: [], totalItems: 0 };
+    }
     const data = (await res.json()) as GBResponse;
 
     const books: GenreBookResult[] = (data.items ?? [])
-      // Require a real cover: skip catalog-only records (placeholder cover) and
-      // volumes with no imageLinks (would render as blank squares).
-      .filter((vol) => vol.volumeInfo.title && !isCatalogOnlyVolumeId(vol.id) && (vol.volumeInfo.imageLinks?.thumbnail ?? vol.volumeInfo.imageLinks?.smallThumbnail))
+      // Require a real cover (UI lists): skip catalog-only records and volumes
+      // with no imageLinks. Metadata lookups pass requireCover=false.
+      .filter((vol) => vol.volumeInfo.title && !isCatalogOnlyVolumeId(vol.id) &&
+        (!requireCover || (vol.volumeInfo.imageLinks?.thumbnail ?? vol.volumeInfo.imageLinks?.smallThumbnail)))
       .map((vol): GenreBookResult => {
         const info = vol.volumeInfo;
         const isbn13 = info.industryIdentifiers?.find((x) => x.type === "ISBN_13")?.identifier;
@@ -343,6 +357,7 @@ export async function fetchByKeyword(
           description: info.description,
           genres: normalizeBookGenres(info.categories),
           language: lang?.name,
+          publisher: info.publisher,
           googleBooksId: vol.id,
           averageRating: info.averageRating,
           ratingsCount: info.ratingsCount,
@@ -388,14 +403,23 @@ export async function fetchWorksByQuery(
       // A quoted phrase like inauthor:"rebeca yarros" returns 0 on any typo.
       const tokens = title.trim().split(/\s+/).filter(Boolean);
       queryStr = tokens.map((t) => `inauthor:${encodeURIComponent(t)}`).join("+");
-    } else {
-      // Title search: intitle:The%20Secret%20of%20Secrets
-      // Single intitle: with the full phrase; %20 for spaces.
+    } else if (mode === "title") {
+      // Strict title search: intitle:The%20Secret%20of%20Secrets
       const encodedTitle = encodeURIComponent(title.trim());
       const authorPart = author
         ? `+inauthor:${encodeURIComponent(author.trim())}`
         : "";
       queryStr = `intitle:${encodedTitle}${authorPart}`;
+    } else {
+      // General search: plain free text — NO intitle restriction.
+      // Google's relevance handles translated titles natively ("Amanecer rojo"
+      // finds the RBA edition; intitle would not), tolerates typos, and our
+      // scoring layer re-ranks exact title matches to the top afterwards.
+      const encodedTitle = encodeURIComponent(title.trim());
+      const authorPart = author
+        ? `+inauthor:${encodeURIComponent(author.trim())}`
+        : "";
+      queryStr = `${encodedTitle}${authorPart}`;
     }
 
     // Author queries fetch more results so users get the full catalog.
