@@ -3,7 +3,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Book } from "../types/models";
 import { AppColors, fonts, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
-import { formatStatusLabel } from "../utils/statusLabels";
+import { statusLabelKey } from "../utils/statusLabels";
+import { useI18n } from "../i18n/LocalizationContext";
 import { BookCover } from "./BookCover";
 
 type BookCardProps = {
@@ -15,10 +16,11 @@ type BookCardProps = {
 
 export function BookCard({ book, authorName, compact = false, onPress }: BookCardProps) {
   const c = useColors();
+  const { t } = useI18n();
   const styles = useMemo(() => createStyles(c), [c]);
   const meta = book.userStatus.rating
-    ? `${book.userStatus.rating} stars`
-    : formatStatusLabel(book.userStatus.status);
+    ? `${book.userStatus.rating} ★`
+    : t(statusLabelKey(book.userStatus.status));
 
   return (
     <Pressable style={[styles.card, compact && styles.compact]} onPress={onPress}>

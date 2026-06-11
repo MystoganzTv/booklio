@@ -550,22 +550,25 @@ describe("lookupByQuery", () => {
 
   test("sorts works by score descending", async () => {
     gbFetchByQuery.mockResolvedValue([]);
+    // Titles must be clearly DISTINCT works — near-identical titles like
+    // "Book A"/"Book B" get merged by the ≥70% title-overlap rule (which has
+    // its own dedicated tests above). This test is about score ordering only.
     olFetchByQuery.mockResolvedValue([
       {
-        partialWork: { workKey: "/works/OL1W", title: "Book A", authors: [], description: "", genres: [], editionCount: 1 },
+        partialWork: { workKey: "/works/OL1W", title: "Desert Storms of Arrakis", authors: [], description: "", genres: [], editionCount: 1 },
         bestEdition: makeEdition({ id: "a", score: 60 }),
       },
       {
-        partialWork: { workKey: "/works/OL2W", title: "Book B", authors: [], description: "", genres: [], editionCount: 1 },
+        partialWork: { workKey: "/works/OL2W", title: "The Crimson Citadel", authors: [], description: "", genres: [], editionCount: 1 },
         bestEdition: makeEdition({ id: "b", score: 90 }),
       },
       {
-        partialWork: { workKey: "/works/OL3W", title: "Book C", authors: [], description: "", genres: [], editionCount: 1 },
+        partialWork: { workKey: "/works/OL3W", title: "Whispering Tides", authors: [], description: "", genres: [], editionCount: 1 },
         bestEdition: makeEdition({ id: "c", score: 75 }),
       },
     ]);
 
-    const result = await lookupByQuery("Book");
+    const result = await lookupByQuery("fantasy adventure");
     const scores = result.works.map((w) => w.score);
     expect(scores[0]).toBeGreaterThanOrEqual(scores[1]!);
     expect(scores[1]).toBeGreaterThanOrEqual(scores[2]!);

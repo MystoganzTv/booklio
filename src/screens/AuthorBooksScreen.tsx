@@ -67,8 +67,9 @@ export function AuthorBooksScreen() {
   const libraryBooks = useMemo(() => {
     const wanted = authorName.trim().toLowerCase();
     return books.filter((b) =>
-      (authorId && b.authorId === authorId) ||
-      (getAuthor(b.authorId)?.name ?? "").trim().toLowerCase() === wanted
+      (authorId && (b.authorId === authorId || b.coAuthorIds?.includes(authorId))) ||
+      (getAuthor(b.authorId)?.name ?? "").trim().toLowerCase() === wanted ||
+      (b.coAuthorNames ?? []).some((name) => name.trim().toLowerCase() === wanted)
     );
   }, [books, authorId, authorName, getAuthor]);
   const libraryIsbnSet = useMemo(

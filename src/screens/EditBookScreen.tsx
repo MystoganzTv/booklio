@@ -50,18 +50,18 @@ import { GenreBookResult } from "../services/googleBooksProvider";
 const splitList = (v: string) => v.split(",").map((s) => s.trim()).filter(Boolean);
 const parseNum  = (v: string) => { const n = Number(v); return Number.isFinite(n) ? n : undefined; };
 
-const FORMAT_OPTIONS: { value: ReadingFormat; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { value: "paperback",            label: "Paperback",             icon: "book-outline" },
-  { value: "hardcover",            label: "Hardcover",             icon: "book-outline" },
-  { value: "ebook",                label: "Digital book",          icon: "tablet-portrait-outline" },
-  { value: "audiobook",            label: "Audiobook",             icon: "headset-outline" },
-  { value: "mass-market-paperback",label: "Mass market paperback", icon: "book-outline" },
-  { value: "spiral-bound",         label: "Spiral-bound",          icon: "document-text-outline" },
-  { value: "leather-bound",        label: "Leather-bound",         icon: "book-outline" },
-  { value: "magazine",             label: "Magazine",              icon: "newspaper-outline" },
-  { value: "comic-book",           label: "Comic book",            icon: "color-wand-outline" },
-  { value: "graphic-novel",        label: "Graphic novel",         icon: "image-outline" },
-  { value: "manga",                label: "Manga",                 icon: "language-outline" },
+const FORMAT_OPTIONS: { value: ReadingFormat; labelKey: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { value: "paperback",            labelKey: "editBook.fmtPaperback",   icon: "book-outline" },
+  { value: "hardcover",            labelKey: "editBook.fmtHardcover",   icon: "book-outline" },
+  { value: "ebook",                labelKey: "editBook.fmtEbook",       icon: "tablet-portrait-outline" },
+  { value: "audiobook",            labelKey: "editBook.fmtAudiobook",   icon: "headset-outline" },
+  { value: "mass-market-paperback",labelKey: "editBook.fmtMassMarket",  icon: "book-outline" },
+  { value: "spiral-bound",         labelKey: "editBook.fmtSpiral",      icon: "document-text-outline" },
+  { value: "leather-bound",        labelKey: "editBook.fmtLeather",     icon: "book-outline" },
+  { value: "magazine",             labelKey: "editBook.fmtMagazine",    icon: "newspaper-outline" },
+  { value: "comic-book",           labelKey: "editBook.fmtComic",       icon: "color-wand-outline" },
+  { value: "graphic-novel",        labelKey: "editBook.fmtGraphicNovel",icon: "image-outline" },
+  { value: "manga",                labelKey: "editBook.fmtManga",       icon: "language-outline" },
 ];
 
 const STATUS_OPTIONS: { value: CoreTrackingStatus; labelKey: string }[] = [
@@ -338,7 +338,7 @@ export function EditBookScreen() {
         {/* Trigger row */}
         <Pressable style={styles.dropdownTrigger} onPress={() => setFormatOpen((v) => !v)}>
           <Text style={styles.dropdownValue}>
-            {FORMAT_OPTIONS.find((o) => o.value === format)?.label ?? "Select format"}
+            {(() => { const k = FORMAT_OPTIONS.find((o) => o.value === format)?.labelKey; return k ? t(k) : t("editBook.fmtSelect"); })()}
           </Text>
           <Ionicons
             name={formatOpen ? "chevron-up" : "chevron-down"}
@@ -360,7 +360,7 @@ export function EditBookScreen() {
               >
                 <Ionicons name={opt.icon} size={15} color={format === opt.value ? c.teal : c.muted} />
                 <Text style={[styles.dropdownItemText, format === opt.value && { color: c.teal, fontWeight: "900" }]}>
-                  {opt.label}
+                  {t(opt.labelKey)}
                 </Text>
                 {format === opt.value && (
                   <Ionicons name="checkmark" size={16} color={c.teal} style={{ marginLeft: "auto" }} />

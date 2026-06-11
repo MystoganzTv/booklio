@@ -63,8 +63,10 @@ export interface Book {
   id: string;
   title: string;
   authorId: string;
-  /** Additional authors beyond the primary one (e.g. co-written books). Display only. */
+  /** Additional authors beyond the primary one (e.g. co-written books). */
   coAuthorNames?: string[];
+  /** Real Author entity ids for the co-authors (parallel to coAuthorNames). */
+  coAuthorIds?: string[];
   seriesId?: string;
   seriesName?: string;
   seriesNumber?: number;

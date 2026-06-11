@@ -1037,16 +1037,30 @@ export function BooklizProvider({ children }: PropsWithChildren) {
         return (sameIsbn || sameTitleAndAuthor) && sameLanguage && sameFormat;
       });
 
+      // Co-authors become REAL Author entities (created or reused), not just
+      // display strings — same treatment as the primary author.
+      const coAuthorNames = (input.coAuthorNames ?? [])
+        .map((name) => name.trim())
+        .filter((name) => name && name.toLowerCase() !== authorName.toLowerCase());
+      const authorsToCreate: Author[] = [];
       if (!existingAuthor) {
-        setAuthors((current) => [
-          ...current,
-          {
-            id: authorId,
-            name: authorName,
-            bio: "Author added from Booklio. Ready to be enriched when we connect a live books API.",
-            favoriteGenres: normalizeBookGenres(input.genre)
-          }
-        ]);
+        authorsToCreate.push({
+          id: authorId,
+          name: authorName,
+          bio: "", // never fabricate visible metadata
+          favoriteGenres: normalizeBookGenres(input.genre)
+        });
+      }
+      const coAuthorIds = coAuthorNames.map((name) => {
+        const existing = authors.find((a) => a.name.toLowerCase() === name.toLowerCase())
+          ?? authorsToCreate.find((a) => a.name.toLowerCase() === name.toLowerCase());
+        if (existing) return existing.id;
+        const id = buildAuthorId(name);
+        authorsToCreate.push({ id, name, bio: "", favoriteGenres: [] });
+        return id;
+      });
+      if (authorsToCreate.length) {
+        setAuthors((current) => [...current, ...authorsToCreate]);
       }
 
       if (existingBook) {
@@ -1054,7 +1068,8 @@ export function BooklizProvider({ children }: PropsWithChildren) {
           ...existingBook,
           title: input.title.trim() || existingBook.title,
           authorId,
-          coAuthorNames: input.coAuthorNames?.length ? input.coAuthorNames : existingBook.coAuthorNames,
+          coAuthorNames: coAuthorNames.length ? coAuthorNames : existingBook.coAuthorNames,
+          coAuthorIds: coAuthorIds.length ? coAuthorIds : existingBook.coAuthorIds,
           synopsis: input.synopsis?.trim() || existingBook.synopsis,
           genre: input.genre?.length ? normalizeBookGenres(input.genre) : normalizeBookGenres(existingBook.genre),
           pages: input.pages ?? existingBook.pages,
@@ -1088,7 +1103,8 @@ export function BooklizProvider({ children }: PropsWithChildren) {
         id: `b-${slugify(input.title || "captured-book")}-${Date.now()}`,
         title: input.title.trim() || "Untitled Book",
         authorId,
-        coAuthorNames: input.coAuthorNames?.length ? input.coAuthorNames : undefined,
+        coAuthorNames: coAuthorNames.length ? coAuthorNames : undefined,
+        coAuthorIds: coAuthorIds.length ? coAuthorIds : undefined,
         synopsis: input.synopsis ?? "", // "" = unknown, UI offers "Find synopsis"
         genre: normalizeBookGenres(input.genre),
         // 0 / "" = unknown — never fabricate metadata the source didn't provide.

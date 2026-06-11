@@ -36,7 +36,7 @@ import { useI18n } from "../i18n/LocalizationContext";
 import { hapticLight, hapticMedium } from "../utils/haptics";
 import { isPlaceholderText, resolveBookMetadata } from "../utils/bookMetadata";
 import { isSameLanguage } from "../utils/languageUtils";
-import { formatStatusLabel } from "../utils/statusLabels";
+import { statusLabelKey } from "../utils/statusLabels";
 
 function cleanGenres(raw: string[]): string[] {
   return raw
@@ -90,7 +90,7 @@ export function BookDetailScreen() {
   const isDnf = book.userStatus.status === "dnf";
   const isWishlist = !isReading && !isDone && !isDnf;
   const hasSessions = stats.totalSessions > 0;
-  const statusLabel = formatStatusLabel(book.userStatus.status);
+  const statusLabel = t(statusLabelKey(book.userStatus.status));
 
   const primaryAction = (() => {
     if (isReading) return { label: t("bookDetail.logSession"), icon: "pencil" as const, onPress: () => navigation.navigate("AddReadingSession", { bookId: book.id }) };
@@ -140,7 +140,12 @@ export function BookDetailScreen() {
       <BookCover book={book} size="lg" style={styles.heroCoverFloat} hideProgress />
       <Text numberOfLines={3} style={styles.heroTitle}>{book.title}</Text>
       <Text numberOfLines={2} style={styles.heroAuthor}>
-        {[author?.name, ...(book.coAuthorNames ?? [])].filter(Boolean).join(" & ")}
+        {[
+          author?.name,
+          ...(book.coAuthorIds?.length
+            ? book.coAuthorIds.map((id) => getAuthor(id)?.name)
+            : book.coAuthorNames ?? []),
+        ].filter(Boolean).join(" & ")}
       </Text>
       {book.seriesName ? (
         <Pressable

@@ -3,7 +3,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { ImageBackground, StyleProp, StyleSheet, Text, View, ViewStyle } from "react-native";
 import { Book, ReadingFormat } from "../types/models";
 import { colors, fonts, radii, shadows } from "../theme/theme";
-import { formatStatusLabel } from "../utils/statusLabels";
+import { statusLabelKey } from "../utils/statusLabels";
+import { useI18n } from "../i18n/LocalizationContext";
 import { Badge } from "./Badge";
 import { ProgressRing } from "./ProgressRing";
 
@@ -82,6 +83,7 @@ function CoverContent({
   showTypographyOverlay,
   hideProgress = false,
 }: BookCoverProps & { showTypographyOverlay: boolean; hideProgress?: boolean }) {
+  const { t } = useI18n();
   return (
     <>
       {showTypographyOverlay ? <View style={styles.sheen} /> : <View style={styles.photoShade} />}
@@ -100,7 +102,7 @@ function CoverContent({
       ) : null}
       {book.userStatus.status === "dnf" ? (
         <View style={styles.dnfBadge}>
-          <Badge label={formatStatusLabel(book.userStatus.status)} tone="danger" />
+          <Badge label={t(statusLabelKey(book.userStatus.status))} tone="danger" />
         </View>
       ) : null}
       <FormatBadge format={book.format} size={size === "sm" ? 13 : 15} />

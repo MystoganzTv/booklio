@@ -630,13 +630,15 @@ export async function lookupByQuery(
   type GBItem = { work: Omit<BookWork, "score"|"confidence"|"bestEdition"|"editions">; edition: BookEdition; gbRank: number };
   type OLItem = { partialWork: Omit<BookWork, "score"|"confidence"|"bestEdition"|"editions">; bestEdition: Omit<BookEdition, "score"> };
 
+  // Defensive: a provider (or a test mock) may resolve undefined — never crash.
+  const asArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
   const at = (idx: number) => (idx >= 0 && settled[idx]?.status === "fulfilled" ? (settled[idx] as PromiseFulfilledResult<unknown>).value : []);
-  let gbPrimary   = (settled[0]?.status === "fulfilled" ? settled[0].value : []) as GBItem[];
-  let olPrimary   = (settled[1]?.status === "fulfilled" ? settled[1].value : []) as OLItem[];
-  const gbExtra   = at(extraIdx) as GBItem[];
-  const olExtra   = at(extraIdx === -1 ? -1 : extraIdx + 1) as OLItem[];
-  const gbHedge   = at(hedgeIdx) as GBItem[];
-  const olHedge   = at(hedgeIdx === -1 ? -1 : hedgeIdx + 1) as OLItem[];
+  let gbPrimary   = asArray<GBItem>(settled[0]?.status === "fulfilled" ? settled[0].value : []);
+  let olPrimary   = asArray<OLItem>(settled[1]?.status === "fulfilled" ? settled[1].value : []);
+  const gbExtra   = asArray<GBItem>(at(extraIdx));
+  const olExtra   = asArray<OLItem>(at(extraIdx === -1 ? -1 : extraIdx + 1));
+  const gbHedge   = asArray<GBItem>(at(hedgeIdx));
+  const olHedge   = asArray<OLItem>(at(hedgeIdx === -1 ? -1 : hedgeIdx + 1));
 
   // ── 6a. Author-query result filtering ─────────────────────────────────────
   // Google Books' inauthor: qualifier is fuzzy — it can return biographies and
@@ -738,10 +740,14 @@ export async function lookupByQuery(
         gbFetchByQuery(title, undefined, freeTextQuery, "general"),
         olFetchByQuery(title, undefined, freeTextQuery, "general"),
       ]);
-      gbFT = (gbFallback.status === "fulfilled" ? gbFallback.value : []) as GBItem[];
-      olFT = (olFallback.status === "fulfilled" ? olFallback.value : []) as OLItem[];
+      gbFT = asArray<GBItem>(gbFallback.status === "fulfilled" ? gbFallback.value : []);
+      olFT = asArray<OLItem>(olFallback.status === "fulfilled" ? olFallback.value : []);
     }
-    if (gbFT.length > gbPrimary.length) {
+    // Swap to general results when they're richer — OR when the author path
+    // produced nothing at all (the author-filter can wipe out misclassified
+    // title queries like "Dune"; any general result beats an empty screen).
+    const authorPathEmpty = gbPrimary.length + olPrimary.length === 0;
+    if (gbFT.length > gbPrimary.length || (authorPathEmpty && (gbFT.length > 0 || olFT.length > 0))) {
       if (__DEV__) console.log(`[FALLBACK] free-text returned ${gbFT.length} GB results — using those instead`);
       gbPrimary = gbFT;
       for (const { partialWork, bestEdition } of olFT) {

@@ -14,7 +14,7 @@ import { RootStackParamList } from "../navigation/types";
 import { useColors } from "../theme/ThemeContext";
 import { Book } from "../types/models";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
-import { formatStatusLabel } from "../utils/statusLabels";
+import { statusLabelKey } from "../utils/statusLabels";
 
 type OrderMode = "reading" | "release";
 
@@ -259,7 +259,7 @@ function SagaRoadmapRow({
         </Text>
         <View style={styles.badges}>
           <Badge label={`${order === "reading" ? t("series.currentLane") : t("series.currentRelease")} ${orderValue ?? "—"}`} tone="navy" />
-          <Badge label={formatStatusLabel(book.userStatus.status)} tone={book.userStatus.status === "read" ? "green" : "gray"} />
+          <Badge label={t(statusLabelKey(book.userStatus.status))} tone={book.userStatus.status === "read" ? "green" : "gray"} />
           {book.userStatus.ownership === "owned" ? <Badge label={t("series.owned")} tone="green" /> : null}
         </View>
         {book.userStatus.status === "reading" ? (

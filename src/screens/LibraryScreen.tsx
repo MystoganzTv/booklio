@@ -17,7 +17,6 @@ import { RootStackParamList } from "../navigation/types";
 import { Book } from "../types/models";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors, useTheme } from "../theme/ThemeContext";
-import { formatStatusLabel } from "../utils/statusLabels";
 import { normalizeBookGenres } from "../utils/genres";
 import { CreateListSheet } from "../components/CreateListSheet";
 import { ScalePressable } from "../components/ScalePressable";
