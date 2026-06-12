@@ -43,6 +43,11 @@ import {
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { findEditionsInLanguage } from "../utils/metadataResolver";
 import { buildEditionSwitchPatch } from "../utils/editionSwitch";
+import {
+  EditionCandidate,
+  groupEditionCandidates,
+  GroupedEditionCandidates,
+} from "../utils/editionMatchValidation";
 import { isSameLanguage } from "../utils/languageUtils";
 import { GenreBookResult } from "../services/googleBooksProvider";
 
@@ -123,32 +128,53 @@ export function EditBookScreen() {
   const [editionKey,      setEditionKey]      = useState(book?.editionKey);
   const [isFetching,      setIsFetching]      = useState(false);
   const [formatOpen,      setFormatOpen]      = useState(false);
-  // Language → edition picker sheet
-  const [editionSheet, setEditionSheet] = useState<{ language: string; loading: boolean; candidates: GenreBookResult[] } | null>(null);
+  // Language → edition picker sheet (two groups: exact = applicable;
+  // seriesSiblings = other volumes of the same series, shown but blocked).
+  const EMPTY_GROUPS: GroupedEditionCandidates = { exact: [], seriesSiblings: [] };
+  const [editionSheet, setEditionSheet] = useState<{ language: string; loading: boolean; groups: GroupedEditionCandidates } | null>(null);
 
   // ── language → edition picker ──────────────────────────────────────────────
   // Changing the language means changing EDITION (different ISBN, title,
   // cover, synopsis). Instead of a blind fetch against the old ISBN, we list
   // the catalog editions in that language and let the user pick one.
+  // SAME-BOOK GATE: candidates are validated against the source book —
+  // another volume of the same series is never applicable.
   const handleLanguagePick = async (lang: string) => {
     if (language.trim().toLowerCase() === lang.trim().toLowerCase()) {
       setLanguage(lang);
       return;
     }
-    setEditionSheet({ language: lang, loading: true, candidates: [] });
+    setEditionSheet({ language: lang, loading: true, groups: EMPTY_GROUPS });
     try {
       const candidates = await findEditionsInLanguage(title || book?.title || "", authorName, lang, {
         workKey: book?.workKey,
         isbn,
       });
+      const groups = groupEditionCandidates(
+        {
+          title: title || book?.title || "",
+          authorName,
+          seriesName: seriesName || book?.seriesName,
+          seriesNumber: parseNum(seriesNumber) ?? book?.seriesNumber,
+        },
+        candidates
+      );
       setEditionSheet((current) =>
-        current?.language === lang ? { language: lang, loading: false, candidates } : current
+        current?.language === lang ? { language: lang, loading: false, groups } : current
       );
     } catch {
       setEditionSheet((current) =>
-        current?.language === lang ? { language: lang, loading: false, candidates: [] } : current
+        current?.language === lang ? { language: lang, loading: false, groups: EMPTY_GROUPS } : current
       );
     }
+  };
+
+  /** Blocked tap on a series sibling — explain instead of applying. */
+  const explainSiblingBlocked = () => {
+    dialog.alert(
+      t("editBook.editionSiblingBlockedTitle"),
+      t("editBook.editionSiblingBlockedBody")
+    );
   };
 
   const applyEditionCandidate = (candidate: GenreBookResult, lang: string) => {
@@ -451,39 +477,76 @@ export function EditBookScreen() {
                   {t("editBook.editionSheetLoading", { language: editionSheet.language })}
                 </Text>
               </View>
-            ) : editionSheet && editionSheet.candidates.length === 0 ? (
+            ) : editionSheet && editionSheet.groups.exact.length === 0 && editionSheet.groups.seriesSiblings.length === 0 ? (
               <Text style={styles.editionEmpty}>
                 {t("editBook.editionSheetEmpty", { language: editionSheet.language })}
               </Text>
-            ) : (
+            ) : editionSheet ? (
               <ScrollView style={styles.editionList} showsVerticalScrollIndicator={false}>
-                {editionSheet?.candidates.map((candidate) => (
-                  <Pressable
-                    key={candidate.id}
-                    style={styles.editionRow}
-                    onPress={() => applyEditionCandidate(candidate, editionSheet.language)}
-                  >
-                    {candidate.coverUrl ? (
-                      <Image source={{ uri: candidate.coverUrl }} style={styles.editionCover} resizeMode="cover" />
-                    ) : (
-                      <View style={[styles.editionCover, styles.editionCoverFallback]}>
-                        <Ionicons name="book-outline" size={18} color={c.muted} />
+                {/* ── Group 1: exact translation / same book (applicable) ── */}
+                <Text style={styles.editionGroupHeader}>{t("editBook.editionExactHeader")}</Text>
+                {editionSheet.groups.exact.length === 0 ? (
+                  <Text style={styles.editionEmpty}>
+                    {t("editBook.editionSheetEmpty", { language: editionSheet.language })}
+                  </Text>
+                ) : (
+                  editionSheet.groups.exact.map((candidate: EditionCandidate) => (
+                    <Pressable
+                      key={candidate.id}
+                      style={styles.editionRow}
+                      onPress={() => applyEditionCandidate(candidate, editionSheet.language)}
+                    >
+                      {candidate.coverUrl ? (
+                        <Image source={{ uri: candidate.coverUrl }} style={styles.editionCover} resizeMode="cover" />
+                      ) : (
+                        <View style={[styles.editionCover, styles.editionCoverFallback]}>
+                          <Ionicons name="book-outline" size={18} color={c.muted} />
+                        </View>
+                      )}
+                      <View style={styles.editionInfo}>
+                        <Text style={styles.editionTitle} numberOfLines={2}>{candidate.title}</Text>
+                        <Text style={styles.editionSub} numberOfLines={1}>
+                          {[candidate.publishedYear, candidate.publisher, candidate.isbn13].filter(Boolean).join(" · ")}
+                        </Text>
+                        {(candidate.description?.trim().length ?? 0) > 40 ? (
+                          <Text style={styles.editionHasSynopsis}>{t("editBook.editionHasSynopsis")}</Text>
+                        ) : null}
                       </View>
-                    )}
-                    <View style={styles.editionInfo}>
-                      <Text style={styles.editionTitle} numberOfLines={2}>{candidate.title}</Text>
-                      <Text style={styles.editionSub} numberOfLines={1}>
-                        {[candidate.publishedYear, candidate.publisher, candidate.isbn13].filter(Boolean).join(" · ")}
-                      </Text>
-                      {(candidate.description?.trim().length ?? 0) > 40 ? (
-                        <Text style={styles.editionHasSynopsis}>{t("editBook.editionHasSynopsis")}</Text>
-                      ) : null}
-                    </View>
-                    <Ionicons name="chevron-forward" size={15} color={c.muted} />
-                  </Pressable>
-                ))}
+                      <Ionicons name="chevron-forward" size={15} color={c.muted} />
+                    </Pressable>
+                  ))
+                )}
+
+                {/* ── Group 2: other books in this series (visible, blocked) ── */}
+                {editionSheet.groups.seriesSiblings.length > 0 ? (
+                  <>
+                    <Text style={styles.editionGroupHeader}>{t("editBook.editionSiblingsHeader")}</Text>
+                    {editionSheet.groups.seriesSiblings.map((candidate: EditionCandidate) => (
+                      <Pressable
+                        key={candidate.id}
+                        style={[styles.editionRow, styles.editionRowBlocked]}
+                        onPress={explainSiblingBlocked}
+                      >
+                        {candidate.coverUrl ? (
+                          <Image source={{ uri: candidate.coverUrl }} style={styles.editionCover} resizeMode="cover" />
+                        ) : (
+                          <View style={[styles.editionCover, styles.editionCoverFallback]}>
+                            <Ionicons name="book-outline" size={18} color={c.muted} />
+                          </View>
+                        )}
+                        <View style={styles.editionInfo}>
+                          <Text style={styles.editionTitle} numberOfLines={2}>{candidate.title}</Text>
+                          <Text style={styles.editionSub} numberOfLines={2}>
+                            {t("editBook.editionSiblingBlockedBody")}
+                          </Text>
+                        </View>
+                        <Ionicons name="lock-closed-outline" size={15} color={c.muted} />
+                      </Pressable>
+                    ))}
+                  </>
+                ) : null}
               </ScrollView>
-            )}
+            ) : null}
           </Pressable>
         </Pressable>
       </Modal>
@@ -847,10 +910,15 @@ function createStyles(c: AppColors) {
     editionLoadingText: { color: c.muted, fontFamily: fonts.body, fontSize: 13, fontWeight: "700" },
     editionEmpty: { color: c.muted, fontFamily: fonts.bodyRegular, fontSize: 14, lineHeight: 21, paddingVertical: spacing.md },
     editionList: { maxHeight: 440 },
+    editionGroupHeader: {
+      color: c.teal, fontFamily: fonts.body, fontSize: 11, fontWeight: "800",
+      letterSpacing: 0.6, marginTop: spacing.sm, paddingVertical: 6, textTransform: "uppercase",
+    },
     editionRow: {
       alignItems: "center", borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth,
       flexDirection: "row", gap: spacing.sm, paddingVertical: 10,
     },
+    editionRowBlocked: { opacity: 0.55 },
     editionCover: { backgroundColor: c.surfaceAlt, borderRadius: 6, height: 66, width: 44 },
     editionCoverFallback: { alignItems: "center", borderColor: c.border, borderWidth: 1, justifyContent: "center" },
     editionInfo: { flex: 1 },

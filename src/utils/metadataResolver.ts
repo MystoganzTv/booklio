@@ -28,6 +28,7 @@ import { getTitleVariants } from "./knownWorks";
 import { logMergeRejection } from "./metadataMergePolicy";
 import { languageCode, languageDisplayName } from "./languageUtils";
 import { assessLanguageMatch, isLanguageAcceptable, LanguageMatchVerdict } from "./languageEvidence";
+import { CandidateOrigin, EditionCandidate } from "./editionMatchValidation";
 
 export type ResolveInput = {
   isbn?: string;
@@ -310,12 +311,12 @@ const logSearch = (msg: string) => {
  *  dedupe; rank by usefulness. Provider labels alone are not trusted — see
  *  utils/languageEvidence (labels lie in both directions). */
 function filterAndRankEditions(
-  all: GenreBookResult[],
+  all: EditionCandidate[],
   wantedLanguage: string,
   limit: number
-): GenreBookResult[] {
+): EditionCandidate[] {
   const seen = new Set<string>();
-  const out: GenreBookResult[] = [];
+  const out: EditionCandidate[] = [];
   for (const book of all) {
     // SAFETY INVARIANT: only "match"/"likely" verdicts pass. An English
     // record can never enter the Spanish list (English text → mismatch),
@@ -349,9 +350,10 @@ function filterAndRankEditions(
 }
 
 /** Open Library edition record → catalog candidate shape. */
-function olEditionToCandidate(option: BookEditionOption, authorName?: string): GenreBookResult {
+function olEditionToCandidate(option: BookEditionOption, authorName?: string): EditionCandidate {
   const cleanIsbn = (option.isbn ?? "").replace(/\D/g, "");
   return {
+    origin: "ol-work", // editions of THIS workKey — same work by construction
     id: option.editionKey ?? option.id,
     title: option.title,
     authors: authorName?.trim() ? [authorName.trim()] : [],
@@ -386,7 +388,7 @@ export async function findEditionsInLanguage(
   authorName: string | undefined,
   language: string,
   opts: FindEditionsOpts = {}
-): Promise<GenreBookResult[]> {
+): Promise<EditionCandidate[]> {
   const limit = opts.limit ?? 12;
   const code = languageCode(language);
   const wanted = norm(language);
@@ -400,28 +402,33 @@ export async function findEditionsInLanguage(
   }
 
   // ── Stage 1: Google Books ──────────────────────────────────────────────────
+  // Each query carries its ORIGIN: title-driven queries are strong evidence of
+  // the same book; the broad author sweep is weak (other books by the author)
+  // and is ranked/validated accordingly downstream.
   const authorPart = authorName?.trim() ? ` inauthor:"${authorName.trim()}"` : "";
-  const queries = [
-    `intitle:"${title}"${authorPart}`,
+  const queries: Array<{ query: string; origin: CandidateOrigin }> = [
+    { query: `intitle:"${title}"${authorPart}`, origin: "title-query" },
     ...getTitleVariants(title)
       .filter((variant) => norm(variant) !== norm(title))
-      .map((variant) => `intitle:"${variant}"${authorPart}`),
-    `${title}${authorPart}`,
+      .map((variant): { query: string; origin: CandidateOrigin } =>
+        ({ query: `intitle:"${variant}"${authorPart}`, origin: "title-query" })),
+    { query: `${title}${authorPart}`, origin: "title-query" },
   ];
   // Broad author sweep last — surfaces the translated title even when we
   // don't know it ("Amanecer rojo" from inauthor:"Pierce Brown" + es).
-  if (authorName?.trim()) queries.push(`inauthor:"${authorName.trim()}"`);
+  // Dedupe keeps the FIRST hit, so title-query origins win over the sweep.
+  if (authorName?.trim()) queries.push({ query: `inauthor:"${authorName.trim()}"`, origin: "author-sweep" });
 
   const settled = await Promise.allSettled(
-    queries.map((query) =>
+    queries.map(({ query, origin }) =>
       withTimeout(fetchByKeyword(query, 0, 20, code, false), TIME_BUDGET_MS)
         .then(({ books }) => {
-          logSearch(`gb query=${JSON.stringify(query)} langRestrict=${code} -> ${books.length} raw`);
-          return books;
+          logSearch(`gb query=${JSON.stringify(query)} origin=${origin} langRestrict=${code} -> ${books.length} raw`);
+          return books.map((book): EditionCandidate => ({ ...book, origin }));
         })
         .catch((err) => {
           logSearch(`gb query=${JSON.stringify(query)} FAILED (${err?.message ?? "error"})`);
-          return [] as GenreBookResult[];
+          return [] as EditionCandidate[];
         })
     )
   );
@@ -441,7 +448,7 @@ export async function findEditionsInLanguage(
       logSearch("ol work lookup FAILED");
     }
   }
-  let olCandidates: GenreBookResult[] = [];
+  let olCandidates: EditionCandidate[] = [];
   if (workKey) {
     try {
       const editions = await withTimeout(fetchEditionOptionsByWorkKey(workKey, 40), TIME_BUDGET_MS);
@@ -462,16 +469,18 @@ export async function findEditionsInLanguage(
   const translatedTitles = [...new Set(
     olCandidates.map((candidate) => candidate.title.trim()).filter((v) => v && norm(v) !== norm(title))
   )].slice(0, 3);
-  let gbRequery: GenreBookResult[] = [];
+  let gbRequery: EditionCandidate[] = [];
   if (translatedTitles.length) {
     const requerySettled = await Promise.allSettled(
       translatedTitles.map((translated) =>
         withTimeout(fetchByKeyword(`intitle:"${translated}"${authorPart}`, 0, 10, code, false), TIME_BUDGET_MS)
           .then(({ books }) => {
             logSearch(`stage3 gb requery intitle="${translated}" -> ${books.length} raw`);
-            return books;
+            // Same work by construction: the query title CAME from this
+            // work's own OL editions.
+            return books.map((book): EditionCandidate => ({ ...book, origin: "translated-requery" }));
           })
-          .catch(() => [] as GenreBookResult[])
+          .catch(() => [] as EditionCandidate[])
       )
     );
     gbRequery = requerySettled.flatMap((r) => (r.status === "fulfilled" ? r.value : []));

@@ -62,6 +62,7 @@ import {
 import { createStyles } from "./bookIntake/styles";
 import { findEditionsInLanguage } from "../utils/metadataResolver";
 import { buildEditionSwitchPatch } from "../utils/editionSwitch";
+import { groupEditionCandidates } from "../utils/editionMatchValidation";
 import { hapticLight, hapticSuccess } from "../utils/haptics";
 
 type IntakeMode = "menu" | "isbn" | "manual" | "search" | "matches" | "review";
@@ -578,7 +579,19 @@ export function BookIntakeScreen() {
         { workKey: reviewBook.workKey, isbn: reviewBook.isbn }
       );
 
-      const best = candidates[0];
+      // SAME-BOOK GATE: only exact translations of THIS book are applicable —
+      // another volume of the same series must never be auto-applied.
+      const groups = groupEditionCandidates(
+        {
+          title: reviewBook.title,
+          authorName: reviewBook.authorName,
+          seriesName: reviewBook.seriesName,
+          seriesNumber: reviewBook.seriesNumber,
+        },
+        candidates
+      );
+
+      const best = groups.exact[0];
       if (best) {
         const patch = buildEditionSwitchPatch(best, language);
         if (__DEV__) {
@@ -606,6 +619,10 @@ export function BookIntakeScreen() {
           // Structural fields (workKey, author, genres) persist untouched.
         } : current);
         setReviewInsight(`Switched to the ${language} edition.`);
+      } else if (groups.seriesSiblings.length > 0) {
+        setReviewInsight(
+          `The ${language} results look like other books in the same series, not a translation of this one — current details were kept.`
+        );
       } else {
         setReviewInsight(`No ${language} edition found in the catalogs — current details were kept.`);
       }
