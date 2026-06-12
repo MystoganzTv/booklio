@@ -29,6 +29,7 @@ import { buildInitials, clearPersistedConnectedAccount, ConnectedAccount, persis
 import { buildBookSpecificRecommendations, buildGlobalRecommendations } from "../utils/recommendationEngine";
 import { supabase } from "../lib/supabase";
 import { normalizeBookGenres } from "../utils/genres";
+import { languageCode } from "../utils/languageUtils";
 import { inferSeriesData } from "../utils/knownWorks";
 import { computeReadingIdentity, loadStoredIdentity, ReadingIdentity, storeIdentity } from "../utils/readingIdentity";
 
@@ -1289,7 +1290,7 @@ export function BooklizProvider({ children }: PropsWithChildren) {
           {
             id: authorId,
             name: authorName,
-            bio: "Author added from Booklio. Ready to be enriched when we connect a live books API.",
+            bio: "", // never fabricate visible metadata
             favoriteGenres: normalizeBookGenres(input.genre)
           }
         ]);
@@ -1298,16 +1299,26 @@ export function BooklizProvider({ children }: PropsWithChildren) {
       setBooks((current) =>
         current.map((book) => {
           if (book.id !== bookId) return book;
+          const language = input.language.trim() || "English";
           return normalizeReadState({
             ...book,
             title: input.title.trim() || book.title,
             authorId,
-            synopsis: input.synopsis.trim() || "No synopsis yet.",
+            synopsis: input.synopsis.trim(), // "" = unknown — never fabricate
             genre: normalizeBookGenres(input.genre),
-            pages: input.pages > 0 ? input.pages : book.pages,
-            publishedDate: input.publishedDate.trim() || book.publishedDate,
+            // The edit form is the source of truth: empty means UNKNOWN, not
+            // "keep the previous edition's value" (that re-leaked old metadata
+            // right after an edition switch cleared these fields).
+            pages: input.pages > 0 ? input.pages : 0,
+            publishedDate: input.publishedDate.trim(),
             publisher: input.publisher.trim(), // "" = unknown
-            language: input.language.trim() || "English",
+            language,
+            // Derived from `language` — keeps name/code in sync no matter how
+            // the language was set (edition switch, chip, or typed by hand).
+            languageCode: languageCode(language),
+            // Edition pointer travels with the edit: undefined = explicit clear
+            // after an edition switch (a stale pointer is a bug, not a value).
+            editionKey: "editionKey" in input ? input.editionKey : book.editionKey,
             isbn: input.isbn.trim(), // "" = unknown — never fabricate
             format: input.format,
             coverImageUri: input.coverImageUri?.trim() || undefined,

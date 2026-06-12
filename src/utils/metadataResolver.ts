@@ -16,15 +16,17 @@
  */
 import { fetchByKeyword, GenreBookResult } from "../services/googleBooksProvider";
 import {
+  BookEditionOption,
   BookMetadata,
   fetchBookMetadataByIsbn,
   fetchBookMetadataByTitleAuthor,
+  fetchEditionOptionsByWorkKey,
   normalizeIsbn,
 } from "./bookMetadata";
 import { HOURS, readCache, writeCache } from "./discoverCache";
 import { getTitleVariants } from "./knownWorks";
 import { logMergeRejection } from "./metadataMergePolicy";
-import { languageCode } from "./languageUtils";
+import { languageCode, languageDisplayName } from "./languageUtils";
 
 export type ResolveInput = {
   isbn?: string;
@@ -239,21 +241,96 @@ export async function resolveMetadata(input: ResolveInput): Promise<BookMetadata
 
 // ─── Edition discovery ────────────────────────────────────────────────────────
 
+export type FindEditionsOpts = {
+  /** Open Library work key — unlocks the editions-of-this-work fallback. */
+  workKey?: string;
+  /** Current edition ISBN — logged for diagnosis. */
+  isbn?: string;
+  limit?: number;
+};
+
+const logSearch = (msg: string) => {
+  if (__DEV__) console.log(`[EDITION_SWITCH_SEARCH] ${msg}`);
+};
+
+/** Keep only editions in the wanted language; dedupe; rank by usefulness. */
+function filterAndRankEditions(
+  all: GenreBookResult[],
+  wanted: string,
+  limit: number
+): GenreBookResult[] {
+  const seen = new Set<string>();
+  const out: GenreBookResult[] = [];
+  for (const book of all) {
+    // STRICT: never offer an edition in another language (rule: no silent
+    // English when the user asked for Spanish).
+    if (norm(book.language) !== wanted) continue;
+    const key = book.isbn13 ?? book.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(book);
+  }
+  // Rank: synopsis available > cover available > popularity.
+  out.sort((a, b) =>
+    (Number((b.description?.length ?? 0) > 40) - Number((a.description?.length ?? 0) > 40)) ||
+    (Number(Boolean(b.coverUrl)) - Number(Boolean(a.coverUrl))) ||
+    ((b.ratingsCount ?? 0) - (a.ratingsCount ?? 0))
+  );
+  return out.slice(0, limit);
+}
+
+/** Open Library edition record → catalog candidate shape. */
+function olEditionToCandidate(option: BookEditionOption, authorName?: string): GenreBookResult {
+  const cleanIsbn = (option.isbn ?? "").replace(/\D/g, "");
+  return {
+    id: option.editionKey ?? option.id,
+    title: option.title,
+    authors: authorName?.trim() ? [authorName.trim()] : [],
+    isbn13: cleanIsbn.length === 13 ? cleanIsbn : undefined,
+    coverUrl: option.coverImageUri,
+    publishedYear: option.publishedDate ? Number(option.publishedDate.match(/\d{4}/)?.[0]) || undefined : undefined,
+    pageCount: option.pages,
+    description: undefined, // OL editions endpoint carries no description
+    genres: [],
+    language: option.language ? languageDisplayName(option.language) : undefined,
+    publisher: option.publisher,
+    googleBooksId: "",
+  };
+}
+
 /**
  * Find catalog editions of a book (or other books by the author) in a given
  * language. Used by the EditBook language picker: the user chooses the actual
  * edition — title, ISBN, cover, and synopsis all switch together.
+ *
+ * Search ladder (stops at the first stage that yields candidates):
+ *   1. Google Books: title (+ knownWorks variants) + author + langRestrict,
+ *      plus a broad author sweep (surfaces translated titles we don't know).
+ *   2. Open Library: editions of THIS work (by workKey, resolved via OL search
+ *      when missing) filtered by language — works even when GB indexes the
+ *      translation poorly.
+ *   3. Google Books re-query with the translated titles stage 2 discovered
+ *      (richer records: descriptions, ratings).
  */
 export async function findEditionsInLanguage(
   title: string,
   authorName: string | undefined,
   language: string,
-  limit = 12
+  opts: FindEditionsOpts = {}
 ): Promise<GenreBookResult[]> {
+  const limit = opts.limit ?? 12;
   const code = languageCode(language);
   const wanted = norm(language);
-  if (!title.trim() || !code) return [];
+  logSearch(
+    `requestedLanguage=${language} (code=${code ?? "?"}) title="${title}" author="${authorName ?? ""}" ` +
+    `workKey=${opts.workKey ?? "-"} isbn=${opts.isbn ?? "-"}`
+  );
+  if (!title.trim() || !code) {
+    logSearch(`aborted: ${!title.trim() ? "empty title" : `unknown language "${language}"`}`);
+    return [];
+  }
 
+  // ── Stage 1: Google Books ──────────────────────────────────────────────────
   const authorPart = authorName?.trim() ? ` inauthor:"${authorName.trim()}"` : "";
   const queries = [
     `intitle:"${title}"${authorPart}`,
@@ -269,27 +346,70 @@ export async function findEditionsInLanguage(
   const settled = await Promise.allSettled(
     queries.map((query) =>
       withTimeout(fetchByKeyword(query, 0, 20, code, false), TIME_BUDGET_MS)
-        .then(({ books }) => books)
-        .catch(() => [] as GenreBookResult[])
+        .then(({ books }) => {
+          logSearch(`gb query=${JSON.stringify(query)} langRestrict=${code} -> ${books.length} raw`);
+          return books;
+        })
+        .catch((err) => {
+          logSearch(`gb query=${JSON.stringify(query)} FAILED (${err?.message ?? "error"})`);
+          return [] as GenreBookResult[];
+        })
     )
   );
-  const all = settled.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+  const gbAll = settled.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+  let out = filterAndRankEditions(gbAll, wanted, limit);
+  logSearch(`stage1 google-books: ${gbAll.length} raw -> ${out.length} in ${language}`);
+  if (out.length) return out;
 
-  const seen = new Set<string>();
-  const out: GenreBookResult[] = [];
-  for (const book of all) {
-    if (norm(book.language) !== wanted) continue;
-    const key = book.isbn13 ?? book.id;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(book);
+  // ── Stage 2: Open Library editions of this work ────────────────────────────
+  let workKey = opts.workKey;
+  if (!workKey) {
+    try {
+      const meta = await withTimeout(fetchBookMetadataByTitleAuthor(title, authorName ?? ""), TIME_BUDGET_MS);
+      workKey = meta?.workKey;
+      logSearch(`ol work lookup "${title}" -> workKey=${workKey ?? "none"}`);
+    } catch {
+      logSearch("ol work lookup FAILED");
+    }
+  }
+  let olCandidates: GenreBookResult[] = [];
+  if (workKey) {
+    try {
+      const editions = await withTimeout(fetchEditionOptionsByWorkKey(workKey, 40), TIME_BUDGET_MS);
+      olCandidates = editions
+        .map((option) => olEditionToCandidate(option, authorName))
+        .filter((candidate) => norm(candidate.language) === wanted);
+      logSearch(`stage2 open-library workKey=${workKey}: ${editions.length} editions -> ${olCandidates.length} in ${language}`);
+    } catch {
+      logSearch(`stage2 open-library workKey=${workKey}: FAILED`);
+    }
+  } else {
+    logSearch("stage2 skipped: no workKey");
   }
 
-  // Rank: synopsis available > cover available > popularity.
-  out.sort((a, b) =>
-    (Number((b.description?.length ?? 0) > 40) - Number((a.description?.length ?? 0) > 40)) ||
-    (Number(Boolean(b.coverUrl)) - Number(Boolean(a.coverUrl))) ||
-    ((b.ratingsCount ?? 0) - (a.ratingsCount ?? 0))
-  );
-  return out.slice(0, limit);
+  // ── Stage 3: GB re-query with the translated titles OL discovered ──────────
+  // OL edition records carry no synopsis/ratings; once we KNOW the translated
+  // title, Google Books usually has the richer record for it.
+  const translatedTitles = [...new Set(
+    olCandidates.map((candidate) => candidate.title.trim()).filter((v) => v && norm(v) !== norm(title))
+  )].slice(0, 3);
+  let gbRequery: GenreBookResult[] = [];
+  if (translatedTitles.length) {
+    const requerySettled = await Promise.allSettled(
+      translatedTitles.map((translated) =>
+        withTimeout(fetchByKeyword(`intitle:"${translated}"${authorPart}`, 0, 10, code, false), TIME_BUDGET_MS)
+          .then(({ books }) => {
+            logSearch(`stage3 gb requery intitle="${translated}" -> ${books.length} raw`);
+            return books;
+          })
+          .catch(() => [] as GenreBookResult[])
+      )
+    );
+    gbRequery = requerySettled.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+  }
+
+  // GB re-query results first (they carry descriptions), then bare OL editions.
+  out = filterAndRankEditions([...gbRequery, ...olCandidates], wanted, limit);
+  logSearch(`final: ${out.length} candidate(s) in ${language}${out.length === 0 ? " — NO EDITION FOUND, caller must show explicit failure" : ""}`);
+  return out;
 }

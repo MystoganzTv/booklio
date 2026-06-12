@@ -15,9 +15,13 @@
  *     are USER-level → this helper never touches them by construction.
  */
 import { GenreBookResult } from "../services/googleBooksProvider";
+import { languageCode } from "./languageUtils";
 
 export type EditionSwitchPatch = {
   language: string;
+  /** ISO 639-1 code derived from `language` — kept in sync BY CONSTRUCTION
+   *  (a "Spanish" book with languageCode "en" is a data-integrity bug). */
+  languageCode: string | undefined;
   title: string;
   /** ISBN-13 of the selected edition, or "" — never the previous edition's. */
   isbn13: string;
@@ -45,9 +49,11 @@ export function buildEditionSwitchPatch(
   const synopsis = (candidate.description?.trim().length ?? 0) > 40
     ? candidate.description!.trim()
     : "";
+  const language = candidate.language ?? fallbackLanguage;
 
   return {
-    language: candidate.language ?? fallbackLanguage,
+    language,
+    languageCode: languageCode(language),
     title: candidate.title,
     isbn13: candidate.isbn13 ?? "",
     isbn10: "",

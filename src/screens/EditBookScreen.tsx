@@ -137,7 +137,10 @@ export function EditBookScreen() {
     }
     setEditionSheet({ language: lang, loading: true, candidates: [] });
     try {
-      const candidates = await findEditionsInLanguage(title || book?.title || "", authorName, lang);
+      const candidates = await findEditionsInLanguage(title || book?.title || "", authorName, lang, {
+        workKey: book?.workKey,
+        isbn,
+      });
       setEditionSheet((current) =>
         current?.language === lang ? { language: lang, loading: false, candidates } : current
       );
@@ -154,6 +157,13 @@ export function EditBookScreen() {
     // never inherited from the previous edition (that was the
     // "Spanish language with English cover" bug). Pure + unit-tested.
     const patch = buildEditionSwitchPatch(candidate, lang);
+    if (__DEV__) {
+      console.log(
+        `[EDITION_SWITCH_APPLY] selectedLanguage=${lang} selectedTitle="${candidate.title}" ` +
+        `selectedISBN=${candidate.isbn13 ?? "-"} selectedEditionKey=${candidate.id} ` +
+        `patch.language=${patch.language} patch.languageCode=${patch.languageCode ?? "-"}`
+      );
+    }
     setLanguage(patch.language);
     setTitle(patch.title);
     setCoverImageUri(patch.coverImageUri);
@@ -269,7 +279,9 @@ export function EditBookScreen() {
     updateBook(book.id, {
       title, authorName, synopsis,
       genre: genres,
-      pages: parseNum(pages) ?? book.pages,
+      // Empty form field = unknown (0). Falling back to book.pages here would
+      // re-inherit the previous edition's page count after an edition switch.
+      pages: parseNum(pages) ?? 0,
       publishedDate, publisher, language, isbn, format, coverImageUri,
       editionKey,
       seriesName, seriesNumber: parseNum(seriesNumber),
