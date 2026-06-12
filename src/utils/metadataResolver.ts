@@ -27,6 +27,7 @@ import { HOURS, readCache, writeCache } from "./discoverCache";
 import { getTitleVariants } from "./knownWorks";
 import { logMergeRejection } from "./metadataMergePolicy";
 import { languageCode, languageDisplayName } from "./languageUtils";
+import { assessLanguageMatch, isLanguageAcceptable, LanguageMatchVerdict } from "./languageEvidence";
 
 export type ResolveInput = {
   isbn?: string;
@@ -41,6 +42,9 @@ type SourceTag = "gb-isbn" | "gb-lang" | "gb-title" | "ol-isbn" | "ol-search";
 
 type Candidate = BookMetadata & {
   _src: SourceTag;
+  /** Evidence-based language verdict — see utils/languageEvidence. */
+  _verdict: LanguageMatchVerdict;
+  /** True when the verdict allows this candidate into the locked pool. */
   _langMatch: boolean;
 };
 
@@ -73,21 +77,46 @@ function gbToMetadata(book: GenreBookResult): BookMetadata {
   };
 }
 
+// Language verdicts are EVIDENCE-based (label + description text), not a
+// strict label-equality check: provider labels lie in both directions.
+// "match"/"likely" → locked pool; "unknown"/"mismatch" → never locked fields.
+function verdictFor(meta: BookMetadata, wantedLang?: string, queryLangRestrict?: string): LanguageMatchVerdict {
+  if (!wantedLang) return "unknown";
+  return assessLanguageMatch(wantedLang, {
+    providerLanguage: meta.language,
+    description: meta.synopsis,
+    queryLangRestrict,
+  });
+}
+
 function tag(meta: BookMetadata | undefined, src: SourceTag, wantedLang?: string): Candidate[] {
   if (!meta) return [];
+  const verdict = verdictFor(meta, wantedLang);
   return [{
     ...meta,
     _src: src,
-    _langMatch: Boolean(wantedLang && norm(meta.language) === wantedLang),
+    _verdict: verdict,
+    _langMatch: Boolean(wantedLang) && isLanguageAcceptable(verdict),
   }];
 }
 
-function tagGb(books: GenreBookResult[], src: SourceTag, wantedLang?: string, limit = 4): Candidate[] {
-  return books.slice(0, limit).map((book) => ({
-    ...gbToMetadata(book),
-    _src: src,
-    _langMatch: Boolean(wantedLang && norm(book.language) === wantedLang),
-  }));
+function tagGb(
+  books: GenreBookResult[],
+  src: SourceTag,
+  wantedLang?: string,
+  limit = 4,
+  queryLangRestrict?: string
+): Candidate[] {
+  return books.slice(0, limit).map((book) => {
+    const meta = gbToMetadata(book);
+    const verdict = verdictFor(meta, wantedLang, queryLangRestrict);
+    return {
+      ...meta,
+      _src: src,
+      _verdict: verdict,
+      _langMatch: Boolean(wantedLang) && isLanguageAcceptable(verdict),
+    };
+  });
 }
 
 /** Source trust order for tie-breaks: exact-ISBN sources beat searches. */
@@ -150,14 +179,14 @@ export async function resolveMetadata(input: ResolveInput): Promise<BookMetadata
       // (e.g. "Red Rising" kept in French editions).
       jobs.push(
         withTimeout(fetchByKeyword(`intitle:"${title}"${authorPart}`, 0, 8, wantedCode, false), TIME_BUDGET_MS)
-          .then(({ books }) => tagGb(books, "gb-lang", wantedLang)).catch(() => [])
+          .then(({ books }) => tagGb(books, "gb-lang", wantedLang, 4, wantedCode)).catch(() => [])
       );
       // knownWorks translated titles ("Alas de sangre" for "Fourth Wing"…).
       for (const variant of getTitleVariants(title)) {
         if (norm(variant) === norm(title)) continue;
         jobs.push(
           withTimeout(fetchByKeyword(`intitle:"${variant}"${authorPart}`, 0, 6, wantedCode, false), TIME_BUDGET_MS)
-            .then(({ books }) => tagGb(books, "gb-lang", wantedLang)).catch(() => [])
+            .then(({ books }) => tagGb(books, "gb-lang", wantedLang, 4, wantedCode)).catch(() => [])
         );
       }
     }
@@ -187,6 +216,17 @@ export async function resolveMetadata(input: ResolveInput): Promise<BookMetadata
     return undefined;
   };
 
+  /** Full trace of WHICH candidate got rejected, so language_mismatch logs
+   *  are diagnosable (provider label vs requested vs source vs identity). */
+  const rejectionDetail = (candidate: Candidate) => ({
+    requestedLanguage: input.language,
+    candidateLanguage: candidate.language,
+    source: candidate._src,
+    title: candidate.title,
+    isbn: candidate.isbn,
+    editionKey: candidate.editionKey,
+  });
+
   /** Locked-field pick: language-matching candidates only; log when a value
    *  existed in another language but was rejected by the policy. */
   const pickLocked = <K extends keyof BookMetadata>(
@@ -194,8 +234,11 @@ export async function resolveMetadata(input: ResolveInput): Promise<BookMetadata
     valid: (v: BookMetadata[K]) => boolean = (v) => v != null && v !== ""
   ): BookMetadata[K] | undefined => {
     const value = pick(key, lockedPool, valid);
-    if (value === undefined && strict && pick(key, byRank, valid) !== undefined) {
-      logMergeRejection(String(key), "language_mismatch");
+    if (value === undefined && strict) {
+      const rejected = byRank.find((cand) => !cand._langMatch && valid(cand[key]));
+      if (rejected) {
+        logMergeRejection(String(key), `language_${rejected._verdict}`, rejectionDetail(rejected));
+      }
     }
     return value;
   };
@@ -204,13 +247,17 @@ export async function resolveMetadata(input: ResolveInput): Promise<BookMetadata
   const synopsisPool = lockedPool
     .filter((cand) => (cand.synopsis?.trim().length ?? 0) > 40)
     .sort((a, b) => (b.synopsis?.length ?? 0) - (a.synopsis?.length ?? 0));
-  if (strict && !synopsisPool.length &&
-      candidates.some((cand) => (cand.synopsis?.trim().length ?? 0) > 40)) {
-    logMergeRejection("synopsis", "language_mismatch");
+  if (strict && !synopsisPool.length) {
+    const rejected = candidates.find(
+      (cand) => !cand._langMatch && (cand.synopsis?.trim().length ?? 0) > 40
+    );
+    if (rejected) {
+      logMergeRejection("synopsis", `language_${rejected._verdict}`, rejectionDetail(rejected));
+    }
   }
 
   const result: BookMetadata = {
-    // Locked fields — selected-language candidates only
+    // Locked fields — evidence-accepted candidates only
     title: pickLocked("title"),
     isbn: pickLocked("isbn") ?? (strict ? undefined : cleanIsbn || undefined),
     pages: pickLocked("pages", (v) => typeof v === "number" && v > 0),
@@ -229,6 +276,12 @@ export async function resolveMetadata(input: ResolveInput): Promise<BookMetadata
     isBestseller: pick("isBestseller", byRank, (v) => v === true),
     tags: pick("tags", byRank, (v) => Array.isArray(v) && v.length > 0),
   };
+
+  // The locked fields came from evidence-accepted candidates. When a "likely"
+  // candidate carried a LYING provider label (e.g. "en" on a Spanish text),
+  // the result must reflect OUR verdict, not the label — callers gate on
+  // isSameLanguage(result.language, requested) and would discard the rescue.
+  if (strict && result.title) result.language = input.language;
 
   // Only cache successes. When a language was requested, only cache results
   // that actually landed in that language — otherwise a transient miss (e.g.
@@ -253,22 +306,38 @@ const logSearch = (msg: string) => {
   if (__DEV__) console.log(`[EDITION_SWITCH_SEARCH] ${msg}`);
 };
 
-/** Keep only editions in the wanted language; dedupe; rank by usefulness. */
+/** Keep only editions whose language EVIDENCE supports the wanted language;
+ *  dedupe; rank by usefulness. Provider labels alone are not trusted — see
+ *  utils/languageEvidence (labels lie in both directions). */
 function filterAndRankEditions(
   all: GenreBookResult[],
-  wanted: string,
+  wantedLanguage: string,
   limit: number
 ): GenreBookResult[] {
   const seen = new Set<string>();
   const out: GenreBookResult[] = [];
   for (const book of all) {
-    // STRICT: never offer an edition in another language (rule: no silent
-    // English when the user asked for Spanish).
-    if (norm(book.language) !== wanted) continue;
+    // SAFETY INVARIANT: only "match"/"likely" verdicts pass. An English
+    // record can never enter the Spanish list (English text → mismatch),
+    // but a real translation with a lying label is rescued by its text.
+    const verdict = assessLanguageMatch(wantedLanguage, {
+      providerLanguage: book.language,
+      description: book.description,
+    });
+    if (!isLanguageAcceptable(verdict)) {
+      logSearch(
+        `rejected candidate verdict=${verdict} requested=${wantedLanguage} ` +
+        `candidateLang=${book.language ?? "-"} source=${book.googleBooksId ? "google-books" : "open-library"} ` +
+        `title="${book.title}" isbn=${book.isbn13 ?? "-"} editionKey=${book.googleBooksId ? "-" : book.id}`
+      );
+      continue;
+    }
     const key = book.isbn13 ?? book.id;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(book);
+    // Stamp our verdict: a "likely" rescue keeps a lying provider label —
+    // downstream (sheet, patch, save) must see the language we vouched for.
+    out.push(verdict === "likely" ? { ...book, language: languageDisplayName(wantedLanguage) } : book);
   }
   // Rank: synopsis available > cover available > popularity.
   out.sort((a, b) =>

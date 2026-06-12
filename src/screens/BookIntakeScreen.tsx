@@ -60,8 +60,8 @@ import {
   splitList,
 } from "./bookIntake/components";
 import { createStyles } from "./bookIntake/styles";
-import { resolveBookMetadata } from "../utils/bookMetadata";
-import { isSameLanguage } from "../utils/languageUtils";
+import { findEditionsInLanguage } from "../utils/metadataResolver";
+import { buildEditionSwitchPatch } from "../utils/editionSwitch";
 import { hapticLight, hapticSuccess } from "../utils/haptics";
 
 type IntakeMode = "menu" | "isbn" | "manual" | "search" | "matches" | "review";
@@ -565,37 +565,45 @@ export function BookIntakeScreen() {
       return;
     }
 
-    // STRICT LANGUAGE POLICY (shared with EditBook/BookDetail via the unified
-    // resolver): switching language = switching edition. All language-locked
-    // fields (title, ISBN, synopsis, cover, publisher, dates, pages) come from
-    // the found edition together, or nothing changes at all. Never mix.
+    // STRICT LANGUAGE POLICY — SAME pipeline as the EditBook language chips:
+    // findEditionsInLanguage (GB → OL-workKey fallback → translated-title
+    // re-query, evidence-based language verdicts) + buildEditionSwitchPatch
+    // (locked fields switch together; absent = EMPTY, never inherited).
     setIsRefreshingMetadata(true);
     try {
-      const meta = await resolveBookMetadata({
-        isbn: reviewBook.isbn,
-        title: reviewBook.title,
-        authorName: reviewBook.authorName,
-        workKey: reviewBook.workKey,
+      const candidates = await findEditionsInLanguage(
+        reviewBook.title,
+        reviewBook.authorName,
         language,
-      });
+        { workKey: reviewBook.workKey, isbn: reviewBook.isbn }
+      );
 
-      const langOk = Boolean(meta?.title && meta.language && isSameLanguage(meta.language, language));
-      if (meta && langOk) {
+      const best = candidates[0];
+      if (best) {
+        const patch = buildEditionSwitchPatch(best, language);
+        if (__DEV__) {
+          console.log(
+            `[EDITION_SWITCH_APPLY] flow=add-review selectedLanguage=${language} ` +
+            `selectedTitle="${best.title}" selectedISBN=${best.isbn13 ?? "-"} ` +
+            `selectedEditionKey=${best.id} patch.language=${patch.language} ` +
+            `patch.languageCode=${patch.languageCode ?? "-"}`
+          );
+        }
         setReviewBook((current) => current ? {
           ...current,
-          language: meta.language ?? language,
-          title: meta.title ?? current.title,
+          language: patch.language,
+          languageCode: patch.languageCode,
+          title: patch.title,
           // Locked fields switch with the edition — empty stays empty rather
           // than keeping a value from the previous language.
-          isbn: meta.isbn,
-          pages: meta.pages,
-          publisher: meta.publisher,
-          publishedDate: meta.publishedDate,
-          synopsis: meta.synopsis,
-          coverImageUri: meta.coverImageUri,
-          editionKey: meta.editionKey,
-          // Structural fields persist
-          workKey: meta.workKey ?? current.workKey,
+          isbn: patch.isbn13 || undefined,
+          pages: patch.pages ? Number(patch.pages) : undefined,
+          publisher: patch.publisher || undefined,
+          publishedDate: patch.publishedDate || undefined,
+          synopsis: patch.synopsis || undefined,
+          coverImageUri: patch.coverImageUri || undefined,
+          editionKey: patch.editionKey, // stale pointer cleared
+          // Structural fields (workKey, author, genres) persist untouched.
         } : current);
         setReviewInsight(`Switched to the ${language} edition.`);
       } else {

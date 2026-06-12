@@ -60,8 +60,24 @@ export function isLanguageLockedField(field: string): boolean {
   return LANGUAGE_LOCKED_FIELDS.has(field);
 }
 
-export function logMergeRejection(field: string, reason: string): void {
-  if (__DEV__) console.log(`[MERGE_POLICY] rejected field="${field}" reason="${reason}"`);
+export type MergeRejectionDetail = {
+  requestedLanguage?: string;
+  candidateLanguage?: string;
+  /** Where the rejected candidate came from (e.g. "gb-title", "ol-search"). */
+  source?: string;
+  title?: string;
+  isbn?: string;
+  editionKey?: string;
+};
+
+export function logMergeRejection(field: string, reason: string, detail?: MergeRejectionDetail): void {
+  if (!__DEV__) return;
+  const extra = detail
+    ? ` requested=${detail.requestedLanguage ?? "-"} candidateLang=${detail.candidateLanguage ?? "-"}` +
+      ` source=${detail.source ?? "-"} title="${detail.title ?? "-"}"` +
+      ` isbn=${detail.isbn ?? "-"} editionKey=${detail.editionKey ?? "-"}`
+    : "";
+  console.log(`[MERGE_POLICY] rejected field="${field}" reason="${reason}"${extra}`);
 }
 
 /**

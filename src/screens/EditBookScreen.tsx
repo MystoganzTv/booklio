@@ -183,7 +183,7 @@ export function EditBookScreen() {
         language: patch.language,
       }).then((meta) => {
         const found = meta?.synopsis?.trim();
-        const langOk = (meta?.language ?? "").trim().toLowerCase() === patch.language.trim().toLowerCase();
+        const langOk = isSameLanguage(meta?.language, patch.language);
         if (found && found.length > 40 && langOk) {
           // Only fill if the user hasn't typed something meanwhile.
           setSynopsis((current) => (current.trim() ? current : found));

@@ -154,6 +154,63 @@ describe("Open Library fallbacks when Google Books finds nothing", () => {
   });
 });
 
+describe("evidence-based verdicts in the edition search (provider labels lie)", () => {
+  const ES_DESCRIPTION =
+    "Darrow es un Rojo, un miembro de la casta más baja en la sociedad del futuro. " +
+    "Trabaja en las minas de Marte para que las generaciones que vienen puedan vivir en la superficie.";
+  const EN_DESCRIPTION =
+    "Darrow is a Red, a member of the lowest caste in the color-coded society of the future. " +
+    "He works the mines of Mars so that future generations can live on the surface of the planet.";
+
+  it("Spanish → English switch returns only English candidates", async () => {
+    mockFetchByKeyword.mockResolvedValue({
+      books: [ES_EDITION, gb({ id: "gb-en2", title: "Red Rising", language: "English", description: EN_DESCRIPTION })],
+      totalItems: 2,
+    });
+    const out = await findEditionsInLanguage("Amanecer rojo", "Pierce Brown", "English");
+    expect(out).toHaveLength(1);
+    expect(out[0].id).toBe("gb-en2");
+  });
+
+  it("missing provider language + Spanish description → accepted (rescued by text)", async () => {
+    const noLabel = gb({ id: "gb-nolang", title: "Amanecer rojo", language: undefined as unknown as string, description: ES_DESCRIPTION });
+    mockFetchByKeyword.mockResolvedValue({ books: [noLabel], totalItems: 1 });
+
+    const out = await findEditionsInLanguage("Red Rising", "Pierce Brown", "Spanish");
+    expect(out.map((b) => b.id)).toContain("gb-nolang");
+    expect(out[0].language).toBe("Spanish"); // stamped with OUR verdict
+  });
+
+  it("missing provider language + no text evidence → excluded (unknown is not proof)", async () => {
+    const bare = gb({ id: "gb-bare", title: "Amanecer rojo", language: undefined as unknown as string });
+    mockFetchByKeyword.mockResolvedValue({ books: [bare], totalItems: 1 });
+
+    const out = await findEditionsInLanguage("Red Rising", "Pierce Brown", "Spanish");
+    expect(out).toEqual([]);
+  });
+
+  it("INCORRECT provider label: labeled 'Spanish' but English text → excluded (both-ways protection)", async () => {
+    const liar = gb({ id: "gb-liar", title: "Red Rising", language: "Spanish", description: EN_DESCRIPTION });
+    mockFetchByKeyword.mockResolvedValue({ books: [liar], totalItems: 1 });
+
+    const out = await findEditionsInLanguage("Red Rising", "Pierce Brown", "Spanish");
+    expect(out).toEqual([]);
+  });
+
+  it("LEGITIMATE translation with mismatched label: 'en' label + Spanish text → rescued as Spanish", async () => {
+    const mislabeled = gb({ id: "gb-mislabel", title: "Amanecer rojo", language: "English", description: ES_DESCRIPTION, isbn13: "9788490566372" });
+    mockFetchByKeyword.mockResolvedValue({ books: [mislabeled], totalItems: 1 });
+
+    const out = await findEditionsInLanguage("Red Rising", "Pierce Brown", "Spanish");
+    expect(out).toHaveLength(1);
+    expect(out[0].id).toBe("gb-mislabel");
+    // The lying label is stamped over with the language we vouched for, so
+    // the patch/save path persists Spanish — not the bogus "English".
+    expect(out[0].language).toBe("Spanish");
+    expect(buildEditionSwitchPatch(out[0], "Spanish").languageCode).toBe("es");
+  });
+});
+
 describe("language switch persistence — language and languageCode travel together", () => {
   it("languageCode changes to 'es' after a successful Spanish switch", () => {
     const patch = buildEditionSwitchPatch(ES_EDITION, "Spanish");
