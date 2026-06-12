@@ -33,13 +33,12 @@ import { Skeleton } from "../components/Skeleton";
 import { useBookliz } from "../data/BooklizContext";
 import { RootStackParamList, MainTabParamList } from "../navigation/types";
 import { fetchByKeyword, GenreBookResult } from "../services/googleBooksProvider";
+import { buildLibraryIndex } from "../services/recommendationEngine";
 import {
-  buildLibraryIndex,
-  buildPersonalizedRecommendationSections,
-  buildRecommendationSectionSpecs,
-  PersonalizedRecommendationSection,
-} from "../services/recommendationEngine";
-import { buildUserTasteProfile } from "../services/userTasteProfile";
+  buildIdentitySectionSpecs,
+  fetchIdentitySections,
+  IdentitySection,
+} from "../services/identityRecommendations";
 import { HOURS, readCache, writeCache } from "../utils/discoverCache";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
@@ -262,22 +261,19 @@ export function DiscoverScreen() {
   const { t } = useI18n();
   const navigation = useNavigation<NavigationProp<RootStackParamList & MainTabParamList>>();
   const styles = useMemo(() => createStyles(c), [c]);
-  const { authors, books, readingSessions, userProfile } = useBookliz();
-  const tasteProfile = useMemo(
-    () => buildUserTasteProfile({ authors, books, readingSessions, userProfile }),
-    [authors, books, readingSessions, userProfile]
-  );
+  const { books, readingIdentity } = useBookliz();
   const libraryIndex = useMemo(() => buildLibraryIndex(books), [books]);
+  // Phase 2 S1: deterministic section specs straight from the ReadingIdentity.
   const recommendationSpecs = useMemo(
-    () => buildRecommendationSectionSpecs(tasteProfile),
-    [tasteProfile]
+    () => (readingIdentity ? buildIdentitySectionSpecs(readingIdentity) : []),
+    [readingIdentity]
   );
 
   // Trending — fetched once on mount
   const [trending, setTrending] = useState<GenreBookResult[]>([]);
   const [loadingTrending, setLoadingTrending] = useState(true);
   const [trendingNetworkError, setTrendingNetworkError] = useState(false);
-  const [personalizedSections, setPersonalizedSections] = useState<PersonalizedRecommendationSection[]>([]);
+  const [personalizedSections, setPersonalizedSections] = useState<IdentitySection[]>([]);
   const [loadingPersonalized, setLoadingPersonalized] = useState(true);
   const [personalizedNetworkError, setPersonalizedNetworkError] = useState(false);
 
@@ -332,6 +328,11 @@ export function DiscoverScreen() {
     let cancelled = false;
     setPersonalizedNetworkError(false);
 
+    // Identity not computed yet (first 5s after hydration) → keep skeleton.
+    if (!readingIdentity) {
+      setLoadingPersonalized(true);
+      return;
+    }
     if (recommendationSpecs.length === 0) {
       setPersonalizedSections([]);
       setLoadingPersonalized(false);
@@ -340,11 +341,11 @@ export function DiscoverScreen() {
 
     setLoadingPersonalized(true);
 
-    // Cache keyed by the spec set: taste changes → new specs → new key.
-    const cacheKey = `personalized-${recommendationSpecs.map((spec) => spec.id).join("_")}`;
+    // Cache keyed by the spec set: identity changes → new specs → new key.
+    const cacheKey = `identity-recs-${recommendationSpecs.map((spec) => spec.id).join("_")}`;
 
     const load = async () => {
-      const cached = await readCache<PersonalizedRecommendationSection[]>(cacheKey, 12 * HOURS);
+      const cached = await readCache<IdentitySection[]>(cacheKey, 12 * HOURS);
       if (cached?.length && !cancelled) {
         setPersonalizedSections(cached);
         setLoadingPersonalized(false);
@@ -352,12 +353,7 @@ export function DiscoverScreen() {
       }
 
       try {
-        const sections = await buildPersonalizedRecommendationSections(tasteProfile, libraryIndex, {
-          specs: recommendationSpecs,
-          fetchLimit: 40,
-          booksPerSection: 6,
-          minBooksPerSection: 2,
-        });
+        const sections = await fetchIdentitySections(readingIdentity, libraryIndex);
         if (cancelled) return;
         setPersonalizedSections(sections);
         if (sections.length) void writeCache(cacheKey, sections);
@@ -375,7 +371,7 @@ export function DiscoverScreen() {
     return () => {
       cancelled = true;
     };
-  }, [libraryIndex, recommendationSpecs, tasteProfile]);
+  }, [libraryIndex, recommendationSpecs, readingIdentity]);
 
   function goToCatalog(query: string, title?: string, browseKey?: string) {
     if (!query.trim()) return;
@@ -445,13 +441,12 @@ export function DiscoverScreen() {
             <View key={section.id} style={styles.personalizedBlock}>
               <View style={styles.personalizedHeaderRow}>
                 <View style={styles.personalizedHeaderCopy}>
-                  <Text style={styles.personalizedTitle}>{section.title}</Text>
-                  <Text style={styles.personalizedSubtitle}>{section.subtitle}</Text>
+                  <Text style={styles.personalizedTitle}>{t(section.titleKey, section.params)}</Text>
+                  <Text style={styles.personalizedSubtitle}>{t(section.subtitleKey, section.params)}</Text>
                 </View>
                 <Pressable onPress={() => goToCatalog(
                   section.query,
-                  section.title,
-                  section.focusGenre ?? section.focusAuthor ?? section.focusSeries
+                  t(section.titleKey, section.params)
                 )}>
                   <Text style={styles.personalizedAction}>{t("discover.seeMore")}</Text>
                 </Pressable>

@@ -200,6 +200,8 @@ export interface UpdateUserProfileInput {
 export interface UpdateBookInput {
   title: string;
   authorName: string;
+  /** Edition pointer — pass undefined to clear a stale pointer on edition switch. */
+  editionKey?: string;
   synopsis: string;
   genre: string[];
   pages: number;

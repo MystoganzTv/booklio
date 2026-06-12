@@ -42,6 +42,7 @@ import {
 } from "../utils/bookMetadata";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { findEditionsInLanguage } from "../utils/metadataResolver";
+import { buildEditionSwitchPatch } from "../utils/editionSwitch";
 import { isSameLanguage } from "../utils/languageUtils";
 import { GenreBookResult } from "../services/googleBooksProvider";
 
@@ -118,6 +119,8 @@ export function EditBookScreen() {
   const [progressPercent, setProgressPercent] = useState(book ? String(book.userStatus.progressPercent) : "0");
   const [notes,           setNotes]           = useState(book?.userStatus.notes ?? "");
   const [favoriteQuotes,  setFavoriteQuotes]  = useState(book?.userStatus.favoriteQuotes.join("\n") ?? "");
+  // Edition pointer — cleared on edition switch (stale pointers are bugs).
+  const [editionKey,      setEditionKey]      = useState(book?.editionKey);
   const [isFetching,      setIsFetching]      = useState(false);
   const [formatOpen,      setFormatOpen]      = useState(false);
   // Language → edition picker sheet
@@ -147,29 +150,30 @@ export function EditBookScreen() {
 
   const applyEditionCandidate = (candidate: GenreBookResult, lang: string) => {
     setEditionSheet(null);
-    const effectiveLang = candidate.language ?? lang;
-    setLanguage(effectiveLang);
-    setTitle(candidate.title);
-    if (candidate.coverUrl) setCoverImageUri(candidate.coverUrl);
-    if (candidate.isbn13) { setIsbn13(candidate.isbn13); setIsbn10(""); }
-    if (candidate.pageCount && candidate.pageCount > 0) setPages(String(candidate.pageCount));
-    if (candidate.publisher) setPublisher(candidate.publisher);
-    if (candidate.publishedYear) setPublishedDate(String(candidate.publishedYear));
+    // ALL edition-locked fields switch together — absent fields become EMPTY,
+    // never inherited from the previous edition (that was the
+    // "Spanish language with English cover" bug). Pure + unit-tested.
+    const patch = buildEditionSwitchPatch(candidate, lang);
+    setLanguage(patch.language);
+    setTitle(patch.title);
+    setCoverImageUri(patch.coverImageUri);
+    setIsbn13(patch.isbn13);
+    setIsbn10(patch.isbn10);
+    setPages(patch.pages);
+    setPublisher(patch.publisher);
+    setPublishedDate(patch.publishedDate);
+    setEditionKey(patch.editionKey); // stale pointer cleared
+    setSynopsis(patch.synopsis);
 
-    if ((candidate.description?.trim().length ?? 0) > 40) {
-      setSynopsis(candidate.description!);
-    } else {
-      // Never keep the previous edition's synopsis (wrong language). Clear it
-      // and backfill in this edition's language in the background.
-      setSynopsis("");
+    if (patch.needsSynopsisBackfill) {
       void resolveBookMetadata({
         isbn: candidate.isbn13,
         title: candidate.title,
         authorName,
-        language: effectiveLang,
+        language: patch.language,
       }).then((meta) => {
         const found = meta?.synopsis?.trim();
-        const langOk = (meta?.language ?? "").trim().toLowerCase() === effectiveLang.trim().toLowerCase();
+        const langOk = (meta?.language ?? "").trim().toLowerCase() === patch.language.trim().toLowerCase();
         if (found && found.length > 40 && langOk) {
           // Only fill if the user hasn't typed something meanwhile.
           setSynopsis((current) => (current.trim() ? current : found));
@@ -267,6 +271,7 @@ export function EditBookScreen() {
       genre: genres,
       pages: parseNum(pages) ?? book.pages,
       publishedDate, publisher, language, isbn, format, coverImageUri,
+      editionKey,
       seriesName, seriesNumber: parseNum(seriesNumber),
       isBestseller, isSequel, tags,
       status, ownership, wishlist, wantToBuy,

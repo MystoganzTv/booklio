@@ -707,15 +707,34 @@ export function BooklizProvider({ children }: PropsWithChildren) {
     return () => { mounted = false; };
   }, []);
 
+  // TEMP DEBUG — [IDENTITY_TRIGGER]: remove before production.
+  const identityTriggerRef = useRef({ hydrated: false, books: -1, sessions: -1, reviews: -1 });
+
   // …then recompute (debounced 5s) whenever the underlying data changes.
   // Pure on-device reduction — no network, works fully offline.
   useEffect(() => {
-    if (!hydrated) return; // don't compute over seed data before hydration
+    // TEMP DEBUG (remove before production): derive why this effect fired.
+    const prev = identityTriggerRef.current;
+    const reason =
+      !prev.hydrated && hydrated ? "hydration" :
+      books.length > prev.books ? "bookAdded" :
+      readingSessions.length > prev.sessions ? "sessionSaved" :
+      reviews.length > prev.reviews ? "reviewSaved" :
+      "bookEdited"; // same counts, changed reference (edit/delete/status)
+    identityTriggerRef.current = { hydrated, books: books.length, sessions: readingSessions.length, reviews: reviews.length };
+
+    if (!hydrated) {
+      if (__DEV__) console.log(`[IDENTITY_TRIGGER] reason=preHydration books=${books.length} sessions=${readingSessions.length} reviews=${reviews.length} -> skipped`);
+      return; // don't compute over seed data before hydration
+    }
+    if (__DEV__) console.log(`[IDENTITY_TRIGGER] reason=${reason} books=${books.length} sessions=${readingSessions.length} reviews=${reviews.length} -> scheduled (5s debounce)`);
+
     const timer = setTimeout(() => {
       try {
         const identity = computeReadingIdentity({ authors, books, readingSessions, reviews });
         setReadingIdentity(identity);
         void storeIdentity(identity);
+        if (__DEV__) console.log(`[IDENTITY_TRIGGER] reason=${reason} -> executed`);
         if (__DEV__) console.log("[IDENTITY]", JSON.stringify(identity, null, 2));
       } catch {
         // identity is a derived nicety — never let it break the app
@@ -1287,9 +1306,9 @@ export function BooklizProvider({ children }: PropsWithChildren) {
             genre: normalizeBookGenres(input.genre),
             pages: input.pages > 0 ? input.pages : book.pages,
             publishedDate: input.publishedDate.trim() || book.publishedDate,
-            publisher: input.publisher.trim() || "Publisher pending confirmation",
+            publisher: input.publisher.trim(), // "" = unknown
             language: input.language.trim() || "English",
-            isbn: input.isbn.trim() || "ISBN pending",
+            isbn: input.isbn.trim(), // "" = unknown — never fabricate
             format: input.format,
             coverImageUri: input.coverImageUri?.trim() || undefined,
             seriesName: input.seriesName?.trim() || undefined,

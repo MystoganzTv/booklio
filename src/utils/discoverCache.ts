@@ -7,7 +7,9 @@
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const VERSION = "v1";
+// v2: invalidates entries cached before the strict language policy existed —
+// those could carry mixed-language fields (the ES/EN inconsistency bug).
+const VERSION = "v2";
 
 type CacheEnvelope<T> = {
   savedAt: number;
