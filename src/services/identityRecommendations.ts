@@ -55,8 +55,6 @@ const SHORT_READ_MAX_PAGES = 320;
 const LONG_READ_MIN_PAGES = 500;
 const BOOKS_PER_SECTION = 8;
 const MIN_BOOKS_PER_SECTION = 2;
-const FETCH_TIMEOUT_MS = 8_000;
-
 // ─── Spec generation (pure, deterministic) ────────────────────────────────────
 
 export function buildIdentitySectionSpecs(identity: ReadingIdentity): IdentitySectionSpec[] {
@@ -213,9 +211,6 @@ export function rankCandidate(
 
 // ─── Fetch (the only networked part) ─────────────────────────────────────────
 
-const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
-  Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
-
 export async function fetchIdentitySections(
   identity: ReadingIdentity,
   library: LibraryIndexLike,
@@ -226,10 +221,7 @@ export async function fetchIdentitySections(
 
   const settled = await Promise.allSettled(
     specs.map(async (spec) => {
-      const { books } = await withTimeout(
-        fetchByKeyword(spec.query, 0, 30, spec.langCode),
-        FETCH_TIMEOUT_MS
-      );
+      const { books } = await fetchByKeyword(spec.query, 0, 30, spec.langCode);
       const seen = new Set<string>();
       const ranked = books
         .filter((b) => passesIdentityFilters(b, identity, spec, library, nowYear))

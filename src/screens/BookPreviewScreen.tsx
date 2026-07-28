@@ -197,7 +197,7 @@ export function BookPreviewScreen() {
         {book.description ? (
           <View style={styles.synopsisCard}>
             <Text style={styles.eyebrow}>{t("bookDetail.synopsis")}</Text>
-            <Pressable onPress={() => setSynopsisExpanded((v) => !v)}>
+            <Pressable accessibilityRole="button" onPress={() => setSynopsisExpanded((v) => !v)}>
               <Text style={styles.synopsisText} numberOfLines={synopsisExpanded ? undefined : 6}>
                 {book.description}
               </Text>
@@ -212,7 +212,7 @@ export function BookPreviewScreen() {
       {/* ── Sticky CTA ──────────────────────────────────────────────────────── */}
       <View style={[styles.ctaBar, { paddingBottom: insets.bottom + 12 }]}>
         {libraryBook ? (
-          <ScalePressable
+          <ScalePressable accessibilityRole="button"
             pressScale={0.97}
             style={[styles.ctaBtn, { backgroundColor: c.navy }]}
             onPress={() => navigation.navigate("BookDetail", { bookId: libraryBook.id })}
@@ -221,7 +221,7 @@ export function BookPreviewScreen() {
             <Text style={styles.ctaText}>{t("bookPreview.openInLibrary")}</Text>
           </ScalePressable>
         ) : (
-          <ScalePressable pressScale={0.97} style={[styles.ctaBtn, { backgroundColor: c.teal }]} onPress={handleAdd}>
+          <ScalePressable accessibilityRole="button" pressScale={0.97} style={[styles.ctaBtn, { backgroundColor: c.teal }]} onPress={handleAdd}>
             <Ionicons name="add-circle-outline" size={19} color="#fff" />
             <Text style={styles.ctaText}>{t("bookPreview.addToLibrary")}</Text>
           </ScalePressable>

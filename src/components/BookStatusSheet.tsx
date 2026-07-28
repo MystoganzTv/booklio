@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { CoreTrackingStatus } from "../types/models";
 import { colors, fonts, radii, spacing } from "../theme/theme";
+import { useI18n } from "../i18n/LocalizationContext";
 
 type StatusOption = {
   value: CoreTrackingStatus;
@@ -27,6 +28,7 @@ type Props = {
 };
 
 export function BookStatusSheet({ open, currentStatus, currentRating, onSave, onClose }: Props) {
+  const { t } = useI18n();
   const [status, setStatus] = useState<CoreTrackingStatus>(currentStatus);
   const [rating, setRating] = useState<number | undefined>(currentRating);
 
@@ -46,7 +48,7 @@ export function BookStatusSheet({ open, currentStatus, currentRating, onSave, on
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Pressable accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={onClose} />
 
         <View style={styles.sheet}>
           <View style={styles.handle} />
@@ -57,7 +59,7 @@ export function BookStatusSheet({ open, currentStatus, currentRating, onSave, on
             {STATUS_OPTIONS.map((opt) => {
               const active = status === opt.value;
               return (
-                <Pressable
+                <Pressable accessibilityRole="button"
                   key={opt.value}
                   style={[styles.statusOption, active && { borderColor: opt.color, backgroundColor: `${opt.color}18` }]}
                   onPress={() => setStatus(opt.value)}
@@ -77,7 +79,13 @@ export function BookStatusSheet({ open, currentStatus, currentRating, onSave, on
               <Text style={styles.ratingLabel}>Your rating</Text>
               <View style={styles.stars}>
                 {[1, 2, 3, 4, 5].map((star) => (
-                  <Pressable key={star} onPress={() => setRating(star)} hitSlop={12}>
+                  <Pressable
+                    key={star}
+                    onPress={() => setRating(star)}
+                    hitSlop={12}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("a11y.rateStars", { count: star })}
+                  >
                     <Ionicons
                       name={rating !== undefined && rating >= star ? "star" : "star-outline"}
                       size={34}
@@ -89,7 +97,7 @@ export function BookStatusSheet({ open, currentStatus, currentRating, onSave, on
             </View>
           )}
 
-          <Pressable style={styles.saveButton} onPress={handleSave}>
+          <Pressable accessibilityRole="button" style={styles.saveButton} onPress={handleSave}>
             <Text style={styles.saveButtonText}>Save</Text>
           </Pressable>
         </View>

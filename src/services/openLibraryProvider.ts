@@ -17,6 +17,7 @@ import { normalizeBookGenres } from "../utils/genres";
 import { openLibraryUrl } from "../utils/openLibrary";
 import { coverUrl as olCoverUrl } from "../utils/bookMetadata";
 import { scoreEdition, ScoringQuery } from "./bookMatchScorer";
+import { fetchWithTimeout } from "../utils/fetchWithTimeout";
 
 // ─── Edition fetch limit ──────────────────────────────────────────────────────
 
@@ -111,7 +112,7 @@ function normalizeFormat(physical?: string): EditionFormat | undefined {
 async function fetchAuthorName(key?: string): Promise<string | undefined> {
   if (!key) return undefined;
   try {
-    const res = await fetch(openLibraryUrl(`${key}.json`));
+    const res = await fetchWithTimeout(openLibraryUrl(`${key}.json`));
     if (!res.ok) return undefined;
     const data = (await res.json()) as OLAuthorRaw;
     return data.personal_name ?? data.name;
@@ -162,7 +163,7 @@ export async function fetchEditionByIsbn(
   query?: ScoringQuery
 ): Promise<{ edition: BookEdition; workKey?: string; authorKeys?: string[] } | null> {
   try {
-    const res = await fetch(openLibraryUrl(`/isbn/${isbn13}.json`));
+    const res = await fetchWithTimeout(openLibraryUrl(`/isbn/${isbn13}.json`));
     if (!res.ok) return null;
     const raw = (await res.json()) as OLEditionRaw;
     const partial = editionRawToPartial(raw, isbn13);
@@ -192,7 +193,7 @@ export async function fetchWork(workKey: string): Promise<{
   firstPublishDate?: string;
 } | null> {
   try {
-    const res = await fetch(openLibraryUrl(`${workKey}.json`));
+    const res = await fetchWithTimeout(openLibraryUrl(`${workKey}.json`));
     if (!res.ok) return null;
     const raw = (await res.json()) as OLWorkRaw;
     return {
@@ -228,7 +229,7 @@ export async function fetchWorkEditions(
       const url = openLibraryUrl(
         `${workKey}/editions.json?limit=${OL_EDITIONS_PAGE_SIZE}&offset=${offset}`
       );
-      const res = await fetch(url);
+      const res = await fetchWithTimeout(url);
       if (!res.ok) break;
       const data = (await res.json()) as OLEditionsResponse;
       const entries = data.entries ?? [];
@@ -284,7 +285,7 @@ export async function fetchWorksByQuery(
     const url = openLibraryUrl(
       `/search.json?${searchParams}&limit=15&fields=${fields}`
     );
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) return [];
     const data = (await res.json()) as OLSearchResponse;
 

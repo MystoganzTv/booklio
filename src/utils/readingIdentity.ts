@@ -64,7 +64,8 @@ export type IdentityInput = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = "@bookliz/reading-identity/v1";
+export const READING_IDENTITY_KEY = "@bookliz/reading-identity/v1";
+const STORAGE_KEY = READING_IDENTITY_KEY;
 const HALF_LIFE_DAYS = 90;
 const MIN_DECAY = 0.15;          // old loves never fully vanish
 const UNKNOWN_RECENCY = 0.6;     // books without any date: neutral-ish

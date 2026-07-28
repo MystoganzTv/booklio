@@ -1,15 +1,19 @@
 import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { clearQueue, enqueue, hasPendingOperations, isOnline } from "../utils/offlineQueue";
+import { clearQueue, enqueue, hasPendingOperations, isOnline, OFFLINE_QUEUE_KEY } from "../utils/offlineQueue";
 import { authors as authorSeed, books as bookSeed, readingSessions as sessionSeed, series, userProfile } from "./mockData";
 import {
   BooklizRepository,
   createBooklizSnapshot,
+  LOCAL_SNAPSHOT_KEY,
   LocalFirstBooklizRepository,
   PersistedBooklizState,
   RepositoryStatus
 } from "./booklizRepository";
+import { clearDiscoverCache } from "../utils/discoverCache";
+import { NOTIFICATION_PREFS_KEY } from "../utils/notificationService";
+import { WHATS_NEW_KEY } from "../components/WhatsNewModal";
 import {
   Achievement,
   Author,
@@ -31,7 +35,10 @@ import { supabase } from "../lib/supabase";
 import { normalizeBookGenres } from "../utils/genres";
 import { languageCode } from "../utils/languageUtils";
 import { inferSeriesData } from "../utils/knownWorks";
-import { computeReadingIdentity, loadStoredIdentity, ReadingIdentity, storeIdentity } from "../utils/readingIdentity";
+import { computeReadingIdentity, loadStoredIdentity, READING_IDENTITY_KEY, ReadingIdentity, storeIdentity } from "../utils/readingIdentity";
+
+/** Onboarding completion flag — stored separately from the library snapshot. */
+const ONBOARDING_KEY = "@bookliz/onboardingComplete";
 
 type MonthBucket = {
   label: string;
@@ -173,26 +180,14 @@ const migrateAchievements = (
     };
   });
 
-const mergeSeedBookMetadata = (books: Book[]) =>
-  books.map((book) => {
-    const seedMatch = bookSeed.find((seed) => seed.id === book.id || (seed.isbn && seed.isbn === book.isbn));
-    if (!seedMatch) {
-      return normalizeReadState(book);
-    }
-
-    return normalizeReadState({
-      ...seedMatch,
-      ...book,
-      coverImageUri: book.coverImageUri ?? seedMatch.coverImageUri,
-      coverGradient: book.coverGradient?.length ? book.coverGradient : seedMatch.coverGradient,
-      synopsis: book.synopsis || seedMatch.synopsis,
-      publisher: book.publisher || seedMatch.publisher,
-      userStatus: {
-        ...seedMatch.userStatus,
-        ...book.userStatus
-      }
-    });
-  });
+/**
+ * The persisted library is the single source of truth. Demo seed data has NO
+ * authority over it: a user book that happens to share an ISBN with one of the
+ * demo titles must never inherit the demo's synopsis, publisher, cover, pages,
+ * publication date, series or genre. That is fabricated visible metadata, which
+ * `metadataMergePolicy` exists to forbid.
+ */
+const hydrateBooks = (books: Book[]) => books.map(normalizeReadState);
 
 /** Coarse format family — print / digital / audio. Same book in a different
  * family is a separate copy, not a duplicate. */
@@ -671,8 +666,22 @@ const buildOverallStats = (books: Book[], sessions: ReadingSession[], authors: A
   };
 };
 
+/**
+ * Local write cadence. Short enough that a force-quit right after an edit loses
+ * nothing a user would notice, long enough that typing a review is one write.
+ */
+const LOCAL_PERSIST_DEBOUNCE_MS = 600;
+
+/**
+ * Cloud sync cadence. Trailing — resets on every edit — so a burst of changes
+ * costs one upload instead of one per change. Backgrounding force-flushes it.
+ */
+const REMOTE_SYNC_DEBOUNCE_MS = 10_000;
+
 export function BooklizProvider({ children }: PropsWithChildren) {
   const repositoryRef = useRef<BooklizRepository>(new LocalFirstBooklizRepository());
+  /** True while local state has changes the cloud has not seen yet. */
+  const pendingRemoteRef = useRef(false);
   const [authors, setAuthors] = useState<Author[]>(authorSeed);
   const [books, setBooks] = useState<Book[]>(() => bookSeed.map(normalizeReadState));
   const [readingSessions, setReadingSessions] = useState<ReadingSession[]>(sessionSeed);
@@ -708,34 +717,16 @@ export function BooklizProvider({ children }: PropsWithChildren) {
     return () => { mounted = false; };
   }, []);
 
-  // TEMP DEBUG — [IDENTITY_TRIGGER]: remove before production.
-  const identityTriggerRef = useRef({ hydrated: false, books: -1, sessions: -1, reviews: -1 });
-
   // …then recompute (debounced 5s) whenever the underlying data changes.
   // Pure on-device reduction — no network, works fully offline.
   useEffect(() => {
-    // TEMP DEBUG (remove before production): derive why this effect fired.
-    const prev = identityTriggerRef.current;
-    const reason =
-      !prev.hydrated && hydrated ? "hydration" :
-      books.length > prev.books ? "bookAdded" :
-      readingSessions.length > prev.sessions ? "sessionSaved" :
-      reviews.length > prev.reviews ? "reviewSaved" :
-      "bookEdited"; // same counts, changed reference (edit/delete/status)
-    identityTriggerRef.current = { hydrated, books: books.length, sessions: readingSessions.length, reviews: reviews.length };
-
-    if (!hydrated) {
-      if (__DEV__) console.log(`[IDENTITY_TRIGGER] reason=preHydration books=${books.length} sessions=${readingSessions.length} reviews=${reviews.length} -> skipped`);
-      return; // don't compute over seed data before hydration
-    }
-    if (__DEV__) console.log(`[IDENTITY_TRIGGER] reason=${reason} books=${books.length} sessions=${readingSessions.length} reviews=${reviews.length} -> scheduled (5s debounce)`);
+    if (!hydrated) return; // don't compute over seed data before hydration
 
     const timer = setTimeout(() => {
       try {
         const identity = computeReadingIdentity({ authors, books, readingSessions, reviews });
         setReadingIdentity(identity);
         void storeIdentity(identity);
-        if (__DEV__) console.log(`[IDENTITY_TRIGGER] reason=${reason} -> executed`);
         if (__DEV__) console.log("[IDENTITY]", JSON.stringify(identity, null, 2));
       } catch {
         // identity is a derived nicety — never let it break the app
@@ -765,7 +756,7 @@ export function BooklizProvider({ children }: PropsWithChildren) {
         setAuthors(parsed.authors ?? authorSeed);
         setBooks(
           parsed.books !== undefined
-            ? (parsed.books.length ? mergeSeedBookMetadata(parsed.books) : [])
+            ? (parsed.books.length ? hydrateBooks(parsed.books) : [])
             : bookSeed.map(normalizeReadState)
         );
         setReadingSessions(parsed.readingSessions ?? sessionSeed);
@@ -799,7 +790,7 @@ export function BooklizProvider({ children }: PropsWithChildren) {
           setProfile(userProfile);
         }
         // Onboarding flag (stored separately from the main library snapshot)
-        const onboardingFlag = await AsyncStorage.getItem("@bookliz/onboardingComplete");
+        const onboardingFlag = await AsyncStorage.getItem(ONBOARDING_KEY);
         if (mounted && onboardingFlag === "true") {
           setOnboardingComplete(true);
         }
@@ -869,7 +860,7 @@ export function BooklizProvider({ children }: PropsWithChildren) {
         setAuthors(parsed.authors ?? authorSeed);
         setBooks(
           parsed.books !== undefined
-            ? (parsed.books.length ? mergeSeedBookMetadata(parsed.books) : [])
+            ? (parsed.books.length ? hydrateBooks(parsed.books) : [])
             : bookSeed.map(normalizeReadState)
         );
         setReadingSessions(parsed.readingSessions ?? sessionSeed);
@@ -906,28 +897,73 @@ export function BooklizProvider({ children }: PropsWithChildren) {
     };
   }, [hydrated]);
 
-  useEffect(() => {
-    if (!hydrated) {
-      return;
-    }
+  // ── Persistence ─────────────────────────────────────────────────────────────
+  //
+  // Split into two cadences on purpose. Every state change used to serialise the
+  // whole library to AsyncStorage AND upsert all six Supabase tables — so
+  // ticking one page read uploaded the entire collection. With a large library
+  // that is hundreds of KB per tap, against the user's battery and the project's
+  // quota.
+  //
+  //   local  — cheap, frequent, the safety net. Nothing may ever be lost.
+  //   remote — expensive, rare, trailing. Coalesces a burst of edits into one
+  //            upload, and is force-flushed when the app leaves the foreground
+  //            so a session never ends with unsynced work.
 
-    const persist = async () => {
-      const state: PersistedBooklizState = { authors, books, readingSessions, reviews, userLists, userProfile: resolvedProfile };
-      try {
-        await repositoryRef.current.save(createBooklizSnapshot(state));
-        setRepositoryStatus(repositoryRef.current.getStatus());
-      } catch (error) {
-        console.warn("Booklio could not persist local library", error);
+  /** Write the current state to disk, optionally skipping the cloud round trip. */
+  const persistNow = useRef<(localOnly: boolean) => Promise<void>>(async () => {});
+  persistNow.current = async (localOnly: boolean) => {
+    try {
+      await repositoryRef.current.save(createBooklizSnapshot(latestStateRef.current), { localOnly });
+      setRepositoryStatus(repositoryRef.current.getStatus());
+      if (!localOnly) pendingRemoteRef.current = false;
+    } catch (error) {
+      console.warn("Booklio could not persist local library", error);
+      if (!localOnly) {
         // Queue a full sync marker so the AppState listener retries when back online.
         // AsyncStorage was already written successfully — this only covers the
         // Supabase / remote sync portion that failed.
         void enqueue("upsert_profile", { reason: "full_sync_needed", timestamp: Date.now() });
-        setRepositoryStatus(repositoryRef.current.getStatus());
       }
-    };
+      setRepositoryStatus(repositoryRef.current.getStatus());
+    }
+  };
 
-    persist();
-  }, [authors, books, hydrated, readingSessions, resolvedProfile, reviews]);
+  // Local snapshot — short debounce so typing in a form is one write, not thirty.
+  useEffect(() => {
+    if (!hydrated) return;
+    pendingRemoteRef.current = true;
+    const timer = setTimeout(() => void persistNow.current(true), LOCAL_PERSIST_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [authors, books, hydrated, readingSessions, resolvedProfile, reviews, userLists]);
+
+  // Cloud sync — long trailing debounce. Resets on every edit, so an active
+  // editing session uploads once when the user pauses rather than per keystroke.
+  useEffect(() => {
+    if (!hydrated) return;
+    const timer = setTimeout(() => void persistNow.current(false), REMOTE_SYNC_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [authors, books, hydrated, readingSessions, resolvedProfile, reviews, userLists]);
+
+  // Leaving the foreground is the last reliable moment to sync — the OS may
+  // suspend or kill us afterwards. Flush both tiers immediately, debounce be damned.
+  useEffect(() => {
+    if (!hydrated) return;
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active" && pendingRemoteRef.current) {
+        void persistNow.current(false);
+      }
+    });
+    return () => subscription.remove();
+  }, [hydrated]);
+
+  // Unmount (fast refresh, provider swap) — never leave a pending write behind.
+  useEffect(
+    () => () => {
+      if (pendingRemoteRef.current) void persistNow.current(true);
+    },
+    []
+  );
 
   const value = useMemo<BooklizContextValue>(() => {
     const getBook = (bookId: string) => books.find((book) => book.id === bookId);
@@ -1436,7 +1472,7 @@ export function BooklizProvider({ children }: PropsWithChildren) {
         favoriteGenres: genres.length ? genres : prev.favoriteGenres,
         readingLevel: ""   // Always start with auto-computed title; no custom override for new accounts
       }));
-      await AsyncStorage.setItem("@bookliz/onboardingComplete", "true");
+      await AsyncStorage.setItem(ONBOARDING_KEY, "true");
       setOnboardingComplete(true);
     };
 
@@ -1451,13 +1487,24 @@ export function BooklizProvider({ children }: PropsWithChildren) {
       setUserLists([]);
       setProfile(userProfile);
       setOnboardingComplete(false);
-      // 3. Wipe AsyncStorage
+      setReadingIdentity(null);
+      // 3. Wipe AsyncStorage.
+      //    Everything derived from the previous reader must go, not just the
+      //    library snapshot: the reading identity IS the taste vector that
+      //    drives Discover, and the offline queue holds operations that would
+      //    otherwise replay into whichever account signs in next.
       await AsyncStorage.multiRemove([
-        "bookliz:v2",
-        "@bookliz/onboardingComplete",
+        LOCAL_SNAPSHOT_KEY,
+        ONBOARDING_KEY,
+        READING_IDENTITY_KEY,
+        OFFLINE_QUEUE_KEY,
+        NOTIFICATION_PREFS_KEY,
+        WHATS_NEW_KEY,
         "bookliz_connected_account",
         "bookliz_google_account"
       ]);
+      await clearDiscoverCache();
+      // Theme and locale are device preferences, not account data — kept on purpose.
       // 4. Sign out from Supabase if active
       try {
         const { supabase: sb } = await import("../lib/supabase");
@@ -1475,10 +1522,22 @@ export function BooklizProvider({ children }: PropsWithChildren) {
       setReadingSessions([]);
       setReviews([]);
       setUserLists([]);
-      // Persist a snapshot with empty library but keep profile intact
-      await AsyncStorage.setItem(
-        "bookliz:v2",
-        JSON.stringify({ authors: [], books: [], readingSessions: [], reviews: [], userLists: [], userProfile: latestStateRef.current.userProfile })
+      // The identity was computed from books that no longer exist.
+      setReadingIdentity(null);
+      await AsyncStorage.multiRemove([READING_IDENTITY_KEY]);
+      await clearDiscoverCache();
+      // Persist a snapshot with empty library but keep profile intact.
+      // Written through the repository so it lands on the key the repository
+      // actually reads — a hardcoded string here would be silently ignored.
+      await repositoryRef.current.save(
+        createBooklizSnapshot({
+          authors: [],
+          books: [],
+          readingSessions: [],
+          reviews: [],
+          userLists: [],
+          userProfile: latestStateRef.current.userProfile
+        })
       );
       setHydrated(true);
     };

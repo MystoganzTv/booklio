@@ -1,3 +1,4 @@
+import * as Application from "expo-application";
 import Constants from "expo-constants";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -15,8 +16,12 @@ import { RELEASE_NOTES, ReleaseSection } from "../data/releaseNotes";
 import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
 
-const STORAGE_KEY = "@bookliz/whatsNewLastVersion";
-const APP_VERSION = Constants.expoConfig?.version ?? "1.0.0";
+export const WHATS_NEW_KEY = "@bookliz/whatsNewLastVersion";
+const STORAGE_KEY = WHATS_NEW_KEY;
+const APP_VERSION =
+  Application.nativeApplicationVersion ??
+  Constants.expoConfig?.version ??
+  "1.0.0";
 
 // ─── Section config ───────────────────────────────────────────────────────────
 
@@ -115,7 +120,7 @@ export function WhatsNewModal() {
     <Modal transparent animationType="none" visible={visible} onRequestClose={dismiss}>
       {/* Backdrop */}
       <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={dismiss} />
+        <Pressable accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={dismiss} />
       </Animated.View>
 
       {/* Sheet */}
@@ -132,7 +137,7 @@ export function WhatsNewModal() {
         <View style={styles.header}>
           <Image source={booklizIcon} style={styles.appIcon} />
           <Text style={styles.appName}>
-            Book<Text style={styles.appNameAccent}>lio</Text>
+            Book<Text style={styles.appNameAccent}>liz</Text>
           </Text>
           <View style={styles.versionBadge}>
             <Text style={styles.versionText}>v{APP_VERSION}</Text>
@@ -153,7 +158,7 @@ export function WhatsNewModal() {
 
         {/* CTA */}
         <View style={styles.footer}>
-          <Pressable style={styles.ctaButton} onPress={dismiss}>
+          <Pressable accessibilityRole="button" style={styles.ctaButton} onPress={dismiss}>
             <Text style={styles.ctaButtonText}>Got it!</Text>
           </Pressable>
         </View>

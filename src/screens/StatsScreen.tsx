@@ -154,7 +154,7 @@ export function StatsScreen() {
           <Text style={styles.sectionTitle}>{t("stats.monthlyActivity")}</Text>
           <View style={styles.tabs}>
             {(["books", "pages", "minutes"] as Tab[]).map((tab) => (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 key={tab}
                 style={[styles.tab, activeTab === tab && styles.tabActive]}
                 onPress={() => setActiveTab(tab)}
@@ -270,7 +270,7 @@ export function StatsScreen() {
           </View>
         )}
 
-        <Pressable style={styles.shareBtn} onPress={shareYearInReview}>
+        <Pressable accessibilityRole="button" style={styles.shareBtn} onPress={shareYearInReview}>
           <Ionicons name="share-outline" size={15} color={c.navy} />
           <Text style={styles.shareBtnText}>{t("stats.shareYear")}</Text>
         </Pressable>

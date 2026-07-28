@@ -102,7 +102,7 @@ export function WelcomeScreen() {
 
       <GoogleConnectionCard variant="onboarding" />
 
-      <Pressable style={styles.skipRow} onPress={() => navigation.navigate("AppTabs")}>
+      <Pressable accessibilityRole="button" style={styles.skipRow} onPress={() => navigation.navigate("AppTabs")}>
         <Ionicons name="arrow-back-outline" size={14} color={c.muted} />
         <Text style={styles.skipText}>{t("welcome.backToLibrary")}</Text>
       </Pressable>

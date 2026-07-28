@@ -265,7 +265,7 @@ export function GenreBrowseScreen() {
       : null;
 
     return (
-      <Pressable
+      <Pressable accessibilityRole="button"
         style={[styles.bookCard, inLibrary && { opacity: 0.85 }]}
         onPress={() => handleBookPress(item)}
       >
@@ -363,7 +363,7 @@ export function GenreBrowseScreen() {
                     contentContainerStyle={styles.libraryRow}
                   >
                     {libraryBooks.map((book) => (
-                      <Pressable
+                      <Pressable accessibilityRole="button"
                         key={book.id}
                         style={styles.libraryCard}
                         onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
@@ -412,7 +412,7 @@ export function GenreBrowseScreen() {
                 <ActivityIndicator size="small" color={c.teal} />
               </View>
             ) : hasMore ? (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 style={[styles.loadMoreBtn, { borderColor: c.border }]}
                 onPress={handleLoadMore}
               >

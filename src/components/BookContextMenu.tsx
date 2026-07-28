@@ -95,7 +95,7 @@ export function BookContextMenu({
   return (
     <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Pressable accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={onClose} />
 
         <View style={styles.sheet}>
           <View style={styles.handle} />
@@ -123,7 +123,7 @@ export function BookContextMenu({
             return (
               <View key={gi}>
                 {visible.map((action) => (
-                  <Pressable
+                  <Pressable accessibilityRole="button"
                     key={action.key}
                     style={({ pressed }) => [styles.actionRow, pressed && styles.actionRowPressed]}
                     onPress={() => handleAction(action.key)}

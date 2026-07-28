@@ -77,7 +77,7 @@ export function OnboardingGenresScreen() {
       {/* Fixed header */}
       <View style={styles.header}>
         <View style={styles.topRow}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={12}>
+          <TouchableOpacity accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={12}>
             <Text style={styles.backArrow}>←</Text>
           </TouchableOpacity>
           <View style={styles.stepPill}>
@@ -116,7 +116,7 @@ export function OnboardingGenresScreen() {
         {GENRES.map((g) => {
           const active = selected.has(g.label);
           return (
-            <TouchableOpacity
+            <TouchableOpacity accessibilityRole="button"
               key={g.label}
               style={[styles.chip, active && styles.chipActive]}
               onPress={() => toggle(g.label)}
@@ -141,7 +141,7 @@ export function OnboardingGenresScreen() {
       {/* Fixed bottom */}
       <View style={styles.bottom}>
         <StepDots current={2} />
-        <TouchableOpacity
+        <TouchableOpacity accessibilityRole="button"
           style={[styles.cta, !canFinish && styles.ctaDisabled]}
           onPress={handleFinish}
           activeOpacity={0.85}

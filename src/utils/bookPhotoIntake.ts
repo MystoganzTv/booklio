@@ -7,6 +7,7 @@ import {
   normalizeIsbn,
   resolveBookMetadata
 } from "./bookMetadata";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 
 type VisionProviderResponse = {
   title?: string;
@@ -151,7 +152,7 @@ async function scanWithVisionProvider(input: {
   if (!VISION_ENDPOINT || !input.base64) return undefined;
 
   try {
-    const response = await fetch(VISION_ENDPOINT, {
+    const response = await fetchWithTimeout(VISION_ENDPOINT, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"

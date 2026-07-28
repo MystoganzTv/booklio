@@ -18,6 +18,7 @@ import { normalizeBookGenres } from "../utils/genres";
 import { coverUrl as olCoverUrl } from "../utils/bookMetadata";
 import { parseIsbn } from "../utils/isbnUtils";
 import { openLibraryUrl } from "../utils/openLibrary";
+import { fetchWithTimeout } from "../utils/fetchWithTimeout";
 import {
   lookupByIsbn as knownLookupByIsbn,
   lookupByTitle as knownLookupByTitle,
@@ -273,7 +274,7 @@ async function fetchGoogleBooksByIsbn(isbn13: string): Promise<BookMatch[]> {
   try {
     const key = GB_API_KEY ? `&key=${GB_API_KEY}` : "";
     const url = `${GB_BASE}?q=isbn:${isbn13}&maxResults=5${key}`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) return [];
     const data = (await res.json()) as GBResponse;
     return (data.items ?? []).map((vol) =>
@@ -292,7 +293,7 @@ async function fetchGoogleBooksByQuery(
     const key = GB_API_KEY ? `&key=${GB_API_KEY}` : "";
     const authorPart = author ? `+inauthor:${encodeURIComponent(author)}` : "";
     const url = `${GB_BASE}?q=intitle:${encodeURIComponent(title)}${authorPart}&maxResults=10${key}`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) return [];
     const data = (await res.json()) as GBResponse;
     return (data.items ?? []).map((vol) =>
@@ -350,7 +351,7 @@ function readOLDescription(d?: string | { value?: string }): string | undefined 
 async function fetchOLAuthorName(key?: string): Promise<string | undefined> {
   if (!key) return undefined;
   try {
-    const res = await fetch(openLibraryUrl(`${key}.json`));
+    const res = await fetchWithTimeout(openLibraryUrl(`${key}.json`));
     if (!res.ok) return undefined;
     const data = (await res.json()) as { name?: string };
     return data.name;
@@ -394,7 +395,7 @@ async function normalizeOLEdition(
 
 async function fetchOpenLibraryByIsbn(isbn13: string): Promise<BookMatch[]> {
   try {
-    const res = await fetch(openLibraryUrl(`/isbn/${isbn13}.json`));
+    const res = await fetchWithTimeout(openLibraryUrl(`/isbn/${isbn13}.json`));
     if (!res.ok) return [];
     const data = (await res.json()) as OLIsbnEdition;
     const match = await normalizeOLEdition(data, isbn13, { isbn13 });
@@ -415,7 +416,7 @@ async function fetchOpenLibraryByQuery(
     const url = openLibraryUrl(
       `/search.json?q=${q}${authorPart}&limit=10&fields=${fields}`
     );
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) return [];
     const data = (await res.json()) as OLSearchResponse;
 

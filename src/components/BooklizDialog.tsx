@@ -31,17 +31,17 @@ export function BooklizDialog({
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={onCancel ?? onConfirm}>
       <View style={styles.overlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onCancel ?? onConfirm} />
+        <Pressable accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={onCancel ?? onConfirm} />
         <View style={styles.card}>
           <View style={styles.handle} />
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.body}>{body}</Text>
           {hasTwoButtons ? (
             <View style={styles.buttonRow}>
-              <Pressable style={[styles.button, styles.buttonCancel]} onPress={onCancel}>
+              <Pressable accessibilityRole="button" style={[styles.button, styles.buttonCancel]} onPress={onCancel}>
                 <Text style={[styles.buttonText, styles.buttonCancelText]}>{cancelLabel}</Text>
               </Pressable>
-              <Pressable
+              <Pressable accessibilityRole="button"
                 style={[styles.button, styles.buttonConfirm, variant === "destructive" && styles.buttonDestructive]}
                 onPress={onConfirm}
               >
@@ -51,7 +51,7 @@ export function BooklizDialog({
               </Pressable>
             </View>
           ) : (
-            <Pressable style={[styles.button, styles.buttonSingle, styles.buttonConfirm]} onPress={onConfirm}>
+            <Pressable accessibilityRole="button" style={[styles.button, styles.buttonSingle, styles.buttonConfirm]} onPress={onConfirm}>
               <Text style={styles.buttonText}>{confirmLabel}</Text>
             </Pressable>
           )}

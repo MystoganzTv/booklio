@@ -47,7 +47,7 @@ export function CatalogBookCard({
   if (coverError) return null;
 
   return (
-    <Pressable style={cardStyle} onPress={() => onPress(book)}>
+    <Pressable accessibilityRole="button" style={cardStyle} onPress={() => onPress(book)}>
       <Image
         source={{ uri: book.coverUrl }}
         style={coverStyle}

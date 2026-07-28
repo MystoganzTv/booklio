@@ -14,7 +14,7 @@ export function FilterChip({ label, selected = false, onPress }: FilterChipProps
   const { isDark } = useTheme();
   const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   return (
-    <Pressable style={[styles.chip, selected && styles.selected]} onPress={onPress}>
+    <Pressable accessibilityRole="button" style={[styles.chip, selected && styles.selected]} onPress={onPress}>
       <Text style={[styles.text, selected && styles.selectedText]}>{label}</Text>
     </Pressable>
   );

@@ -3,7 +3,7 @@
  *
  * Replaces the old sequential waterfall (OL → OL → OL → patch with GB) with:
  *   1. PARALLEL fan-out to every source (Google Books + Open Library + the
- *      curated knownWorks catalog), with a hard time budget.
+ *      curated knownWorks catalog), with abortable provider timeouts.
  *   2. FIELD-LEVEL SCORING — each field of the final result is picked from the
  *      best candidate (synopsis: length × language match; cover: language +
  *      source quality; title: localized when a language is requested), instead
@@ -49,17 +49,9 @@ type Candidate = BookMetadata & {
   _langMatch: boolean;
 };
 
-const TIME_BUDGET_MS = 8_000;
 const CACHE_TTL = 7 * 24 * HOURS;
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
-  ]);
-}
 
 const norm = (value?: string) => (value ?? "").trim().toLowerCase();
 
@@ -153,12 +145,12 @@ export async function resolveMetadata(input: ResolveInput): Promise<BookMetadata
     // GB by ISBN — when the user holds e.g. the Spanish edition, this single
     // call returns the localized title + description directly.
     jobs.push(
-      withTimeout(fetchByKeyword(`isbn:${cleanIsbn}`, 0, 5, undefined, false), TIME_BUDGET_MS)
+      fetchByKeyword(`isbn:${cleanIsbn}`, 0, 5, undefined, false)
         .then(({ books }) => tagGb(books, "gb-isbn", wantedLang)).catch(() => [])
     );
     // OL by ISBN — best source for workKey/editionKey/publisher.
     jobs.push(
-      withTimeout(fetchBookMetadataByIsbn(cleanIsbn), TIME_BUDGET_MS)
+      fetchBookMetadataByIsbn(cleanIsbn)
         .then((meta) => tag(meta, "ol-isbn", wantedLang)).catch(() => [])
     );
   }
@@ -166,12 +158,12 @@ export async function resolveMetadata(input: ResolveInput): Promise<BookMetadata
   if (title) {
     // GB by title (+author), unrestricted — strongest general base.
     jobs.push(
-      withTimeout(fetchByKeyword(`intitle:"${title}"${authorPart}`, 0, 8, undefined, false), TIME_BUDGET_MS)
+      fetchByKeyword(`intitle:"${title}"${authorPart}`, 0, 8, undefined, false)
         .then(({ books }) => tagGb(books, "gb-title", wantedLang)).catch(() => [])
     );
     // OL search — work-level data (workKey, series, author canonical name).
     jobs.push(
-      withTimeout(fetchBookMetadataByTitleAuthor(title, author), TIME_BUDGET_MS)
+      fetchBookMetadataByTitleAuthor(title, author)
         .then((meta) => tag(meta, "ol-search", wantedLang)).catch(() => [])
     );
 
@@ -179,14 +171,14 @@ export async function resolveMetadata(input: ResolveInput): Promise<BookMetadata
       // GB language-restricted — the original title sometimes matches
       // (e.g. "Red Rising" kept in French editions).
       jobs.push(
-        withTimeout(fetchByKeyword(`intitle:"${title}"${authorPart}`, 0, 8, wantedCode, false), TIME_BUDGET_MS)
+        fetchByKeyword(`intitle:"${title}"${authorPart}`, 0, 8, wantedCode, false)
           .then(({ books }) => tagGb(books, "gb-lang", wantedLang, 4, wantedCode)).catch(() => [])
       );
       // knownWorks translated titles ("Alas de sangre" for "Fourth Wing"…).
       for (const variant of getTitleVariants(title)) {
         if (norm(variant) === norm(title)) continue;
         jobs.push(
-          withTimeout(fetchByKeyword(`intitle:"${variant}"${authorPart}`, 0, 6, wantedCode, false), TIME_BUDGET_MS)
+          fetchByKeyword(`intitle:"${variant}"${authorPart}`, 0, 6, wantedCode, false)
             .then(({ books }) => tagGb(books, "gb-lang", wantedLang, 4, wantedCode)).catch(() => [])
         );
       }
@@ -421,7 +413,7 @@ export async function findEditionsInLanguage(
 
   const settled = await Promise.allSettled(
     queries.map(({ query, origin }) =>
-      withTimeout(fetchByKeyword(query, 0, 20, code, false), TIME_BUDGET_MS)
+      fetchByKeyword(query, 0, 20, code, false)
         .then(({ books }) => {
           logSearch(`gb query=${JSON.stringify(query)} origin=${origin} langRestrict=${code} -> ${books.length} raw`);
           return books.map((book): EditionCandidate => ({ ...book, origin }));
@@ -441,7 +433,7 @@ export async function findEditionsInLanguage(
   let workKey = opts.workKey;
   if (!workKey) {
     try {
-      const meta = await withTimeout(fetchBookMetadataByTitleAuthor(title, authorName ?? ""), TIME_BUDGET_MS);
+      const meta = await fetchBookMetadataByTitleAuthor(title, authorName ?? "");
       workKey = meta?.workKey;
       logSearch(`ol work lookup "${title}" -> workKey=${workKey ?? "none"}`);
     } catch {
@@ -451,7 +443,7 @@ export async function findEditionsInLanguage(
   let olCandidates: EditionCandidate[] = [];
   if (workKey) {
     try {
-      const editions = await withTimeout(fetchEditionOptionsByWorkKey(workKey, 40), TIME_BUDGET_MS);
+      const editions = await fetchEditionOptionsByWorkKey(workKey, 40);
       olCandidates = editions
         .map((option) => olEditionToCandidate(option, authorName))
         .filter((candidate) => norm(candidate.language) === wanted);
@@ -473,7 +465,7 @@ export async function findEditionsInLanguage(
   if (translatedTitles.length) {
     const requerySettled = await Promise.allSettled(
       translatedTitles.map((translated) =>
-        withTimeout(fetchByKeyword(`intitle:"${translated}"${authorPart}`, 0, 10, code, false), TIME_BUDGET_MS)
+        fetchByKeyword(`intitle:"${translated}"${authorPart}`, 0, 10, code, false)
           .then(({ books }) => {
             logSearch(`stage3 gb requery intitle="${translated}" -> ${books.length} raw`);
             // Same work by construction: the query title CAME from this

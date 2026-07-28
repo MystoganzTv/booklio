@@ -1,8 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useDeferredValue, useMemo, useState } from "react";
-import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useCallback, useDeferredValue, useMemo, useState } from "react";
+import { FlatList, Image, Linking, ListRenderItem, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Badge } from "../components/Badge";
 import { BooklizDialog } from "../components/BooklizDialog";
 import { BookCover, FormatBadge, isMutedBook } from "../components/BookCover";
@@ -88,12 +88,11 @@ export function LibraryScreen() {
   // Only filter by query when 2+ chars — avoids "no match" flash on first keystroke
   const effectiveQuery = deferredQuery.trim().length >= 2 ? deferredQuery.trim() : "";
 
+  // Only the two shown in the header MiniStats. The "collector shelves" counts
+  // (reading now, saga momentum, wishlist pressure, unfinished) were computed on
+  // every render for a section that was never rendered — removed.
   const ownedCount = books.filter((b) => b.userStatus.ownership === "owned").length;
   const readCount = books.filter((b) => b.userStatus.status === "read").length;
-  const wishlistCount = books.filter((b) => b.userStatus.wishlist).length;
-  const unfinishedCount = books.filter((b) => b.userStatus.status === "dnf").length;
-  const activeSeriesCount = new Set(books.filter((b) => b.seriesId && ["reading", "read"].includes(b.userStatus.status)).map((b) => b.seriesId)).size;
-  const readingNow = books.filter((b) => b.userStatus.status === "reading").length;
 
   const latestLogByBook = useMemo(
     () =>
@@ -193,35 +192,45 @@ export function LibraryScreen() {
       });
   }, [books, effectiveQuery, filter, genreFilter, tagFilter, listFilter, userLists, getAuthor, latestLogByBook, advFilters]);
 
-  const collectorShelves = [
-    {
-      title: t("library.readingNow"),
-      value: String(readingNow),
-      note: readingNow ? t("library.readingNowActive") : t("library.readingNowEmpty"),
-      accent: c.tealDark
-    },
-    {
-      title: t("library.sagaMomentum"),
-      value: String(activeSeriesCount),
-      note: activeSeriesCount ? t("library.sagaMomentumActive") : t("library.sagaMomentumEmpty"),
-      accent: c.gold
-    },
-    {
-      title: t("library.wishlistPressure"),
-      value: String(wishlistCount),
-      note: wishlistCount ? t("library.wishlistPressureActive") : t("library.wishlistPressureEmpty"),
-      accent: c.coral
-    },
-    {
-      title: t("library.unfinished"),
-      value: String(unfinishedCount),
-      note: unfinishedCount ? t("library.unfinishedActive") : t("library.unfinishedEmpty"),
-      accent: c.muted
-    }
-  ];
+  const renderGridItem = useCallback<ListRenderItem<Book>>(
+    ({ item: book }) => (
+      <GridBookTile
+        book={book}
+        authorName={getAuthor(book.authorId)?.name ?? ""}
+        styles={styles}
+        onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
+        onMenu={() => setContextBook({ book, authorName: getAuthor(book.authorId)?.name ?? "" })}
+      />
+    ),
+    [getAuthor, navigation, styles]
+  );
 
-  return (
-    <Screen>
+  const renderRowItem = useCallback<ListRenderItem<Book>>(
+    ({ item: book }) => (
+      <LibraryRowCard
+        book={book}
+        authorName={getAuthor(book.authorId)?.name ?? ""}
+        latestLogDate={latestLogByBook[book.id]}
+        styles={styles}
+        onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
+        onMenu={() => setContextBook({ book, authorName: getAuthor(book.authorId)?.name ?? "" })}
+        onOpenSeries={
+          book.seriesId
+            ? () => navigation.navigate("SeriesTracker", { seriesId: book.seriesId! })
+            : undefined
+        }
+        onBuy={() => openAmazon(book, getAuthor(book.authorId)?.name ?? "")}
+      />
+    ),
+    [getAuthor, latestLogByBook, navigation, styles]
+  );
+
+  // Everything above the books scrolls with them, so it lives in the list header
+  // rather than in a parent ScrollView. Nesting a FlatList inside a ScrollView
+  // would defeat virtualisation entirely — the outer view has no bounded height,
+  // so the inner list renders every row.
+  const listHeader = (
+    <>
       {/* ── Header ── */}
       <View style={styles.headerRow}>
         <View style={styles.headerText}>
@@ -238,7 +247,7 @@ export function LibraryScreen() {
       {/* ── Lists rail — compact pills ── */}
       {userLists.length > 0 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.listsRail} contentContainerStyle={styles.listsRailContent}>
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={[styles.listPill, !listFilter && styles.listPillActive]}
             onPress={() => setListFilter(null)}
           >
@@ -247,7 +256,7 @@ export function LibraryScreen() {
           {userLists.map((list) => {
             const active = listFilter === list.id;
             return (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 key={list.id}
                 style={[styles.listPill, active && styles.listPillActive]}
                 onPress={() => setListFilter(active ? null : list.id)}
@@ -258,7 +267,12 @@ export function LibraryScreen() {
               </Pressable>
             );
           })}
-          <Pressable style={styles.listPillNew} onPress={() => setCreateListOpen(true)}>
+          <Pressable
+            style={styles.listPillNew}
+            onPress={() => setCreateListOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel={t("a11y.newList")}
+          >
             <Ionicons name="add" size={14} color={c.teal} />
           </Pressable>
         </ScrollView>
@@ -280,6 +294,12 @@ export function LibraryScreen() {
         <Pressable
           style={[styles.controlBtn, activeFilterCount(advFilters) > 0 && styles.controlBtnActive]}
           onPress={() => setFilterSheetOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel={
+            activeFilterCount(advFilters) > 0
+              ? t("a11y.filtersActive", { count: activeFilterCount(advFilters) })
+              : t("a11y.filters")
+          }
         >
           <Ionicons name="options-outline" size={17} color={activeFilterCount(advFilters) > 0 ? activeControlTextColor : c.ink} />
           {activeFilterCount(advFilters) > 0 && (
@@ -292,6 +312,8 @@ export function LibraryScreen() {
         <Pressable
           style={styles.controlBtn}
           onPress={() => setViewMode((v) => v === "grid" ? "list" : "grid")}
+          accessibilityRole="button"
+          accessibilityLabel={t("a11y.toggleView")}
         >
           <Ionicons
             name={viewMode === "grid" ? "grid-outline" : "reorder-three-outline"}
@@ -304,7 +326,7 @@ export function LibraryScreen() {
       {/* ── Simple filter tabs ── */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRail} contentContainerStyle={styles.chipRailContent}>
         {SIMPLE_FILTERS.map((item) => (
-          <Pressable
+          <Pressable accessibilityRole="button"
             key={item.key}
             style={[styles.simpleTab, filter === item.key && styles.simpleTabActive]}
             onPress={() => setFilter(item.key)}
@@ -315,62 +337,56 @@ export function LibraryScreen() {
           </Pressable>
         ))}
       </ScrollView>
+    </>
+  );
 
+  const listEmpty =
+    books.length === 0 ? (
+      /* ── Library is empty ── */
+      <View style={styles.emptyState}>
+        <Ionicons name="library-outline" size={44} color={c.teal} />
+        <Text style={styles.emptyTitle}>{t("library.emptyTitle")}</Text>
+        <Text style={styles.emptySub}>{t("library.emptyBody")}</Text>
+        <Pressable
+          style={styles.emptyButton}
+          onPress={() => navigation.navigate("BookIntake")}
+          accessibilityRole="button"
+          accessibilityLabel={t("common.addBook")}
+        >
+          <Text style={styles.emptyButtonText}>{t("common.addBook")}</Text>
+        </Pressable>
+      </View>
+    ) : (
+      /* ── No search/filter matches ── */
+      <NoMatchState query={query} styles={styles} c={c} onClear={clearFilters} />
+    );
 
-      {filteredBooks.length === 0 ? (
-        books.length === 0 ? (
-          /* ── Library is empty ── */
-          <View style={styles.emptyState}>
-            <Ionicons name="library-outline" size={44} color={c.teal} />
-            <Text style={styles.emptyTitle}>{t("library.emptyTitle")}</Text>
-            <Text style={styles.emptySub}>{t("library.emptyBody")}</Text>
-            <Pressable style={styles.emptyButton} onPress={() => navigation.navigate("BookIntake")}>
-              <Text style={styles.emptyButtonText}>{t("common.addBook")}</Text>
-            </Pressable>
-          </View>
-        ) : (
-          /* ── No search/filter matches ── */
-          <NoMatchState
-            query={query}
-            styles={styles}
-            c={c}
-            onClear={clearFilters}
-          />
-        )
-      ) : viewMode === "grid" ? (
-        <View style={styles.grid}>
-          {filteredBooks.map((book) => (
-            <GridBookTile
-              key={book.id}
-              book={book}
-              authorName={getAuthor(book.authorId)?.name ?? ""}
-              styles={styles}
-              onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
-              onMenu={() => setContextBook({ book, authorName: getAuthor(book.authorId)?.name ?? "" })}
-            />
-          ))}
-        </View>
-      ) : (
-        <View style={styles.listWrap}>
-          {filteredBooks.map((book) => (
-            <LibraryRowCard
-              key={book.id}
-              book={book}
-              authorName={getAuthor(book.authorId)?.name ?? ""}
-              latestLogDate={latestLogByBook[book.id]}
-              styles={styles}
-              onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
-              onMenu={() => setContextBook({ book, authorName: getAuthor(book.authorId)?.name ?? "" })}
-              onOpenSeries={
-                book.seriesId
-                  ? () => navigation.navigate("SeriesTracker", { seriesId: book.seriesId! })
-                  : undefined
-              }
-              onBuy={() => openAmazon(book, getAuthor(book.authorId)?.name ?? "")}
-            />
-          ))}
-        </View>
-      )}
+  const isGrid = viewMode === "grid";
+
+  return (
+    <Screen scroll={false}>
+      <FlatList
+        /* numColumns cannot change on a mounted list — remounting on view mode
+           switch is the supported way to flip between grid and rows. */
+        key={viewMode}
+        data={filteredBooks}
+        extraData={latestLogByBook}
+        keyExtractor={(book) => book.id}
+        renderItem={isGrid ? renderGridItem : renderRowItem}
+        numColumns={isGrid ? 3 : 1}
+        columnWrapperStyle={isGrid ? styles.gridRow : undefined}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={listEmpty}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        removeClippedSubviews
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
+        windowSize={7}
+      />
+
       {/* Create list sheet */}
       <CreateListSheet
         open={createListOpen}
@@ -533,7 +549,7 @@ function NoMatchState({
           : "Los filtros activos no tienen coincidencias"}
       </Text>
 
-      <Pressable style={styles.noMatchClearBtn} onPress={onClear}>
+      <Pressable accessibilityRole="button" style={styles.noMatchClearBtn} onPress={onClear}>
         <Ionicons name="refresh-outline" size={14} color={c.teal} />
         <Text style={styles.noMatchClearText}>Limpiar búsqueda y filtros</Text>
       </Pressable>
@@ -563,6 +579,7 @@ function GridBookTile({
   onPress: () => void;
   onMenu: () => void;
 }) {
+  const { t } = useI18n();
   const hasSeries = book.seriesName && book.seriesNumber;
   // Same dimming rule as BookCover (list mode) — keeps grid & list consistent
   const muted = isMutedBook(book);
@@ -585,11 +602,17 @@ function GridBookTile({
   );
 
   return (
-    <ScalePressable style={styles.bookTile} onPress={onPress} pressScale={0.95}>
+    <ScalePressable accessibilityRole="button" style={styles.bookTile} onPress={onPress} pressScale={0.95}>
       <View style={styles.tileCoverContainer}>
         {coverEl}
         <FormatBadge format={book.format} size={13} style={styles.tileFormatBadge} />
-        <Pressable style={styles.tileMenuBtn} onPress={onMenu} hitSlop={8}>
+        <Pressable
+          style={styles.tileMenuBtn}
+          onPress={onMenu}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t("a11y.moreFor", { title: book.title })}
+        >
           <Ionicons name="ellipsis-horizontal" size={14} color="#fff" />
         </Pressable>
       </View>
@@ -622,6 +645,7 @@ function LibraryRowCard({
   onOpenSeries?: () => void;
   onBuy: () => void;
 }) {
+  const { t } = useI18n();
   const c = useColors();
   const progress = book.userStatus.progressPercent ?? 0;
   const isReading = book.userStatus.status === "reading";
@@ -629,7 +653,7 @@ function LibraryRowCard({
   const isDnf = book.userStatus.status === "dnf";
 
   return (
-    <Pressable style={styles.rowCard} onPress={onPress}>
+    <Pressable accessibilityRole="button" style={styles.rowCard} onPress={onPress}>
       {/* Portrait cover */}
       <BookCover book={book} size="sm" style={styles.rowCover} hideProgress />
 
@@ -641,7 +665,7 @@ function LibraryRowCard({
         <Text numberOfLines={1} style={styles.rowAuthor}>{authorName}</Text>
 
         {book.seriesName ? (
-          <Pressable onPress={onOpenSeries}>
+          <Pressable accessibilityRole="button" onPress={onOpenSeries}>
             <Text numberOfLines={1} style={styles.rowSeries}>
               {book.seriesNumber ? `Book ${book.seriesNumber} · ` : ""}{book.seriesName}
             </Text>
@@ -670,14 +694,20 @@ function LibraryRowCard({
 
       {/* Get button — hide if already reading or finished */}
       {!isReading && !isRead && (
-        <Pressable style={styles.rowGetBtn} onPress={onBuy} hitSlop={8}>
+        <Pressable accessibilityRole="button" style={styles.rowGetBtn} onPress={onBuy} hitSlop={8}>
           <Ionicons name="cart-outline" size={13} color={c.teal} />
           <Text style={styles.rowGetText}>Get</Text>
         </Pressable>
       )}
 
       {/* 3-dot menu */}
-      <Pressable style={styles.rowMenuBtn} onPress={onMenu} hitSlop={12}>
+      <Pressable
+        style={styles.rowMenuBtn}
+        onPress={onMenu}
+        hitSlop={12}
+        accessibilityRole="button"
+        accessibilityLabel={t("a11y.moreFor", { title: book.title })}
+      >
         <Ionicons name="ellipsis-vertical" size={18} color={c.muted} />
       </Pressable>
     </Pressable>
@@ -924,12 +954,16 @@ function createStyles(c: AppColors, isDark: boolean) {
     simpleTabTextActive: {
       color: "#0F172A",
     },
-    grid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
+    /** FlatList content padding — mirrors what <Screen scroll> applies itself. */
+    listContent: {
+      paddingBottom: 124,
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.md,
+    },
+    /** One row of the 3-column grid. Replaces the old flexWrap container. */
+    gridRow: {
       justifyContent: "space-between",
-      marginTop: spacing.lg,
-      rowGap: spacing.lg,
+      marginBottom: spacing.lg,
     },
     bookTile: {
       width: "30.5%",
@@ -994,9 +1028,6 @@ function createStyles(c: AppColors, isDark: boolean) {
       fontWeight: "700",
       lineHeight: 15,
       marginTop: 3,
-    },
-    listWrap: {
-      gap: 0,
     },
     rowCard: {
       alignItems: "center",

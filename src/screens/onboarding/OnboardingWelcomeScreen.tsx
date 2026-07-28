@@ -57,7 +57,7 @@ export function OnboardingWelcomeScreen() {
       {/* Bottom */}
       <View style={styles.bottom}>
         <StepDots current={0} />
-        <TouchableOpacity
+        <TouchableOpacity accessibilityRole="button"
           style={styles.cta}
           onPress={() => navigation.navigate("OnboardingName")}
           activeOpacity={0.85}

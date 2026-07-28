@@ -27,6 +27,7 @@ export type RootStackParamList = {
         };
       }
     | undefined;
+  Stats: undefined;
   SeriesTracker: { seriesId: string };
   EditProfile: undefined;
   Settings: undefined;

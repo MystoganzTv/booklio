@@ -89,7 +89,7 @@ export function EditProfileScreen() {
         hint={t("editProfile.favoriteGenresHint")}
       />
 
-      <Pressable style={styles.saveButton} onPress={onSave}>
+      <Pressable accessibilityRole="button" style={styles.saveButton} onPress={onSave}>
         <Text style={styles.saveButtonText}>{t("editProfile.save")}</Text>
       </Pressable>
     </Screen>

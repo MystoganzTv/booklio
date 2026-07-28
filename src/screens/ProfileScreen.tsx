@@ -119,10 +119,20 @@ export function ProfileScreen() {
           </View>
 
           <View style={styles.heroActions}>
-            <Pressable style={styles.editButton} onPress={() => navigation.navigate("EditProfile")}>
+            <Pressable
+              style={styles.editButton}
+              onPress={() => navigation.navigate("EditProfile")}
+              accessibilityRole="button"
+              accessibilityLabel={t("a11y.editProfile")}
+            >
               <Ionicons name="pencil" size={14} color="#FFFFFF" />
             </Pressable>
-            <Pressable style={styles.editButton} onPress={() => navigation.navigate("Settings")}>
+            <Pressable
+              style={styles.editButton}
+              onPress={() => navigation.navigate("Settings")}
+              accessibilityRole="button"
+              accessibilityLabel={t("a11y.openSettings")}
+            >
               <Ionicons name="settings-outline" size={14} color="#FFFFFF" />
             </Pressable>
           </View>
@@ -200,13 +210,13 @@ export function ProfileScreen() {
         </Text>
       </View>
 
-      <Pressable style={styles.statsNavCard} onPress={() => (navigation as any).navigate("Stats")}>
+      <Pressable accessibilityRole="button" style={styles.statsNavCard} onPress={() => navigation.navigate("Stats")}>
         <Ionicons name="stats-chart-outline" size={20} color={c.teal} />
         <Text style={styles.statsNavLabel}>{t("profile.viewStats")}</Text>
         <Ionicons name="chevron-forward" size={16} color={c.muted} style={{ marginLeft: "auto" }} />
       </Pressable>
 
-      <Pressable style={styles.achievementsCard} onPress={() => navigation.navigate("Achievements")}>
+      <Pressable accessibilityRole="button" style={styles.achievementsCard} onPress={() => navigation.navigate("Achievements")}>
         <View style={styles.achievementsCardTop}>
           <View>
             <Text style={styles.achievementsEyebrow}>{t("profile.achievements")}</Text>

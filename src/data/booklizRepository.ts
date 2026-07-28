@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Author, Book, ReadingSession, Review, UserList, UserProfile } from "../types/models";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
+import { fetchWithTimeout } from "../utils/fetchWithTimeout";
 
 export type PersistedBooklizState = {
   authors: Author[];
@@ -28,13 +29,34 @@ export type RepositoryStatus = {
   cloudSignedIn: boolean;
 };
 
+export type SaveOptions = {
+  /**
+   * Write to AsyncStorage only and skip the cloud round trip.
+   *
+   * The local write is cheap and must happen on almost every keystroke so no
+   * work is ever lost. The remote write is a full upsert of six tables and is
+   * driven on a much slower cadence — see the persistence effects in
+   * BooklizContext.
+   */
+  localOnly?: boolean;
+};
+
 export interface BooklizRepository {
   load(): Promise<BooklizSnapshot | null>;
-  save(snapshot: BooklizSnapshot): Promise<void>;
+  save(snapshot: BooklizSnapshot, options?: SaveOptions): Promise<void>;
   getStatus(): RepositoryStatus;
 }
 
-const STORAGE_KEY = "booklio:v2";
+/**
+ * AsyncStorage key for the local library snapshot.
+ *
+ * Still spelled "booklio" (the app's former name) on purpose: renaming it would
+ * orphan every existing install's library. This is the ONE canonical key —
+ * anything that wipes or rewrites the snapshot must import it from here rather
+ * than hardcoding a string, or it will silently write to a key nobody reads.
+ */
+export const LOCAL_SNAPSHOT_KEY = "booklio:v2";
+const STORAGE_KEY = LOCAL_SNAPSHOT_KEY;
 const SNAPSHOT_VERSION = 2;
 
 type RemotePayload = {
@@ -135,7 +157,7 @@ export class LocalFirstBooklizRepository implements BooklizRepository {
     }
   }
 
-  async save(snapshot: BooklizSnapshot) {
+  async save(snapshot: BooklizSnapshot, options: SaveOptions = {}) {
     this.status = { ...this.status, syncState: "saving", lastError: undefined };
 
     try {
@@ -145,12 +167,14 @@ export class LocalFirstBooklizRepository implements BooklizRepository {
       }
       await this.storage.setItem(this.storageKey, JSON.stringify(normalized));
 
-      if (supabase) {
-        const userId = await this.getSupabaseUserId();
-        this.status = { ...this.status, cloudSignedIn: Boolean(userId) };
-        await this.saveSupabase(normalized);
-      } else if (this.remoteBaseUrl) {
-        await this.saveRemote(normalized);
+      if (!options.localOnly) {
+        if (supabase) {
+          const userId = await this.getSupabaseUserId();
+          this.status = { ...this.status, cloudSignedIn: Boolean(userId) };
+          await this.saveSupabase(normalized);
+        } else if (this.remoteBaseUrl) {
+          await this.saveRemote(normalized);
+        }
       }
 
       this.status = {
@@ -176,7 +200,7 @@ export class LocalFirstBooklizRepository implements BooklizRepository {
   private async loadRemote() {
     if (!this.remoteBaseUrl) return null;
 
-    const response = await fetch(`${this.remoteBaseUrl.replace(/\/$/, "")}/booklio/snapshot`, {
+    const response = await fetchWithTimeout(`${this.remoteBaseUrl.replace(/\/$/, "")}/booklio/snapshot`, {
       headers: { Accept: "application/json" }
     });
     if (!response.ok) {
@@ -191,7 +215,7 @@ export class LocalFirstBooklizRepository implements BooklizRepository {
   private async saveRemote(snapshot: BooklizSnapshot) {
     if (!this.remoteBaseUrl) return;
 
-    const response = await fetch(`${this.remoteBaseUrl.replace(/\/$/, "")}/booklio/snapshot`, {
+    const response = await fetchWithTimeout(`${this.remoteBaseUrl.replace(/\/$/, "")}/booklio/snapshot`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",

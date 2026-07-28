@@ -1,7 +1,7 @@
 /**
  * Bookliz release notes.
  *
- * Each entry maps to an app version string (must match app.json `version`).
+ * Each entry maps to the native binary version, with app.json as the Expo fallback.
  * Sections: "new" (blue), "improved" (gold), "fixed" (green).
  */
 

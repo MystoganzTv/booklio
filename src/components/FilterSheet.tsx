@@ -135,7 +135,7 @@ export function FilterSheet({ open, filters, resultCount, onApply, onClose }: Pr
   return (
     <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Pressable accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={onClose} />
         <View style={styles.sheet}>
           <View style={styles.handle} />
           <Text style={styles.sheetTitle}>Filter by</Text>
@@ -148,7 +148,7 @@ export function FilterSheet({ open, filters, resultCount, onApply, onClose }: Pr
               {FORMAT_GROUPS.map((fg) => {
                 const active = localFormats.has(fg.key);
                 return (
-                  <Pressable
+                  <Pressable accessibilityRole="button"
                     key={fg.key}
                     style={[styles.chip, active && styles.chipActive]}
                     onPress={() => toggleFormat(fg.key)}
@@ -172,7 +172,7 @@ export function FilterSheet({ open, filters, resultCount, onApply, onClose }: Pr
               {LANGUAGE_OPTIONS.map((lang) => {
                 const active = localLanguages.has(lang.key);
                 return (
-                  <Pressable
+                  <Pressable accessibilityRole="button"
                     key={lang.key}
                     style={[styles.chip, active && styles.chipActive]}
                     onPress={() => toggleLanguage(lang.key)}
@@ -192,7 +192,7 @@ export function FilterSheet({ open, filters, resultCount, onApply, onClose }: Pr
               {SORT_OPTIONS.map((opt) => {
                 const active = localSort === opt.key;
                 return (
-                  <Pressable
+                  <Pressable accessibilityRole="button"
                     key={opt.key}
                     style={[styles.chip, active && styles.chipActive]}
                     onPress={() => setLocalSort(opt.key)}
@@ -211,10 +211,10 @@ export function FilterSheet({ open, filters, resultCount, onApply, onClose }: Pr
 
           {/* ── Footer ── */}
           <View style={styles.footer}>
-            <Pressable style={styles.clearBtn} onPress={handleClear}>
+            <Pressable accessibilityRole="button" style={styles.clearBtn} onPress={handleClear}>
               <Text style={styles.clearText}>Clear filters</Text>
             </Pressable>
-            <Pressable style={styles.applyBtn} onPress={handleApply}>
+            <Pressable accessibilityRole="button" style={styles.applyBtn} onPress={handleApply}>
               <Text style={styles.applyText}>Show {resultCount} results</Text>
             </Pressable>
           </View>

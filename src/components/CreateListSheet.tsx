@@ -43,7 +43,7 @@ export function CreateListSheet({ open, initialName = "", initialEmoji = "📚",
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={handleClose}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.overlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
+        <Pressable accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={handleClose} />
 
         <View style={styles.sheet}>
           <View style={styles.handle} />
@@ -52,7 +52,7 @@ export function CreateListSheet({ open, initialName = "", initialEmoji = "📚",
           {/* Emoji picker */}
           <View style={styles.emojiRow}>
             {EMOJI_PICKS.map((e) => (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 key={e}
                 style={[styles.emojiChip, emoji === e && styles.emojiChipActive]}
                 onPress={() => setEmoji(e)}
@@ -78,7 +78,7 @@ export function CreateListSheet({ open, initialName = "", initialEmoji = "📚",
             />
           </View>
 
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]}
             onPress={handleSave}
             disabled={!canSave}
@@ -87,7 +87,7 @@ export function CreateListSheet({ open, initialName = "", initialEmoji = "📚",
           </Pressable>
 
           {mode === "rename" && onDelete ? (
-            <Pressable
+            <Pressable accessibilityRole="button"
               style={styles.deleteBtn}
               onPress={() => { Keyboard.dismiss(); onDelete(); }}
             >
@@ -96,7 +96,7 @@ export function CreateListSheet({ open, initialName = "", initialEmoji = "📚",
             </Pressable>
           ) : null}
 
-          <Pressable style={styles.cancelBtn} onPress={handleClose}>
+          <Pressable accessibilityRole="button" style={styles.cancelBtn} onPress={handleClose}>
             <Text style={styles.cancelText}>{t("common.cancel")}</Text>
           </Pressable>
         </View>

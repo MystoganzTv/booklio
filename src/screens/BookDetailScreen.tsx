@@ -148,7 +148,7 @@ export function BookDetailScreen() {
         ].filter(Boolean).join(" & ")}
       </Text>
       {book.seriesName ? (
-        <Pressable
+        <Pressable accessibilityRole="button"
           onPress={() => book.seriesId && navigation.navigate("SeriesTracker", { seriesId: book.seriesId! })}
           style={styles.heroSeriesBtn}
         >
@@ -158,7 +158,7 @@ export function BookDetailScreen() {
           </Text>
         </Pressable>
       ) : null}
-      <Pressable style={styles.heroStatusPill} onPress={() => setStatusSheetOpen(true)}>
+      <Pressable accessibilityRole="button" style={styles.heroStatusPill} onPress={() => setStatusSheetOpen(true)}>
         <View style={[styles.heroStatusDot, {
           backgroundColor:
             book.userStatus.status === "read" ? "#7FB069"
@@ -234,7 +234,7 @@ export function BookDetailScreen() {
 
         {/* ── ACTION ROW ───────────────────────────────────────────────────── */}
         <View style={[styles.actionRow, { zIndex: 2 }]}>
-          <ScalePressable
+          <ScalePressable accessibilityRole="button"
             pressScale={0.97}
             style={[styles.primaryBtn, { backgroundColor: c.teal }]}
             onPress={() => { hapticMedium(); primaryAction.onPress(); }}
@@ -242,12 +242,19 @@ export function BookDetailScreen() {
             <Ionicons name={primaryAction.icon} size={16} color="#fff" />
             <Text style={styles.primaryBtnText}>{primaryAction.label}</Text>
           </ScalePressable>
-          <Pressable style={styles.iconBtn} onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}>
+          <Pressable
+            style={styles.iconBtn}
+            onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}
+            accessibilityRole="button"
+            accessibilityLabel={review ? t("a11y.editReview") : t("a11y.writeReview")}
+          >
             <Ionicons name={review ? "star" : "star-outline"} size={20} color={review ? c.gold : c.ink} />
           </Pressable>
           {/* Timer button */}
           <Pressable
             style={[styles.iconBtn, isRunning && timerBookId === book.id && { backgroundColor: c.coral + "22", borderColor: c.coral }]}
+            accessibilityRole="button"
+            accessibilityLabel={isRunning && timerBookId === book.id ? t("a11y.stopTimer") : t("a11y.startTimer")}
             onPress={() => {
               hapticLight();
               if (isRunning && timerBookId === book.id) {
@@ -265,7 +272,12 @@ export function BookDetailScreen() {
             />
           </Pressable>
           {/* Everything else lives in the "more" sheet — keeps the row breathable */}
-          <Pressable style={styles.iconBtn} onPress={() => setMoreSheetOpen(true)}>
+          <Pressable
+            style={styles.iconBtn}
+            onPress={() => setMoreSheetOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel={t("a11y.more")}
+          >
             <Ionicons name="ellipsis-horizontal" size={20} color={c.ink} />
           </Pressable>
         </View>
@@ -317,7 +329,7 @@ export function BookDetailScreen() {
         {book.synopsis && !isPlaceholderText(book.synopsis) ? (
           <View style={[styles.card, { marginTop: spacing.md }]}>
             <Text style={styles.eyebrow}>{t("bookDetail.synopsis")}</Text>
-            <Pressable onPress={() => setSynopsisExpanded((v) => !v)}>
+            <Pressable accessibilityRole="button" onPress={() => setSynopsisExpanded((v) => !v)}>
               <Text style={styles.synopsisText} numberOfLines={synopsisExpanded ? undefined : 4}>
                 {book.synopsis}
               </Text>
@@ -332,7 +344,7 @@ export function BookDetailScreen() {
               {synopsisFetchFailed ? t("bookDetail.synopsisNotFound") : t("bookDetail.noSynopsis")}
             </Text>
             {!synopsisFetchFailed ? (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 style={styles.findSynopsisBtn}
                 disabled={isFetchingSynopsis}
                 onPress={async () => {
@@ -397,7 +409,7 @@ export function BookDetailScreen() {
         {author ? (
           <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
             <Text style={styles.sectionTitle}>{t("bookDetail.author")}</Text>
-            <Pressable
+            <Pressable accessibilityRole="button"
               style={[styles.authorCard, { marginTop: spacing.sm }]}
               onPress={() => navigation.navigate("AuthorBooks", { authorId: book.authorId, authorName: author.name })}
             >
@@ -417,12 +429,12 @@ export function BookDetailScreen() {
         <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
           <View style={styles.sectionBlockHeader}>
             <Text style={styles.sectionTitle}>{t("bookDetail.yourReview")}</Text>
-            <Pressable onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}>
+            <Pressable accessibilityRole="button" onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}>
               <Text style={styles.sectionAction}>{review ? t("bookDetail.edit") : t("bookDetail.write")}</Text>
             </Pressable>
           </View>
           {review ? (
-            <Pressable style={styles.card} onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}>
+            <Pressable accessibilityRole="button" style={styles.card} onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}>
               <View style={styles.reviewStars}>
                 {[1,2,3,4,5].map((n) => (
                   <Ionicons key={n} name={n <= review.rating ? "star" : "star-outline"} size={16} color={n <= review.rating ? c.gold : c.border} />
@@ -433,7 +445,7 @@ export function BookDetailScreen() {
               {review.body ? <Text style={styles.reviewBody} numberOfLines={4}>{review.body}</Text> : null}
             </Pressable>
           ) : (
-            <Pressable style={styles.reviewEmpty} onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}>
+            <Pressable accessibilityRole="button" style={styles.reviewEmpty} onPress={() => navigation.navigate("WriteReview", { bookId: book.id })}>
               <Ionicons name="create-outline" size={22} color={c.muted} />
               <Text style={styles.reviewEmptyText}>{t("bookDetail.noReviewYet")}</Text>
             </Pressable>
@@ -445,7 +457,7 @@ export function BookDetailScreen() {
           <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
             <View style={styles.sectionBlockHeader}>
               <Text style={styles.sectionTitle}>{t("bookDetail.readingSessions")}</Text>
-              <Pressable onPress={() => navigation.navigate("ReadingLog", { bookId: book.id })}>
+              <Pressable accessibilityRole="button" onPress={() => navigation.navigate("ReadingLog", { bookId: book.id })}>
                 <Text style={styles.sectionAction}>{t("bookDetail.all")}</Text>
               </Pressable>
             </View>
@@ -465,7 +477,7 @@ export function BookDetailScreen() {
           <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
             <View style={styles.sectionBlockHeader}>
               <Text style={styles.sectionTitle}>{t("bookDetail.yourNotes")}</Text>
-              <Pressable onPress={() => navigation.navigate("EditBook", { bookId: book.id })}>
+              <Pressable accessibilityRole="button" onPress={() => navigation.navigate("EditBook", { bookId: book.id })}>
                 <Text style={styles.sectionAction}>{t("bookDetail.edit")}</Text>
               </Pressable>
             </View>
@@ -480,7 +492,7 @@ export function BookDetailScreen() {
           <View style={[styles.sectionBlock, { marginTop: spacing.lg }]}>
             <View style={styles.sectionBlockHeader}>
               <Text style={styles.sectionTitle}>{t("bookDetail.favouriteQuotes")}</Text>
-              <Pressable onPress={() => navigation.navigate("EditBook", { bookId: book.id })}>
+              <Pressable accessibilityRole="button" onPress={() => navigation.navigate("EditBook", { bookId: book.id })}>
                 <Text style={styles.sectionAction}>{t("bookDetail.edit")}</Text>
               </Pressable>
             </View>
@@ -556,8 +568,8 @@ export function BookDetailScreen() {
         animationType="slide"
         onRequestClose={() => setMoreSheetOpen(false)}
       >
-        <Pressable style={styles.moreOverlay} onPress={() => setMoreSheetOpen(false)}>
-          <Pressable style={styles.moreSheet} onPress={(e) => e.stopPropagation()}>
+        <Pressable accessibilityRole="button" style={styles.moreOverlay} onPress={() => setMoreSheetOpen(false)}>
+          <Pressable accessibilityRole="button" style={styles.moreSheet} onPress={(e) => e.stopPropagation()}>
             <View style={styles.moreHandle} />
             {hasSessions ? (
               <MoreAction icon="time-outline" label={t("bookDetail.moreReadingLog")} styles={styles} c={c}
@@ -576,7 +588,7 @@ export function BookDetailScreen() {
             <MoreAction icon="create-outline" label={t("bookDetail.moreEditBook")} styles={styles} c={c}
               onPress={() => { setMoreSheetOpen(false); navigation.navigate("EditBook", { bookId: book.id }); }} />
             <View style={styles.moreDivider} />
-            <Pressable
+            <Pressable accessibilityRole="button"
               style={styles.moreRow}
               onPress={() => {
                 setMoreSheetOpen(false);
@@ -610,7 +622,7 @@ function MoreAction({ icon, label, onPress, styles, c }: {
   c: AppColors;
 }) {
   return (
-    <Pressable style={styles.moreRow} onPress={onPress}>
+    <Pressable accessibilityRole="button" style={styles.moreRow} onPress={onPress}>
       <Ionicons name={icon} size={20} color={c.ink} />
       <Text style={styles.moreRowText}>{label}</Text>
       <Ionicons name="chevron-forward" size={15} color={c.muted} />

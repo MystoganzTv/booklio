@@ -23,6 +23,7 @@ import { useColors, useTheme } from "../../theme/ThemeContext";
 import { BookEditionOption } from "../../utils/bookMetadata";
 import { ScalePressable } from "../../components/ScalePressable";
 import { createStyles } from "./styles";
+import { useI18n } from "../../i18n/LocalizationContext";
 
 export type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -77,7 +78,7 @@ export function IntakePath({ title, description, icon, accent, onPress }: Intake
   const { isDark } = useTheme();
   const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   return (
-    <Pressable style={styles.pathCard} onPress={onPress}>
+    <Pressable accessibilityRole="button" style={styles.pathCard} onPress={onPress}>
       <View style={[styles.pathIcon, { backgroundColor: accent, borderColor: isDark && accent === c.surface ? c.border : "transparent", borderWidth: isDark && accent === c.surface ? 1 : 0 }]}>
         <Ionicons color={isDark && accent === c.surface ? c.ink : "#FFFFFF"} name={icon} size={24} />
       </View>
@@ -154,13 +155,13 @@ export function CompactLanguageModal({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles_modal.backdrop} onPress={onClose} />
+      <Pressable accessibilityRole="button" style={styles_modal.backdrop} onPress={onClose} />
       <View style={[styles_modal.sheet, { backgroundColor: isDark ? "#1E293B" : "#FFFFFF" }]}>
         <View style={styles_modal.handle} />
         <Text style={[styles_modal.title, { color: isDark ? "#F1F5F9" : "#0F172A" }]}>Language</Text>
         <ScrollView style={styles_modal.list} showsVerticalScrollIndicator={false}>
           {prioritized.map((lang) => (
-            <Pressable
+            <Pressable accessibilityRole="button"
               key={lang}
               style={[styles_modal.row, selected === lang && styles_modal.rowActive]}
               onPress={() => onSelect(lang)}
@@ -173,7 +174,7 @@ export function CompactLanguageModal({
           ))}
           <View style={styles_modal.divider} />
           {MODAL_LANGUAGES.filter((l) => !prioritized.includes(l)).map((lang) => (
-            <Pressable
+            <Pressable accessibilityRole="button"
               key={lang}
               style={[styles_modal.row, selected === lang && styles_modal.rowActive]}
               onPress={() => onSelect(lang)}
@@ -246,7 +247,7 @@ export function EditionPickerModal({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles_modal.backdrop} onPress={onClose} />
+      <Pressable accessibilityRole="button" style={styles_modal.backdrop} onPress={onClose} />
       <View style={[styles_modal.sheet, { backgroundColor: isDark ? "#1E293B" : "#FFFFFF" }]}>
         <View style={styles_modal.handle} />
         <Text style={[styles_modal.title, { color: isDark ? "#F1F5F9" : "#0F172A" }]}>Choose edition</Text>
@@ -263,7 +264,7 @@ export function EditionPickerModal({
             {options.map((option) => {
               const active = isSelected(option);
               return (
-                <Pressable
+                <Pressable accessibilityRole="button"
                   key={option.id}
                   style={[styles_modal.row, active && styles_modal.rowActive]}
                   onPress={() => onSelect(option)}
@@ -336,7 +337,7 @@ export function MatchGridCard({ match, onSelect }: { match: BookMatch; onSelect:
   const year = match.publishedDate ? match.publishedDate.slice(0, 4) : null;
 
   return (
-    <ScalePressable style={styles.matchGridCard} onPress={onSelect} pressScale={0.95}>
+    <ScalePressable accessibilityRole="button" style={styles.matchGridCard} onPress={onSelect} pressScale={0.95}>
       <View style={styles.matchGridCoverWrap}>
         {match.coverUrl ? (
           <Image source={{ uri: match.coverUrl }} style={styles.matchGridCover} resizeMode="cover" />
@@ -371,7 +372,7 @@ export function Choice({
   const { isDark } = useTheme();
   const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   return (
-    <Pressable style={[styles.choice, active && styles.choiceActive]} onPress={onPress}>
+    <Pressable accessibilityRole="button" style={[styles.choice, active && styles.choiceActive]} onPress={onPress}>
       <Ionicons name={icon} size={16} color={active ? c.ink : c.muted} />
       <Text style={[styles.choiceText, active && styles.choiceTextActive]}>{label}</Text>
     </Pressable>
@@ -390,13 +391,14 @@ export function MatchCard({
   isPrimary?: boolean;
   hideConfidence?: boolean;
 }) {
+  const { t } = useI18n();
   const c = useColors();
   const { isDark } = useTheme();
   const styles = useMemo(() => createStyles(c, isDark), [c, isDark]);
   const year = match.publishedDate ? match.publishedDate.slice(0, 4) : null;
 
   return (
-    <Pressable style={styles.matchCard} onPress={onSelect}>
+    <Pressable accessibilityRole="button" style={styles.matchCard} onPress={onSelect}>
       {/* Cover */}
       <View style={styles.matchCoverWrap}>
         {match.coverUrl ? (
@@ -439,7 +441,13 @@ export function MatchCard({
       </View>
 
       {/* Add button */}
-      <Pressable style={styles.matchAddBtn} onPress={onSelect} hitSlop={8}>
+      <Pressable
+        style={styles.matchAddBtn}
+        onPress={onSelect}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={t("a11y.addBookToList", { title: match.title })}
+      >
         <View style={styles.matchAddCircle}>
           <Ionicons name="add" size={18} color="#fff" />
         </View>

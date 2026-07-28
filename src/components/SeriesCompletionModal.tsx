@@ -97,7 +97,7 @@ export function SeriesCompletionModal() {
     <Modal transparent animationType="none" visible={visible} onRequestClose={dismiss}>
       {/* Backdrop */}
       <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={dismiss} />
+        <Pressable accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={dismiss} />
       </Animated.View>
 
       {/* Sheet */}
@@ -137,7 +137,7 @@ export function SeriesCompletionModal() {
 
         {/* CTA */}
         <View style={styles.footer}>
-          <Pressable style={styles.ctaButton} onPress={dismiss}>
+          <Pressable accessibilityRole="button" style={styles.ctaButton} onPress={dismiss}>
             <Ionicons name="trophy-outline" size={16} color="#FFFFFF" />
             <Text style={styles.ctaText}>{t("seriesCompletion.cta")}</Text>
           </Pressable>

@@ -50,7 +50,7 @@ export function ReadingLogScreen() {
           <Text style={styles.eyebrow}>{t("readingLog.eyebrow")}</Text>
           <Text style={styles.title}>{book ? book.title : t("readingLog.allSessions")}</Text>
         </View>
-        <Pressable
+        <Pressable accessibilityRole="button"
           style={styles.logButton}
           onPress={() => navigation.navigate("AddReadingSession", { bookId })}
         >
@@ -102,7 +102,7 @@ export function ReadingLogScreen() {
       {sessions.length === 0 ? (
         <View style={styles.emptyCard}>
           <Text style={styles.emptyText}>{t("readingLog.emptyText")}</Text>
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={styles.emptyButton}
             onPress={() => navigation.navigate("AddReadingSession", { bookId })}
           >

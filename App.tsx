@@ -15,6 +15,7 @@ import { AppNavigator } from "./src/navigation/AppNavigator";
 import { LocalizationProvider } from "./src/i18n/LocalizationContext";
 import { DialogProvider } from "./src/components/DialogProvider";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { ErrorBoundary } from "./src/components/ErrorBoundary";
 
 function Root() {
   const { isDark } = useTheme();
@@ -39,18 +40,20 @@ export default function App() {
   if (!fontsLoaded) return null;
 
   return (
-    <SafeAreaProvider>
-      <LocalizationProvider>
-        <ThemeProvider>
-          <DialogProvider>
-            <BooklizProvider>
-              <ReadingTimerProvider>
-                <Root />
-              </ReadingTimerProvider>
-            </BooklizProvider>
-          </DialogProvider>
-        </ThemeProvider>
-      </LocalizationProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <LocalizationProvider>
+          <ThemeProvider>
+            <DialogProvider>
+              <BooklizProvider>
+                <ReadingTimerProvider>
+                  <Root />
+                </ReadingTimerProvider>
+              </BooklizProvider>
+            </DialogProvider>
+          </ThemeProvider>
+        </LocalizationProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }

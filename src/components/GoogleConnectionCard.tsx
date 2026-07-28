@@ -24,6 +24,7 @@ import { AppColors, fonts, radii, shadows, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
 import { buildAppleDisplayName, getGoogleAuthConfig } from "../utils/googleAuth";
 import { IS_EXPO_GO, DEV_MOCK_USER } from "../utils/devUtils";
+import { fetchWithTimeout } from "../utils/fetchWithTimeout";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -81,7 +82,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
 
       setActiveProvider("google");
       try {
-        const userInfo = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+        const userInfo = await fetchWithTimeout("https://www.googleapis.com/oauth2/v3/userinfo", {
           headers: {
             Authorization: `Bearer ${accessToken}`
           }
@@ -338,13 +339,13 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
               <Text style={styles.providerMeta}>{providerSupportCopy}</Text>
             </View>
           </View>
-          <Pressable style={styles.disconnectButton} onPress={() => void handleDisconnect()}>
+          <Pressable accessibilityRole="button" style={styles.disconnectButton} onPress={() => void handleDisconnect()}>
             <Text style={styles.disconnectButtonText}>{t("auth.disconnect")}</Text>
           </Pressable>
         </View>
       ) : (
         <View style={styles.optionsWrap}>
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={[styles.connectButton, isGoogleDisabled && styles.connectButtonDisabled]}
             disabled={isGoogleDisabled}
             onPress={() => {
@@ -379,7 +380,7 @@ export function GoogleConnectionCard({ variant = "settings" }: GoogleConnectionC
           )}
 
           {IS_EXPO_GO ? (
-            <Pressable
+            <Pressable accessibilityRole="button"
               style={styles.devMockButton}
               onPress={() => { void handleDevMockLogin(); }}
               disabled={isGoogleBusy}

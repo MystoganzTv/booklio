@@ -346,10 +346,6 @@ export function BookIntakeScreen() {
     setScanFeedback(null); // clear scanner badge when moving to results
     setIsBusy(true);
 
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("timeout")), 15_000)
-    );
-
     // "Angels and Demons by Dan Brown" → title + author. Only applied when the
     // author side looks like a real name (2-4 words) to avoid titles like
     // "Stand by Me" being split incorrectly.
@@ -365,7 +361,7 @@ export function BookIntakeScreen() {
     }
 
     try {
-      const result = await Promise.race([
+      const result = await (
         type === "isbn"
           ? aggregatorLookupByIsbn(query)
           : aggregatorLookupByQuery(
@@ -373,9 +369,8 @@ export function BookIntakeScreen() {
               queryAuthor,
               queryAuthor ? "title" :
               forcedIntent === "author" ? "author" : forcedIntent === "series" ? "title" : "auto"
-            ),
-        timeout
-      ]);
+            )
+      );
       if (seq !== searchSeqRef.current) return; // a newer search superseded this one
       // One match card per unique BookWork (different books), using each
       // work's own author, title, and best edition — not flatEditions which
@@ -737,7 +732,7 @@ export function BookIntakeScreen() {
       <Screen>
       {dialogNode}
       {/* Back to results */}
-      <Pressable
+      <Pressable accessibilityRole="button"
         style={styles.reviewBackBtn}
         onPress={() => setMode("matches")}
         hitSlop={8}
@@ -785,7 +780,7 @@ export function BookIntakeScreen() {
         </View>
       </View>
 
-        <Pressable
+        <Pressable accessibilityRole="button"
           style={[styles.fetchMetaButton, isRefreshingMetadata && styles.fetchMetaButtonBusy]}
           onPress={refreshReviewMetadata}
           disabled={isRefreshingMetadata}
@@ -800,7 +795,7 @@ export function BookIntakeScreen() {
         </Pressable>
 
         {/* ── Edit details (collapsed by default) ─────────────────────── */}
-        <Pressable style={styles.editDetailsToggle} onPress={() => setShowEditDetails((v) => !v)}>
+        <Pressable accessibilityRole="button" style={styles.editDetailsToggle} onPress={() => setShowEditDetails((v) => !v)}>
           <Ionicons name={showEditDetails ? "chevron-up-outline" : "create-outline"} size={15} color={c.teal} />
           <Text style={styles.editDetailsToggleText}>{showEditDetails ? t("review.hideDetails") : t("review.editDetails")}</Text>
         </Pressable>
@@ -827,14 +822,14 @@ export function BookIntakeScreen() {
 
         {/* ── Language & Edition — compact selectors ───────────────────── */}
         <View style={styles.compactSelectorRow}>
-          <Pressable style={[styles.languageCompactBtn, styles.compactSelectorFlex]} onPress={() => setShowLanguageModal(true)}>
+          <Pressable accessibilityRole="button" style={[styles.languageCompactBtn, styles.compactSelectorFlex]} onPress={() => setShowLanguageModal(true)}>
             <Ionicons name="language-outline" size={15} color={c.muted} />
             <Text style={styles.languageCompactText} numberOfLines={1}>{reviewBook.language ?? "English"}</Text>
             <Ionicons name="chevron-down-outline" size={13} color={c.muted} />
           </Pressable>
 
           {reviewBook.workKey ? (
-            <Pressable style={[styles.languageCompactBtn, styles.compactSelectorFlex]} onPress={openEditionPicker}>
+            <Pressable accessibilityRole="button" style={[styles.languageCompactBtn, styles.compactSelectorFlex]} onPress={openEditionPicker}>
               <Ionicons name="layers-outline" size={15} color={c.muted} />
               <Text style={styles.languageCompactText} numberOfLines={1}>
                 {[reviewBook.publisher, reviewBook.publishedDate?.slice(0, 4)].filter(Boolean).join(" · ") || "Choose edition"}
@@ -880,7 +875,7 @@ export function BookIntakeScreen() {
         </View>
 
         <View style={styles.reviewActions}>
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={[styles.primaryReviewButton, isSubmittingReview && styles.primaryReviewButtonBusy]}
             onPress={confirmReviewBook}
             disabled={isSubmittingReview}
@@ -893,14 +888,14 @@ export function BookIntakeScreen() {
             <Text style={styles.primaryReviewButtonText}>{isSubmittingReview ? t("review.saving") : t("review.addToLibrary")}</Text>
           </Pressable>
           {/* Discard — clear outlined button */}
-          <Pressable style={styles.discardBtn} onPress={() => setMode("menu")}>
+          <Pressable accessibilityRole="button" style={styles.discardBtn} onPress={() => setMode("menu")}>
             <Ionicons name="trash-outline" size={15} color={c.danger} />
             <Text style={styles.discardBtnText}>{t("review.discard")}</Text>
           </Pressable>
 
           {/* Scan again — small text link, ISBN source only */}
           {reviewBook?.source === "isbn" ? (
-            <Pressable style={styles.reviewSecondaryLink} onPress={() => { setScanned(false); setMode("isbn"); }}>
+            <Pressable accessibilityRole="button" style={styles.reviewSecondaryLink} onPress={() => { setScanned(false); setMode("isbn"); }}>
               <Ionicons name="barcode-outline" size={13} color={c.muted} />
               <Text style={styles.reviewSecondaryLinkText}>{t("review.scanDifferent")}</Text>
             </Pressable>
@@ -979,7 +974,7 @@ export function BookIntakeScreen() {
       <Screen>
         {dialogNode}
         {!launchedFromDiscover ? (
-          <Pressable style={styles.backButton} onPress={() => {
+          <Pressable accessibilityRole="button" style={styles.backButton} onPress={() => {
             if (matchReturnMode === "isbn") setScanned(false);
             setMode(matchReturnMode);
           }}>
@@ -1018,6 +1013,8 @@ export function BookIntakeScreen() {
                   }
                 }}
                 style={styles.inlineSearchBtn}
+                accessibilityRole="button"
+                accessibilityLabel={t("a11y.search")}
               >
                 <Ionicons name="search" size={16} color="#fff" />
               </Pressable>
@@ -1027,7 +1024,7 @@ export function BookIntakeScreen() {
 
         {/* Scan again shortcut — only when result came from ISBN scanner */}
         {matchReturnMode === "isbn" && !isBusy && matches.length > 0 ? (
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={styles.scanAgainBtn}
             onPress={() => { setScanned(false); setMode("isbn"); }}
           >
@@ -1065,7 +1062,7 @@ export function BookIntakeScreen() {
                 ? t("search.noResultsFor", { query: matchLookupLabel })
                 : t("search.noResultsHint")}
             </Text>
-            <Pressable
+            <Pressable accessibilityRole="button"
               style={[styles.primaryButton, { alignSelf: "stretch", marginTop: spacing.sm }]}
               onPress={() => {
                 setMatches([]);
@@ -1081,7 +1078,7 @@ export function BookIntakeScreen() {
             >
               <Text style={styles.primaryButtonText}>{t("search.searchAgain")}</Text>
             </Pressable>
-            <Pressable style={[styles.ghostButton, { alignSelf: "stretch" }]} onPress={() => setMode("manual")}>
+            <Pressable accessibilityRole="button" style={[styles.ghostButton, { alignSelf: "stretch" }]} onPress={() => setMode("manual")}>
               <Text style={styles.ghostButtonText}>{t("search.addManually")}</Text>
             </Pressable>
           </View>
@@ -1099,6 +1096,8 @@ export function BookIntakeScreen() {
                   style={styles.viewToggleBtn}
                   onPress={() => setMatchViewMode((v) => (v === "list" ? "grid" : "list"))}
                   hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("a11y.toggleView")}
                 >
                   <Ionicons
                     name={matchViewMode === "list" ? "grid-outline" : "reorder-three-outline"}
@@ -1106,7 +1105,7 @@ export function BookIntakeScreen() {
                     color={c.tealDark}
                   />
                 </Pressable>
-                <Pressable style={styles.sortButton} onPress={() => setShowSortSheet(true)}>
+                <Pressable accessibilityRole="button" style={styles.sortButton} onPress={() => setShowSortSheet(true)}>
                   <Ionicons name="funnel-outline" size={14} color={c.tealDark} />
                   <Text style={styles.sortButtonText}>
                     {sortOrder === "relevance" ? t("search.sortBestMatch") :
@@ -1120,7 +1119,7 @@ export function BookIntakeScreen() {
 
             {/* Author page shortcut — only when the query truly matches the author */}
             {confirmedAuthorName ? (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 style={styles.authorPageCard}
                 onPress={() => navigation.navigate("AuthorBooks", { authorName: confirmedAuthorName })}
               >
@@ -1170,7 +1169,7 @@ export function BookIntakeScreen() {
               </>
             )}
 
-            <Pressable style={styles.editManuallyBtn} onPress={() => setMode("manual")}>
+            <Pressable accessibilityRole="button" style={styles.editManuallyBtn} onPress={() => setMode("manual")}>
               <Ionicons name="create-outline" size={15} color={c.muted} />
               <Text style={styles.editManuallyText}>{t("search.editManually")}</Text>
             </Pressable>
@@ -1184,12 +1183,12 @@ export function BookIntakeScreen() {
           animationType="slide"
           onRequestClose={() => setShowSortSheet(false)}
         >
-          <Pressable style={styles.sortSheetOverlay} onPress={() => setShowSortSheet(false)}>
-            <Pressable style={styles.sortSheet} onPress={(e) => e.stopPropagation()}>
+          <Pressable accessibilityRole="button" style={styles.sortSheetOverlay} onPress={() => setShowSortSheet(false)}>
+            <Pressable accessibilityRole="button" style={styles.sortSheet} onPress={(e) => e.stopPropagation()}>
               <View style={styles.sortSheetHandle} />
               <Text style={styles.sortSheetTitle}>Sort by</Text>
               {(["relevance", "popular", "rating", "year_desc", "year_asc"] as const).map((option) => (
-                <Pressable
+                <Pressable accessibilityRole="button"
                   key={option}
                   style={[styles.sortOption, sortOrder === option && styles.sortOptionActive]}
                   onPress={() => { setSortOrder(option); setShowSortSheet(false); }}
@@ -1224,7 +1223,7 @@ export function BookIntakeScreen() {
         >
           <Screen>
             {dialogNode}
-            <Pressable style={styles.backButton} onPress={() => setIsbnInputMode("camera")}>
+            <Pressable accessibilityRole="button" style={styles.backButton} onPress={() => setIsbnInputMode("camera")}>
               <Ionicons name="chevron-back" size={20} color={c.tealDark} />
               <Text style={styles.backButtonText}>Scanner</Text>
             </Pressable>
@@ -1260,7 +1259,7 @@ export function BookIntakeScreen() {
                 ✓ Valid ISBN length
               </Text>
             ) : null}
-            <Pressable
+            <Pressable accessibilityRole="button"
               style={[styles.primaryButton, { marginTop: spacing.sm }]}
               onPress={() => { if (manual.isbn.length === 10 || manual.isbn.length === 13) void lookupAndShowMatches(manual.isbn, "isbn", "isbn"); }}
               disabled={isBusy || (manual.isbn.length !== 10 && manual.isbn.length !== 13)}
@@ -1281,7 +1280,7 @@ export function BookIntakeScreen() {
         {dialogNode}
 
         {/* Back button overlay */}
-        <Pressable
+        <Pressable accessibilityRole="button"
           style={styles.scannerBackBtn}
           onPress={() => { setScanned(false); setMode("menu"); }}
         >
@@ -1293,7 +1292,7 @@ export function BookIntakeScreen() {
           <View style={[styles.permissionCard, { margin: spacing.md, marginTop: 80 }]}>
             <Text style={styles.cardTitle}>Camera access needed</Text>
             <Text style={styles.cardCopy}>Allow camera access to scan ISBN barcodes.</Text>
-            <Pressable style={styles.primaryButton} onPress={requestPermission}>
+            <Pressable accessibilityRole="button" style={styles.primaryButton} onPress={requestPermission}>
               <Text style={styles.primaryButtonText}>Allow camera</Text>
             </Pressable>
           </View>
@@ -1353,7 +1352,12 @@ export function BookIntakeScreen() {
         {/* Controls: torch + zoom + manual */}
         {permission?.granted && (
           <View style={styles.scanControls}>
-            <Pressable style={styles.scanControlBtn} onPress={() => setTorchOn((v) => !v)}>
+            <Pressable
+              style={styles.scanControlBtn}
+              onPress={() => setTorchOn((v) => !v)}
+              accessibilityRole="button"
+              accessibilityLabel={torchOn ? t("a11y.torchOff") : t("a11y.torchOn")}
+            >
               <Ionicons
                 name={torchOn ? "flashlight" : "flashlight-outline"}
                 size={22}
@@ -1362,7 +1366,7 @@ export function BookIntakeScreen() {
             </Pressable>
             <View style={styles.zoomRow}>
               {([0, 0.05, 0.12] as const).map((z, i) => (
-                <Pressable
+                <Pressable accessibilityRole="button"
                   key={z}
                   style={[styles.zoomBtn, scanZoom === z && styles.zoomBtnActive]}
                   onPress={() => setScanZoom(z)}
@@ -1373,7 +1377,12 @@ export function BookIntakeScreen() {
                 </Pressable>
               ))}
             </View>
-            <Pressable style={styles.scanControlBtn} onPress={() => setIsbnInputMode("manual")}>
+            <Pressable
+              style={styles.scanControlBtn}
+              onPress={() => setIsbnInputMode("manual")}
+              accessibilityRole="button"
+              accessibilityLabel={t("a11y.enterIsbnManually")}
+            >
               <Ionicons name="keypad-outline" size={22} color="#FFFFFF" />
             </Pressable>
           </View>
@@ -1386,7 +1395,7 @@ export function BookIntakeScreen() {
     return (
       <Screen>
         {dialogNode}
-        <Pressable style={styles.backButton} onPress={() => setMode("menu")}>
+        <Pressable accessibilityRole="button" style={styles.backButton} onPress={() => setMode("menu")}>
           <Ionicons name="chevron-back" size={20} color={c.tealDark} />
           <Text style={styles.backButtonText}>Add book</Text>
         </Pressable>
@@ -1402,7 +1411,7 @@ export function BookIntakeScreen() {
         <Field label="Publisher" value={manual.publisher} onChangeText={(v) => setManual((c) => ({ ...c, publisher: v }))} />
         <Field label="ISBN (optional)" value={manual.isbn} onChangeText={(v) => setManual((c) => ({ ...c, isbn: v }))} />
 
-        <Pressable style={styles.saveButton} onPress={saveManual}>
+        <Pressable accessibilityRole="button" style={styles.saveButton} onPress={saveManual}>
           <Text style={styles.saveButtonText}>Review book</Text>
         </Pressable>
       </Screen>
@@ -1415,7 +1424,7 @@ export function BookIntakeScreen() {
       <Screen>
         {dialogNode}
         {!launchedFromDiscover ? (
-          <Pressable style={styles.backButton} onPress={() => setMode("menu")}>
+          <Pressable accessibilityRole="button" style={styles.backButton} onPress={() => setMode("menu")}>
             <Ionicons name="chevron-back" size={20} color={c.tealDark} />
             <Text style={styles.backButtonText}>Add book</Text>
           </Pressable>
@@ -1440,7 +1449,13 @@ export function BookIntakeScreen() {
             onSubmitEditing={runSearch}
             returnKeyType="search"
           />
-          <Pressable style={[styles.searchBtn, isBusy && { opacity: 0.6 }]} onPress={runSearch} disabled={isBusy}>
+          <Pressable
+            style={[styles.searchBtn, isBusy && { opacity: 0.6 }]}
+            onPress={runSearch}
+            disabled={isBusy}
+            accessibilityRole="button"
+            accessibilityLabel={isBusy ? t("a11y.searching") : t("a11y.search")}
+          >
             <Ionicons name={isBusy ? "hourglass-outline" : "search"} size={18} color="#FFFFFF" />
           </Pressable>
         </View>
@@ -1536,8 +1551,6 @@ export function BookIntakeScreen() {
     </Screen>
   );
 }
-
-
 
 
 

@@ -14,7 +14,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Network from "expo-network";
 
-const QUEUE_KEY = "@bookliz/offlineQueue";
+export const OFFLINE_QUEUE_KEY = "@bookliz/offlineQueue";
+const QUEUE_KEY = OFFLINE_QUEUE_KEY;
 const MAX_RETRIES = 5;
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 

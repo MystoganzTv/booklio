@@ -19,12 +19,19 @@ import { AppColors, fonts, radii, spacing } from "../theme/theme";
 type RouteP = RouteProp<RootStackParamList, "WriteReview">;
 
 function StarRow({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const { t } = useI18n();
   const c = useColors();
   const stars = useMemo(() => createStars(), []);
   return (
     <View style={stars.row}>
       {[1, 2, 3, 4, 5].map((n) => (
-        <Pressable key={n} onPress={() => onChange(n)} hitSlop={8}>
+        <Pressable
+          key={n}
+          onPress={() => onChange(n)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t("a11y.rateStars", { count: n })}
+        >
           <Ionicons
             name={n <= value ? "star" : "star-outline"}
             size={36}
@@ -94,12 +101,17 @@ export function WriteReviewScreen() {
       headerRight={
         <View style={styles.headerActions}>
           {canSave ? (
-            <Pressable style={styles.headerSaveButton} onPress={handleSave} hitSlop={8}>
+            <Pressable accessibilityRole="button" style={styles.headerSaveButton} onPress={handleSave} hitSlop={8}>
               <Text style={styles.headerSaveButtonText}>{existing ? t("writeReview.update") : t("writeReview.save")}</Text>
             </Pressable>
           ) : null}
           {existing ? (
-            <Pressable onPress={handleDelete} hitSlop={12}>
+            <Pressable
+              onPress={handleDelete}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel={t("a11y.deleteReview")}
+            >
               <Ionicons name="trash-outline" size={20} color={c.danger} />
             </Pressable>
           ) : undefined}
@@ -149,7 +161,7 @@ export function WriteReviewScreen() {
         <Text style={styles.charCount}>{body.length} / 2000</Text>
       </View>
 
-      <Pressable
+      <Pressable accessibilityRole="button"
         style={[styles.saveButton, !canSave && styles.saveButtonDisabled]}
         onPress={handleSave}
         disabled={!canSave}

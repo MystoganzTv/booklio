@@ -409,7 +409,7 @@ export function DiscoverScreen() {
   return (
     <Screen>
       {/* ── Unified search entry ───────────────────────────────────────────── */}
-      <Pressable style={styles.searchRow} onPress={() => openUnifiedSearch()}>
+      <Pressable accessibilityRole="button" style={styles.searchRow} onPress={() => openUnifiedSearch()}>
         <Ionicons name="search-outline" size={18} color={c.muted} style={styles.searchIcon} />
         <Text style={[styles.searchPlaceholder, { color: c.muted }]}>
           {t("discover.searchPlaceholder")}
@@ -444,7 +444,7 @@ export function DiscoverScreen() {
                   <Text style={styles.personalizedTitle}>{t(section.titleKey, section.params)}</Text>
                   <Text style={styles.personalizedSubtitle}>{t(section.subtitleKey, section.params)}</Text>
                 </View>
-                <Pressable onPress={() => goToCatalog(
+                <Pressable accessibilityRole="button" onPress={() => goToCatalog(
                   section.query,
                   t(section.titleKey, section.params)
                 )}>
@@ -499,7 +499,7 @@ export function DiscoverScreen() {
       </View>
       <View style={styles.moodGrid}>
         {MOODS.map((mood) => (
-          <ScalePressable
+          <ScalePressable accessibilityRole="button"
             key={mood.id}
             style={styles.moodCard}
             onPress={() => goToCatalog(mood.catalogQuery, mood.label)}
@@ -523,7 +523,7 @@ export function DiscoverScreen() {
       </View>
       <View style={styles.genreGrid}>
         {CATALOG_GENRES.map((g) => (
-          <ScalePressable
+          <ScalePressable accessibilityRole="button"
             key={g.label}
             style={styles.genreCard}
             onPress={() => goToGenre(g)}
@@ -638,7 +638,7 @@ export function DiscoverScreen() {
         contentContainerStyle={styles.chipsContent}
       >
         {POPULAR_SEARCHES.map((s) => (
-          <Pressable
+          <Pressable accessibilityRole="button"
             key={s.label}
             style={[styles.chip, { borderColor: c.border, backgroundColor: c.surface }]}
             onPress={() => goToCatalog(s.query, s.label)}
@@ -662,8 +662,15 @@ function TrendingTile({
   coverStyle: StyleProp<ImageStyle>;
   onPress: (book: GenreBookResult) => void;
 }) {
+  const { t } = useI18n();
   return (
-    <ScalePressable style={style} onPress={() => onPress(book)} pressScale={0.94}>
+    <ScalePressable
+      style={style}
+      onPress={() => onPress(book)}
+      pressScale={0.94}
+      accessibilityRole="button"
+      accessibilityLabel={t("a11y.openBook", { title: book.title })}
+    >
       {book.coverUrl ? (
         <Image
           source={{ uri: book.coverUrl }}

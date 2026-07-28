@@ -1,4 +1,5 @@
 import { NewBookInput } from "../types/models";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 import { openLibraryUrl } from "./openLibrary";
 
 export type SearchMode = "general" | "author";
@@ -290,7 +291,7 @@ export const canFetchMetadata = (input: { isbn?: string; title?: string; authorN
 async function fetchAuthorName(authorKey?: string) {
   if (!authorKey) return undefined;
   try {
-    const response = await fetch(openLibraryUrl(`${authorKey}.json`));
+    const response = await fetchWithTimeout(openLibraryUrl(`${authorKey}.json`));
     if (!response.ok) return undefined;
     const data = (await response.json()) as { name?: string };
     return data.name;
@@ -302,7 +303,7 @@ async function fetchAuthorName(authorKey?: string) {
 async function fetchWorkMetadata(workKey?: string): Promise<BookMetadata | undefined> {
   if (!workKey) return undefined;
   try {
-    const response = await fetch(openLibraryUrl(`${workKey}.json`));
+    const response = await fetchWithTimeout(openLibraryUrl(`${workKey}.json`));
     if (!response.ok) return undefined;
     const data = (await response.json()) as OpenLibraryWorkResponse;
     const signals = detectEditorialSignals([
@@ -366,7 +367,7 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<BookMetadat
   if (cleanIsbn.length < 10) return undefined;
 
   try {
-    const response = await fetch(openLibraryUrl(`/isbn/${cleanIsbn}.json`));
+    const response = await fetchWithTimeout(openLibraryUrl(`/isbn/${cleanIsbn}.json`));
     if (!response.ok) return undefined;
     const data = (await response.json()) as OpenLibraryIsbnResponse;
     return await mapEditionRecordToMetadata(data, cleanIsbn);
@@ -378,7 +379,7 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<BookMetadat
 export async function fetchBookMetadataByEditionKey(editionKey?: string): Promise<BookMetadata | undefined> {
   if (!editionKey) return undefined;
   try {
-    const response = await fetch(openLibraryUrl(`${editionKey}.json`));
+    const response = await fetchWithTimeout(openLibraryUrl(`${editionKey}.json`));
     if (!response.ok) return undefined;
     const data = (await response.json()) as OpenLibraryIsbnResponse;
     return await mapEditionRecordToMetadata(data);
@@ -398,7 +399,9 @@ export async function searchBookMetadata(
     ? `author=${encodeURIComponent(query)}`
     : `q=${encodeURIComponent(query)}`;
 
-  const response = await fetch(openLibraryUrl(`/search.json?${param}&limit=${limit}&offset=${offset}&fields=${fields}`));
+  const response = await fetchWithTimeout(
+    openLibraryUrl(`/search.json?${param}&limit=${limit}&offset=${offset}&fields=${fields}`)
+  );
   if (!response.ok) return { results: [], total: 0 };
 
   const data = (await response.json()) as OpenLibrarySearchResponse;
@@ -450,7 +453,9 @@ export async function fetchBookMetadataByTitleAuthor(title: string, authorName =
 export async function fetchEditionOptionsByWorkKey(workKey?: string, limit = 6): Promise<BookEditionOption[]> {
   if (!workKey) return [];
   try {
-    const response = await fetch(openLibraryUrl(`${workKey}/editions.json?limit=${Math.max(limit, 6)}`));
+    const response = await fetchWithTimeout(
+      openLibraryUrl(`${workKey}/editions.json?limit=${Math.max(limit, 6)}`)
+    );
     if (!response.ok) return [];
     const data = (await response.json()) as OpenLibraryEditionsResponse;
     const dedupe = new Set<string>();

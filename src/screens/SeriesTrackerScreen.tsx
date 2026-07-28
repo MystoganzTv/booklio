@@ -82,7 +82,7 @@ export function SeriesTrackerScreen() {
         </View>
         <View style={styles.coverRail}>
           {orderedBooks.map((book) => (
-            <Pressable key={book.id} onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}>
+            <Pressable accessibilityRole="button" key={book.id} onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}>
               <BookCover book={book} size="sm" style={styles.railCover} />
             </Pressable>
           ))}
@@ -135,7 +135,7 @@ export function SeriesTrackerScreen() {
           <View style={styles.queueWrap}>
             <Text style={styles.queueLabel}>{t("series.afterThat")}</Text>
             {queuedBooks.map((book, index) => (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 key={book.id}
                 style={styles.queueRow}
                 onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
@@ -183,7 +183,7 @@ export function SeriesTrackerScreen() {
             <Text style={styles.sectionMeta}>{upcoming.length} {t("series.tracked")}</Text>
           </View>
           {upcoming.map((book) => (
-            <Pressable
+            <Pressable accessibilityRole="button"
               key={book.id}
               style={styles.upcomingRow}
               onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
@@ -242,7 +242,7 @@ function SagaRoadmapRow({
   const orderValue = order === "reading" ? book.sagaOrder : book.releaseOrder;
 
   return (
-    <Pressable style={styles.roadmapRow} onPress={onPress}>
+    <Pressable accessibilityRole="button" style={styles.roadmapRow} onPress={onPress}>
       <BookCover book={book} size="sm" style={styles.rowCover} />
       <View style={styles.roadmapCopy}>
         <View style={styles.orderBadgeRow}>

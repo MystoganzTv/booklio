@@ -123,7 +123,7 @@ export function SettingsScreen() {
         </View>
 
         <View style={styles.languageRow}>
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={[styles.languageChip, locale === "en" && styles.languageChipActive]}
             onPress={() => setLocale("en")}
           >
@@ -131,7 +131,7 @@ export function SettingsScreen() {
               {t("common.english")}
             </Text>
           </Pressable>
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={[styles.languageChip, locale === "es" && styles.languageChipActive]}
             onPress={() => setLocale("es")}
           >
@@ -190,14 +190,14 @@ export function SettingsScreen() {
           </View>
         </View>
 
-        <Pressable
+        <Pressable accessibilityRole="button"
           style={styles.linkRow}
           onPress={() => navigation.navigate("Legal", { doc: "privacy" })}
         >
           <Text style={styles.linkRowText}>{t("legal.privacyTitle")}</Text>
           <Ionicons name="chevron-forward" size={14} color={c.muted} />
         </Pressable>
-        <Pressable
+        <Pressable accessibilityRole="button"
           style={styles.linkRow}
           onPress={() => navigation.navigate("Legal", { doc: "terms" })}
         >
@@ -212,7 +212,7 @@ export function SettingsScreen() {
         <Text style={styles.dangerBody}>{t("settings.dangerBody")}</Text>
 
         {/* Clear demo data — lighter action, keeps account */}
-        <Pressable
+        <Pressable accessibilityRole="button"
           style={styles.clearDemoButton}
           onPress={() =>
             dialog.confirm({
@@ -228,7 +228,7 @@ export function SettingsScreen() {
           <Text style={styles.clearDemoButtonText}>Clear demo data</Text>
         </Pressable>
 
-        <Pressable
+        <Pressable accessibilityRole="button"
           style={[styles.dangerButton, { marginTop: spacing.sm }]}
           onPress={() =>
             dialog.confirm({

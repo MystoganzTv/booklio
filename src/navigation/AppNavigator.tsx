@@ -168,7 +168,7 @@ export function AppNavigator() {
         <Stack.Screen component={AuthorBooksScreen} name="AuthorBooks" options={{ headerShown: false }} />
         <Stack.Screen component={BookPreviewScreen} name="BookPreview" options={{ title: "", headerTransparent: true }} />
         <Stack.Screen component={LegalScreen} name="Legal" options={{ title: "" }} />
-        <Stack.Screen component={StatsScreen} name={"Stats" as any} options={{ title: t("nav.tabs.stats") }} />
+        <Stack.Screen component={StatsScreen} name="Stats" options={{ title: t("nav.tabs.stats") }} />
       </Stack.Navigator>
       {/* Shown once per app version after onboarding is complete */}
       {onboardingComplete ? <WhatsNewModal /> : null}

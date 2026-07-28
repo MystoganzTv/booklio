@@ -19,7 +19,7 @@ export function SessionRow({ session, bookTitle, onPress }: SessionRowProps) {
   ].filter(Boolean).join(" · ");
 
   return (
-    <Pressable style={({ pressed }) => [styles.row, pressed && onPress ? styles.rowPressed : null]} onPress={onPress}>
+    <Pressable accessibilityRole="button" style={({ pressed }) => [styles.row, pressed && onPress ? styles.rowPressed : null]} onPress={onPress}>
       <View style={styles.datePill}>
         <Text style={styles.dateMonth}>
           {new Date(`${session.date}T00:00:00`).toLocaleDateString("en-US", { month: "short" })}

@@ -46,7 +46,7 @@ export function OnboardingNameScreen() {
       <View style={styles.inner}>
         {/* Back + step */}
         <View style={styles.topRow}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={12}>
+          <TouchableOpacity accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={12}>
             <Text style={styles.backArrow}>←</Text>
           </TouchableOpacity>
           <View style={styles.stepPill}>
@@ -107,7 +107,7 @@ export function OnboardingNameScreen() {
         {/* Bottom */}
         <View style={styles.bottom}>
           <StepDots current={1} />
-          <TouchableOpacity
+          <TouchableOpacity accessibilityRole="button"
             style={[styles.cta, !canContinue && styles.ctaDisabled]}
             onPress={() => {
               if (canContinue) navigation.navigate("OnboardingGenres", { name: name.trim() });

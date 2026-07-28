@@ -23,7 +23,7 @@ export function BookCard({ book, authorName, compact = false, onPress }: BookCar
     : t(statusLabelKey(book.userStatus.status));
 
   return (
-    <Pressable style={[styles.card, compact && styles.compact]} onPress={onPress}>
+    <Pressable accessibilityRole="button" style={[styles.card, compact && styles.compact]} onPress={onPress}>
       <BookCover
         book={book}
         size={compact ? "sm" : "md"}

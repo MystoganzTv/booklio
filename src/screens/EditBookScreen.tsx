@@ -349,7 +349,7 @@ export function EditBookScreen() {
       </View>
 
       {/* ── FETCH BUTTON ─────────────────────────────────────────────────── */}
-      <Pressable style={[styles.fetchBtn, isFetching && styles.fetchBtnBusy]} onPress={fetchInfo} disabled={isFetching}>
+      <Pressable accessibilityRole="button" style={[styles.fetchBtn, isFetching && styles.fetchBtnBusy]} onPress={fetchInfo} disabled={isFetching}>
         {isFetching
           ? <ActivityIndicator size="small" color={c.teal} />
           : <Ionicons name="cloud-download-outline" size={16} color={c.teal} />}
@@ -379,7 +379,7 @@ export function EditBookScreen() {
       {/* ══ FORMAT ═══════════════════════════════════════════════════════════ */}
       <FieldCard icon="book-outline" label={t("editBook.labelFormat")} c={c} styles={styles}>
         {/* Trigger row */}
-        <Pressable style={styles.dropdownTrigger} onPress={() => setFormatOpen((v) => !v)}>
+        <Pressable accessibilityRole="button" style={styles.dropdownTrigger} onPress={() => setFormatOpen((v) => !v)}>
           <Text style={styles.dropdownValue}>
             {(() => { const k = FORMAT_OPTIONS.find((o) => o.value === format)?.labelKey; return k ? t(k) : t("editBook.fmtSelect"); })()}
           </Text>
@@ -393,7 +393,7 @@ export function EditBookScreen() {
         {formatOpen && (
           <View style={styles.dropdownList}>
             {FORMAT_OPTIONS.map((opt, i) => (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 key={opt.value}
                 style={[
                   styles.dropdownItem,
@@ -443,7 +443,7 @@ export function EditBookScreen() {
           {["English", "Spanish", "French", "German", "Italian", "Portuguese"].map((lang) => {
             const active = language.trim().toLowerCase() === lang.toLowerCase();
             return (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 key={lang}
                 style={[styles.toggleChip, active && styles.toggleChipActive]}
                 onPress={() => void handleLanguagePick(lang)}
@@ -464,8 +464,8 @@ export function EditBookScreen() {
         animationType="slide"
         onRequestClose={() => setEditionSheet(null)}
       >
-        <Pressable style={styles.editionOverlay} onPress={() => setEditionSheet(null)}>
-          <Pressable style={styles.editionSheet} onPress={(e) => e.stopPropagation()}>
+        <Pressable accessibilityRole="button" style={styles.editionOverlay} onPress={() => setEditionSheet(null)}>
+          <Pressable accessibilityRole="button" style={styles.editionSheet} onPress={(e) => e.stopPropagation()}>
             <View style={styles.editionHandle} />
             <Text style={styles.editionSheetTitle}>
               {t("editBook.editionSheetTitle", { language: editionSheet?.language ?? "" })}
@@ -491,7 +491,7 @@ export function EditBookScreen() {
                   </Text>
                 ) : (
                   editionSheet.groups.exact.map((candidate: EditionCandidate) => (
-                    <Pressable
+                    <Pressable accessibilityRole="button"
                       key={candidate.id}
                       style={styles.editionRow}
                       onPress={() => applyEditionCandidate(candidate, editionSheet.language)}
@@ -522,7 +522,7 @@ export function EditBookScreen() {
                   <>
                     <Text style={styles.editionGroupHeader}>{t("editBook.editionSiblingsHeader")}</Text>
                     {editionSheet.groups.seriesSiblings.map((candidate: EditionCandidate) => (
-                      <Pressable
+                      <Pressable accessibilityRole="button"
                         key={candidate.id}
                         style={[styles.editionRow, styles.editionRowBlocked]}
                         onPress={explainSiblingBlocked}
@@ -556,7 +556,7 @@ export function EditBookScreen() {
       </FieldCard>
 
       {/* ══ SAVE ═════════════════════════════════════════════════════════════ */}
-      <Pressable style={styles.saveBtn} onPress={onSave}>
+      <Pressable accessibilityRole="button" style={styles.saveBtn} onPress={onSave}>
         <Ionicons name="checkmark" size={18} color="#fff" />
         <Text style={styles.saveBtnText}>{t("editBook.saveBtn")}</Text>
       </Pressable>
@@ -566,7 +566,7 @@ export function EditBookScreen() {
         <Text style={styles.dangerEyebrow}>{t("settings.dangerEyebrow")}</Text>
         <Text style={styles.dangerTitle}>{t("editBook.deleteTitle")}</Text>
         <Text style={styles.dangerBody}>{t("editBook.deleteBody")}</Text>
-        <Pressable style={styles.deleteBtn} onPress={onDelete}>
+        <Pressable accessibilityRole="button" style={styles.deleteBtn} onPress={onDelete}>
           <Ionicons name="trash-outline" size={16} color={c.coral} />
           <Text style={styles.deleteBtnText}>{t("editBook.deleteConfirm")}</Text>
         </Pressable>
@@ -646,7 +646,7 @@ function ChipEditor({
   return (
     <View style={styles.chipWrap}>
       {chips.map((chip) => (
-        <Pressable key={chip} style={styles.chip} onPress={() => remove(chip)}>
+        <Pressable accessibilityRole="button" key={chip} style={styles.chip} onPress={() => remove(chip)}>
           <Text style={styles.chipText}>{chip}</Text>
           <Ionicons name="close" size={12} color={c.muted} style={{ marginLeft: 4 }} />
         </Pressable>
@@ -666,7 +666,7 @@ function ChipEditor({
           returnKeyType="done"
         />
       ) : (
-        <Pressable style={styles.chipAdd} onPress={() => { setAdding(true); }}>
+        <Pressable accessibilityRole="button" style={styles.chipAdd} onPress={() => { setAdding(true); }}>
           <Ionicons name="add" size={14} color={c.teal} />
           <Text style={styles.chipAddText}>Add</Text>
         </Pressable>
@@ -683,7 +683,7 @@ function ToggleChip({
   styles: ReturnType<typeof createStyles>; c: AppColors;
 }) {
   return (
-    <Pressable
+    <Pressable accessibilityRole="button"
       style={[styles.toggleChip, active && styles.toggleChipActive]}
       onPress={onPress}
     >
@@ -700,10 +700,17 @@ function StarRating({
   value: number; onChange: (v: number) => void;
   styles: ReturnType<typeof createStyles>; c: AppColors;
 }) {
+  const { t } = useI18n();
   return (
     <View style={styles.starsRow}>
       {[1, 2, 3, 4, 5].map((n) => (
-        <Pressable key={n} onPress={() => onChange(value === n ? 0 : n)} hitSlop={6}>
+        <Pressable
+          key={n}
+          onPress={() => onChange(value === n ? 0 : n)}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel={t("a11y.rateStars", { count: n })}
+        >
           <Ionicons
             name={n <= value ? "star" : "star-outline"}
             size={32}

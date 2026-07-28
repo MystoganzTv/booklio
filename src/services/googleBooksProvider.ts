@@ -13,6 +13,7 @@ import { BookEdition, BookWork, EditionFormat } from "../types/bookMetadata";
 import { normalizeLanguage } from "../utils/languageUtils";
 import { normalizeBookGenres } from "../utils/genres";
 import { scoreEdition, ScoringQuery } from "./bookMatchScorer";
+import { fetchWithTimeout } from "../utils/fetchWithTimeout";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -191,7 +192,7 @@ export function volumeToWork(vol: GBVolume, query: ScoringQuery): {
 export async function fetchByIsbn(isbn13: string): Promise<BookEdition[]> {
   try {
     const url = `${GB_BASE}?q=isbn:${isbn13}&maxResults=${MAX_RESULTS_ISBN}${apiKey()}`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) return [];
     const data = (await res.json()) as GBResponse;
     const query: ScoringQuery = { isbn13 };
@@ -214,7 +215,7 @@ export async function fetchByTitle(
       ? `+inauthor:${encodeURIComponent(author)}`
       : "";
     const url = `${GB_BASE}?q=intitle:${encodeURIComponent(title)}${authorPart}&maxResults=${MAX_RESULTS_QUERY}${apiKey()}`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) return [];
     const data = (await res.json()) as GBResponse;
     const query: ScoringQuery = { title, author };
@@ -275,7 +276,7 @@ export async function fetchByGenre(
   try {
     const subject = GENRE_TO_SUBJECT[genre] ?? encodeURIComponent(genre.toLowerCase());
     const url = `${GB_BASE}?q=subject:${subject}&startIndex=${startIndex}&maxResults=${maxResults}&orderBy=relevance&printType=books${apiKey()}`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) {
       if (__DEV__) console.log("[GB] keyword HTTP " + res.status + (res.status === 429 ? " - QUOTA/RATE LIMITED" : ""));
       return { books: [], totalItems: 0 };
@@ -330,7 +331,7 @@ export async function fetchByKeyword(
   try {
     const langParam = langRestrict ? `&langRestrict=${encodeURIComponent(langRestrict)}` : "";
     const url = `${GB_BASE}?q=${encodeURIComponent(query)}&startIndex=${startIndex}&maxResults=${maxResults}&orderBy=relevance&printType=books${langParam}${apiKey()}`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) {
       if (__DEV__) console.log("[GB] keyword HTTP " + res.status + (res.status === 429 ? " - QUOTA/RATE LIMITED" : ""));
       return { books: [], totalItems: 0 };
@@ -429,7 +430,7 @@ export async function fetchWorksByQuery(
     // ── DEBUG: log the exact URL and raw results ──────────────────────────────
     if (__DEV__) console.log(`[GB] mode=${mode} url=${url.replace(/key=[^&]+/, "key=REDACTED")}`);
 
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) {
       if (__DEV__) console.log(`[GB] HTTP ${res.status}`);
       return [];

@@ -225,7 +225,7 @@ export function HomeScreen() {
       </View>
 
       {/* Streak card */}
-      <Pressable style={styles.streakCard} onPress={() => navigation.navigate("ReadingLog", {})}>
+      <Pressable accessibilityRole="button" style={styles.streakCard} onPress={() => navigation.navigate("ReadingLog", {})}>
         <View style={[styles.streakIconWrap, { backgroundColor: streakMsg.accent + "22" }]}>
           <Ionicons name="flame" size={22} color={streakMsg.accent} />
         </View>
@@ -286,14 +286,14 @@ export function HomeScreen() {
               <Text style={styles.progressMiniPct}>{continueBook.userStatus.progressPercent}%</Text>
             </View>
             <View style={styles.continueActions}>
-              <Pressable
+              <Pressable accessibilityRole="button"
                 style={styles.primaryButton}
                 onPress={() => navigation.navigate("AddReadingSession", { bookId: continueBook.id })}
               >
                 <Ionicons name="pencil" size={13} color={c.navText} style={{ marginRight: 6 }} />
                 <Text style={styles.primaryButtonText}>{t("home.logSession")}</Text>
               </Pressable>
-              <Pressable
+              <Pressable accessibilityRole="button"
                 style={[styles.timerButton, timerIsForContinue && { backgroundColor: c.coral + "22", borderColor: c.coral }]}
                 onPress={() => {
                   if (timerIsForContinue) {
@@ -317,7 +317,7 @@ export function HomeScreen() {
           </View>
         </View>
       ) : (
-        <Pressable style={styles.emptyCard} onPress={() => navigation.navigate("Add")}>
+        <Pressable accessibilityRole="button" style={styles.emptyCard} onPress={() => navigation.navigate("Add")}>
           <Ionicons name="book-outline" size={28} color={c.teal} />
           <Text style={styles.emptyTitle}>{t("home.whatReading")}</Text>
           <Text style={styles.emptySubtitle}>{t("home.addFirstBook")}</Text>
@@ -349,7 +349,7 @@ export function HomeScreen() {
                   <Text style={styles.personalizedSectionTitle}>{section.title}</Text>
                   <Text style={styles.personalizedSectionSubtitle}>{section.subtitle}</Text>
                 </View>
-                <Pressable
+                <Pressable accessibilityRole="button"
                   onPress={() => openCatalog(
                     section.query,
                     section.title,

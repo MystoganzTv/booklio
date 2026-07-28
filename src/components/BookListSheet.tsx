@@ -65,7 +65,7 @@ export function BookListSheet({ open, bookId, onClose }: Props) {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.overlay}
       >
-        <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
+        <Pressable accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={handleClose} />
 
         <View style={styles.sheet}>
           <View style={styles.handle} />
@@ -85,7 +85,7 @@ export function BookListSheet({ open, bookId, onClose }: Props) {
                   {userLists.map((list) => {
                     const isIn = list.bookIds.includes(bookId);
                     return (
-                      <Pressable
+                      <Pressable accessibilityRole="button"
                         key={list.id}
                         style={styles.listRow}
                         onPress={() => handleToggle(list.id, isIn)}
@@ -107,21 +107,21 @@ export function BookListSheet({ open, bookId, onClose }: Props) {
               )}
 
               {/* New list row — switches to create view inline */}
-              <Pressable style={styles.newListRow} onPress={() => setView("create")}>
+              <Pressable accessibilityRole="button" style={styles.newListRow} onPress={() => setView("create")}>
                 <View style={styles.newListIcon}>
                   <Ionicons name="add" size={18} color={colors.teal} />
                 </View>
                 <Text style={styles.newListText}>{t("lists.newList")}</Text>
               </Pressable>
 
-              <Pressable style={styles.doneBtn} onPress={handleClose}>
+              <Pressable accessibilityRole="button" style={styles.doneBtn} onPress={handleClose}>
                 <Text style={styles.doneBtnText}>{t("lists.done")}</Text>
               </Pressable>
             </>
           ) : (
             /* ── Create view (inline — no second Modal) ─────────── */
             <>
-              <Pressable style={styles.backRow} onPress={() => { Keyboard.dismiss(); setView("list"); }}>
+              <Pressable accessibilityRole="button" style={styles.backRow} onPress={() => { Keyboard.dismiss(); setView("list"); }}>
                 <Ionicons name="chevron-back" size={16} color={colors.teal} />
                 <Text style={styles.backText}>Back</Text>
               </Pressable>
@@ -131,7 +131,7 @@ export function BookListSheet({ open, bookId, onClose }: Props) {
               {/* Emoji picker */}
               <View style={styles.emojiRow}>
                 {EMOJI_PICKS.map((e) => (
-                  <Pressable
+                  <Pressable accessibilityRole="button"
                     key={e}
                     style={[styles.emojiChip, newEmoji === e && styles.emojiChipActive]}
                     onPress={() => setNewEmoji(e)}
@@ -157,7 +157,7 @@ export function BookListSheet({ open, bookId, onClose }: Props) {
                 />
               </View>
 
-              <Pressable
+              <Pressable accessibilityRole="button"
                 style={[styles.doneBtn, !newName.trim() && styles.doneBtnDisabled]}
                 onPress={handleCreate}
                 disabled={!newName.trim()}
@@ -165,7 +165,7 @@ export function BookListSheet({ open, bookId, onClose }: Props) {
                 <Text style={styles.doneBtnText}>{t("lists.createBtn")}</Text>
               </Pressable>
 
-              <Pressable style={styles.cancelInlineBtn} onPress={() => { Keyboard.dismiss(); setView("list"); }}>
+              <Pressable accessibilityRole="button" style={styles.cancelInlineBtn} onPress={() => { Keyboard.dismiss(); setView("list"); }}>
                 <Text style={styles.cancelInlineText}>{t("common.cancel")}</Text>
               </Pressable>
             </>

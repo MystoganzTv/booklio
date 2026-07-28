@@ -37,4 +37,19 @@ export async function writeCache<T>(key: string, data: T): Promise<void> {
   }
 }
 
+/**
+ * Drop every cached Discover payload. Called on account reset — cached
+ * recommendation sections are derived from the previous reader's taste and must
+ * not survive into a fresh account.
+ */
+export async function clearDiscoverCache(): Promise<void> {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const ours = keys.filter((k) => k.startsWith("@bookliz/cache/"));
+    if (ours.length) await AsyncStorage.multiRemove(ours);
+  } catch {
+    // best-effort
+  }
+}
+
 export const HOURS = 60 * 60 * 1000;

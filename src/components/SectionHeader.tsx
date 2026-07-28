@@ -16,7 +16,7 @@ export function SectionHeader({ title, actionLabel, onAction }: SectionHeaderPro
     <View style={styles.wrap}>
       <Text style={styles.title}>{title}</Text>
       {actionLabel ? (
-        <Pressable onPress={onAction} hitSlop={8}>
+        <Pressable accessibilityRole="button" onPress={onAction} hitSlop={8}>
           <Text style={styles.action}>{actionLabel}</Text>
         </Pressable>
       ) : null}

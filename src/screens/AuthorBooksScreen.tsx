@@ -156,7 +156,7 @@ export function AuthorBooksScreen() {
       : null;
 
     return (
-      <Pressable style={styles.gridCard} onPress={() => handleCatalogPress(item)}>
+      <Pressable accessibilityRole="button" style={styles.gridCard} onPress={() => handleCatalogPress(item)}>
         <View style={styles.coverWrap}>
           {item.coverUrl ? (
             <Image source={{ uri: item.coverUrl }} style={styles.gridCover} resizeMode="cover" />
@@ -198,7 +198,7 @@ export function AuthorBooksScreen() {
       : null;
 
     return (
-      <Pressable style={styles.listRow} onPress={() => handleCatalogPress(item)}>
+      <Pressable accessibilityRole="button" style={styles.listRow} onPress={() => handleCatalogPress(item)}>
         <View style={styles.listCoverWrap}>
           {item.coverUrl ? (
             <Image source={{ uri: item.coverUrl }} style={styles.listCover} resizeMode="cover" />
@@ -244,7 +244,13 @@ export function AuthorBooksScreen() {
     <View style={[styles.root, { backgroundColor: c.bg }]}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.backBtn}>
+        <Pressable
+          onPress={() => navigation.goBack()}
+          hitSlop={12}
+          style={styles.backBtn}
+          accessibilityRole="button"
+          accessibilityLabel={t("a11y.back")}
+        >
           <Ionicons name="chevron-back" size={24} color={c.ink} />
         </Pressable>
         <View style={styles.headerText}>
@@ -256,6 +262,8 @@ export function AuthorBooksScreen() {
           onPress={() => setViewMode(isGrid ? "list" : "grid")}
           hitSlop={12}
           style={styles.toggleBtn}
+          accessibilityRole="button"
+          accessibilityLabel={t("a11y.toggleView")}
         >
           <Ionicons
             name={isGrid ? "list-outline" : "grid-outline"}
@@ -295,7 +303,7 @@ export function AuthorBooksScreen() {
                     contentContainerStyle={styles.libraryRow}
                   >
                     {libraryBooks.map((book) => (
-                      <Pressable
+                      <Pressable accessibilityRole="button"
                         key={book.id}
                         style={styles.libraryCard}
                         onPress={() => navigation.navigate("BookDetail", { bookId: book.id })}
@@ -336,7 +344,7 @@ export function AuthorBooksScreen() {
                 <ActivityIndicator size="small" color={c.teal} />
               </View>
             ) : hasMore ? (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 style={[styles.loadMoreBtn, { borderColor: c.border }]}
                 onPress={handleLoadMore}
               >

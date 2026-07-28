@@ -242,7 +242,7 @@ export function AddReadingSessionScreen() {
       {!isEditing && readingBooks.length + otherBooks.length > 1 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.bookRail}>
           {[...readingBooks, ...otherBooks].map((book) => (
-            <Pressable
+            <Pressable accessibilityRole="button"
               key={book.id}
               style={[styles.bookChip, bookId === book.id && styles.bookChipActive]}
               onPress={() => switchBook(book)}
@@ -298,7 +298,7 @@ export function AddReadingSessionScreen() {
       {/* Format chips — placed before the stepper so the stepper adapts */}
       <View style={styles.formatRow}>
         {FORMAT_OPTIONS.map((opt) => (
-          <Pressable
+          <Pressable accessibilityRole="button"
             key={opt.value}
             style={[styles.formatChip, format === opt.value && styles.formatChipActive]}
             onPress={() => setFormat(opt.value)}
@@ -319,13 +319,18 @@ export function AddReadingSessionScreen() {
         <View style={styles.stepperCard}>
           <Text style={styles.stepperLabel}>{t("logSession.listenedTo")}</Text>
           <View style={styles.stepper}>
-            <Pressable style={styles.stepBtn} onPress={() => { nudgePct(-5); setPctInputText(String(Math.max(lastPct, currentPct - 5))); }}>
+            <Pressable accessibilityRole="button" style={styles.stepBtn} onPress={() => { nudgePct(-5); setPctInputText(String(Math.max(lastPct, currentPct - 5))); }}>
               <Text style={[styles.stepBtnText, { color: c.ink }]}>−5%</Text>
             </Pressable>
-            <Pressable style={styles.stepBtnSm} onPress={() => { nudgePct(-1); setPctInputText(String(Math.max(lastPct, currentPct - 1))); }}>
+            <Pressable
+              style={styles.stepBtnSm}
+              onPress={() => { nudgePct(-1); setPctInputText(String(Math.max(lastPct, currentPct - 1))); }}
+              accessibilityRole="button"
+              accessibilityLabel={t("a11y.decreasePercent")}
+            >
               <Ionicons name="remove" size={18} color={c.ink} />
             </Pressable>
-            <Pressable style={styles.pageDisplay} onPress={() => setPctInputOpen(true)}>
+            <Pressable accessibilityRole="button" style={styles.pageDisplay} onPress={() => setPctInputOpen(true)}>
               {pctInputOpen ? (
                 <TextInput
                   autoFocus
@@ -352,10 +357,15 @@ export function AddReadingSessionScreen() {
               )}
               <Text style={[styles.pageOf, { color: c.muted }]}>{pctInputOpen ? "tap ✓ to confirm" : t("logSession.ofBook") + " · tap to edit"}</Text>
             </Pressable>
-            <Pressable style={styles.stepBtnSm} onPress={() => { nudgePct(1); setPctInputText(String(Math.min(100, currentPct + 1))); }}>
+            <Pressable
+              style={styles.stepBtnSm}
+              onPress={() => { nudgePct(1); setPctInputText(String(Math.min(100, currentPct + 1))); }}
+              accessibilityRole="button"
+              accessibilityLabel={t("a11y.increasePercent")}
+            >
               <Ionicons name="add" size={18} color={c.ink} />
             </Pressable>
-            <Pressable style={styles.stepBtn} onPress={() => { nudgePct(5); setPctInputText(String(Math.min(100, currentPct + 5))); }}>
+            <Pressable accessibilityRole="button" style={styles.stepBtn} onPress={() => { nudgePct(5); setPctInputText(String(Math.min(100, currentPct + 5))); }}>
               <Text style={[styles.stepBtnText, { color: c.ink }]}>+5%</Text>
             </Pressable>
           </View>
@@ -367,14 +377,19 @@ export function AddReadingSessionScreen() {
         <View style={styles.stepperCard}>
           <Text style={styles.stepperLabel}>{t("logSession.readUpTo")}</Text>
           <View style={styles.stepper}>
-            <Pressable style={styles.stepBtn} onPress={() => { nudgePage(-10); setPageInputText(String(Math.max(lastPage, currentPage - 10))); }}>
+            <Pressable accessibilityRole="button" style={styles.stepBtn} onPress={() => { nudgePage(-10); setPageInputText(String(Math.max(lastPage, currentPage - 10))); }}>
               <Text style={[styles.stepBtnText, { color: c.ink }]}>−10</Text>
             </Pressable>
-            <Pressable style={styles.stepBtnSm} onPress={() => { nudgePage(-1); setPageInputText(String(Math.max(lastPage, currentPage - 1))); }}>
+            <Pressable
+              style={styles.stepBtnSm}
+              onPress={() => { nudgePage(-1); setPageInputText(String(Math.max(lastPage, currentPage - 1))); }}
+              accessibilityRole="button"
+              accessibilityLabel={t("a11y.decreasePage")}
+            >
               <Ionicons name="remove" size={18} color={c.ink} />
             </Pressable>
             {/* Tap the big number to type directly */}
-            <Pressable style={styles.pageDisplay} onPress={() => setPageInputOpen(true)}>
+            <Pressable accessibilityRole="button" style={styles.pageDisplay} onPress={() => setPageInputOpen(true)}>
               {pageInputOpen ? (
                 <TextInput
                   autoFocus
@@ -403,10 +418,15 @@ export function AddReadingSessionScreen() {
                 {pageInputOpen ? "tap ✓ to confirm" : `/ ${totalPages} · tap to edit`}
               </Text>
             </Pressable>
-            <Pressable style={styles.stepBtnSm} onPress={() => { nudgePage(1); setPageInputText(String(Math.min(totalPages, currentPage + 1))); }}>
+            <Pressable
+              style={styles.stepBtnSm}
+              onPress={() => { nudgePage(1); setPageInputText(String(Math.min(totalPages, currentPage + 1))); }}
+              accessibilityRole="button"
+              accessibilityLabel={t("a11y.increasePage")}
+            >
               <Ionicons name="add" size={18} color={c.ink} />
             </Pressable>
-            <Pressable style={styles.stepBtn} onPress={() => { nudgePage(10); setPageInputText(String(Math.min(totalPages, currentPage + 10))); }}>
+            <Pressable accessibilityRole="button" style={styles.stepBtn} onPress={() => { nudgePage(10); setPageInputText(String(Math.min(totalPages, currentPage + 10))); }}>
               <Text style={[styles.stepBtnText, { color: c.ink }]}>+10</Text>
             </Pressable>
           </View>
@@ -434,7 +454,7 @@ export function AddReadingSessionScreen() {
         </Text>
         <View style={styles.minutesRow}>
           {QUICK_MINUTES.map((m) => (
-            <Pressable
+            <Pressable accessibilityRole="button"
               key={m}
               style={[styles.minuteChip, !useCustom && minutes === m && styles.minuteChipActive]}
               onPress={() => { setMinutes(m); setUseCustom(false); }}
@@ -444,7 +464,7 @@ export function AddReadingSessionScreen() {
               </Text>
             </Pressable>
           ))}
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={[styles.minuteChip, useCustom && styles.minuteChipActive]}
             onPress={() => setUseCustom(true)}
           >
@@ -477,7 +497,7 @@ export function AddReadingSessionScreen() {
           {locationOptions.map((location) => {
             const active = !useCustomLocation && selectedLocation === location;
             return (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 key={location}
                 style={[styles.locationChip, active && styles.locationChipActive]}
                 onPress={() => {
@@ -496,7 +516,7 @@ export function AddReadingSessionScreen() {
               </Pressable>
             );
           })}
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={[styles.locationChip, useCustomLocation && styles.locationChipActive]}
             onPress={() => setUseCustomLocation(true)}
           >
@@ -524,7 +544,7 @@ export function AddReadingSessionScreen() {
         )}
       </View>
 
-      <Pressable style={styles.noteToggle} onPress={() => setNoteOpen((v) => !v)}>
+      <Pressable accessibilityRole="button" style={styles.noteToggle} onPress={() => setNoteOpen((v) => !v)}>
         <Ionicons name={noteOpen ? "chatbubble" : "chatbubble-outline"} size={15} color={noteOpen ? c.teal : c.muted} />
         <Text style={[styles.noteToggleText, noteOpen && styles.noteToggleTextActive]}>
           {noteOpen ? t("logSession.noteLbl") : t("logSession.noteToggle")}
@@ -580,7 +600,7 @@ export function AddReadingSessionScreen() {
         </View>
       )}
 
-      <Pressable style={[styles.saveButton, !hasProgress && styles.saveButtonDisabled]} onPress={handleSave}>
+      <Pressable accessibilityRole="button" style={[styles.saveButton, !hasProgress && styles.saveButtonDisabled]} onPress={handleSave}>
         <Text style={styles.saveButtonText}>
           {hasProgress
             ? isEditing ? t("logSession.updateSession") : t("logSession.saveSession")
@@ -590,7 +610,7 @@ export function AddReadingSessionScreen() {
         </Text>
       </Pressable>
       {isEditing ? (
-        <Pressable style={styles.deleteButton} onPress={deleteSession}>
+        <Pressable accessibilityRole="button" style={styles.deleteButton} onPress={deleteSession}>
           <Text style={styles.deleteButtonText}>{t("logSession.deleteSession")}</Text>
         </Pressable>
       ) : null}

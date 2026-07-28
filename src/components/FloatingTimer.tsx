@@ -17,8 +17,10 @@ import { formatElapsed, useReadingTimer } from "../data/ReadingTimerContext";
 import { RootStackParamList } from "../navigation/types";
 import { AppColors, fonts, spacing } from "../theme/theme";
 import { useColors } from "../theme/ThemeContext";
+import { useI18n } from "../i18n/LocalizationContext";
 
 export function FloatingTimer() {
+  const { t } = useI18n();
   const c = useColors();
   const styles = useMemo(() => createStyles(c), [c]);
   const { isRunning, bookId, elapsedMs, stop, reset } = useReadingTimer();
@@ -51,10 +53,16 @@ export function FloatingTimer() {
 
       {/* Right: discard + stop */}
       <View style={styles.actions}>
-        <Pressable style={styles.discardBtn} onPress={handleDiscard} hitSlop={8}>
+        <Pressable
+          style={styles.discardBtn}
+          onPress={handleDiscard}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t("a11y.discardTimer")}
+        >
           <Ionicons name="close" size={16} color="rgba(255,255,255,0.6)" />
         </Pressable>
-        <Pressable style={styles.stopBtn} onPress={handleStop}>
+        <Pressable accessibilityRole="button" style={styles.stopBtn} onPress={handleStop}>
           <Ionicons name="stop" size={13} color={c.navy} />
           <Text style={styles.stopText}>Stop</Text>
         </Pressable>

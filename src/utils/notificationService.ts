@@ -10,7 +10,8 @@
 import * as Notifications from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const PREFS_KEY = "@bookliz/notificationPrefs";
+export const NOTIFICATION_PREFS_KEY = "@bookliz/notificationPrefs";
+const PREFS_KEY = NOTIFICATION_PREFS_KEY;
 const CHANNEL_ID = "bookliz-reading-reminder";
 const NOTIFICATION_ID = "daily-reading-reminder";
 

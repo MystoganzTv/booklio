@@ -23,7 +23,7 @@ export function RecommendationCard({
   const c = useColors();
   const styles = useMemo(() => createStyles(c), [c]);
   return (
-    <Pressable style={[styles.card, compact && styles.cardCompact]} onPress={onPress}>
+    <Pressable accessibilityRole="button" style={[styles.card, compact && styles.cardCompact]} onPress={onPress}>
       <BookCover
         book={book}
         size={compact ? "sm" : "md"}
