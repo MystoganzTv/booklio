@@ -19,7 +19,7 @@ App de lectura para iOS (indie, solo). Biblioteca personal con metadatos reales 
 ```
 EXPO_PUBLIC_SUPABASE_URL=https://owrnbqgzxjitpnhlzrvd.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=<key>
-EXPO_PUBLIC_GOOGLE_BOOKS_API_KEY=AIzaSyDYrmSRE8WNu07RoooDXnK3PqqmOAYw7xw
+EXPO_PUBLIC_GOOGLE_BOOKS_API_KEY=<key>
 ```
 
 **Cómo correr:**
